@@ -1,0 +1,24 @@
+{
+  "name": "vilkoalexander",
+  "owner": {
+    "name": "Alexander Vilko",
+    "url": "https://github.com/vilkoalexander"
+  },
+  "description": "Alexander Vilko's Claude Code skills: chunked subagent delivery and single-file review rubrics",
+  "plugins": [
+    {
+      "name": "delivery-skills",
+      "source": "./",
+      "description": "Subagent-driven delivery with human review at every chunk, plus single-file review rubrics for React, Angular, NestJS, Prisma and shared API contracts",
+      "category": "productivity",
+      "tags": [
+        "code-review",
+        "subagents",
+        "react",
+        "angular",
+        "nestjs",
+        "prisma"
+      ]
+    }
+  ]
+}
