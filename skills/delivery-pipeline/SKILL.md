@@ -21,18 +21,51 @@ outright — it is this file tuned to that codebase, not a supplement to it.
 SDD requires an explicit model on every dispatch; an omitted one silently
 inherits the session's most expensive. Pick the cheapest that can hold the role.
 
-| Role | Model | Why |
-| --- | --- | --- |
-| Controller | Fable 5.1 | Holds plan and chunk summaries across the whole run |
-| Implementer — mechanical | Haiku 4.5 | One or two files against a specified plan |
-| Implementer — one-way doors | Opus 5 | Schema, auth, money, migrations, public contracts |
-| Task reviewer — default | Sonnet 5 | |
-| Task reviewer — high risk | Opus 5 | Anything on the one-way-door list above |
-| Scoped re-review | Haiku 4.5 | Small fix diff, findings already written |
-| Final whole-branch review | Opus 5 | SDD mandates the most capable available |
+| Role | Model | Dispatch as | Why |
+| --- | --- | --- | --- |
+| Controller | Fable 5.1 | the session itself | Holds plan and chunk summaries across the whole run |
+| Implementer — mechanical | Haiku 4.5 | `model: haiku` | One or two files against a specified plan |
+| Implementer — one-way doors | Opus 5.5 | `model: opus` | Schema, auth, money, migrations, public contracts |
+| Task reviewer — default | Sonnet 5 | `model: sonnet` | Reads a diff against rubrics; needs judgement, not the top tier |
+| Task reviewer — high risk | Opus 5.5 | `model: opus` | Anything on the one-way-door list above |
+| Scoped re-review | Haiku 4.5 | `model: haiku` | Small fix diff, findings already written |
+| Final whole-branch review | Opus 5.5 | `model: opus` | SDD mandates the most capable available |
+
+"Dispatch as" is the `model` value the Agent tool takes. The short names
+resolve to the current generation of that family, so the table stays right
+when a point release ships. Never pass a dated model ID.
 
 Tag each task in the plan with its risk class, and let the tag pick the model.
 A judgement made fresh at dispatch time drifts toward whatever is cheapest.
+
+### The lineup this table assumes (22 September 2026)
+
+| Family | Current | API ID | Tier |
+| --- | --- | --- | --- |
+| Fable | Fable 5.1 | `claude-fable-5-1` | most capable; 1M context; thinking always on |
+| Opus | Opus 5.5 (Opus 5 and 4.8 still served) | `claude-opus-5-5` | one-way doors, final review, high-risk review |
+| Sonnet | Sonnet 5 (Sonnet 5.5 announced, not yet shipped) | `claude-sonnet-5` | default task review |
+| Haiku | Haiku 4.5 (Haiku 5.5 announced, not yet shipped) | `claude-haiku-4-5` | mechanical implementers, scoped re-review |
+
+Substitutions, in order:
+
+- **No Fable on the plan** — controller runs on Opus 5.5. Nothing else changes.
+  Opus 5.5 beats Fable 5.1 on many coding benchmarks and costs about 40% less
+  to run; Fable stays the default controller only because Anthropic still
+  positions it for the longest-horizon agentic runs.
+- **Opus 5.5 defaults to `medium` effort.** Every other current model defaults
+  to `high`. Pass effort explicitly on Opus 5.5 reviewer and one-way-door
+  dispatches, or its reviews run shallower than the Sonnet ones.
+- **Cost pressure** — lower the *effort* of a role before lowering its model.
+  Implementers and re-reviews run fine at low or medium effort; reviewers stay
+  at high. On the Claude 5 family, a cheaper model at high effort is usually
+  worse than the same model at lower effort.
+- **A newer family member ships** — the short dispatch names already point at
+  it. Re-check only the "Why" column: does the new Haiku hold a mechanical
+  implementer, does the new Sonnet still need Opus above it for high risk.
+
+The roles and how they hand work to each other: `diagrams/roles-and-models.svg`
+in this repository.
 
 ## Project constraints
 

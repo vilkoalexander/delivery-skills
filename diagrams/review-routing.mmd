@@ -1,0 +1,14 @@
+graph LR
+  D[Diff or PR] --> RT{Match each<br/>changed path}
+  RT -- "*.service.ts, *.controller.ts,<br/>guard, interceptor, pipe" --> N[nestjs-service-review]
+  RT -- "schema.prisma,<br/>migrations/*.sql" --> PR[prisma-schema-review]
+  RT -- "shared contract package<br/>schemas / dto / types" --> AC[api-contract-review]
+  RT -- "*.tsx under React / RN" --> RE[react-review]
+  RT -- "*.component.ts + .html<br/>under Angular" --> AN[angular-review]
+  RT -- "tests, config, docs" --> G[General quality only]
+  N & PR & AC & RE & AN --> L[Load CHECKLIST +<br/>INVARIANTS / INVENTORY]
+  L --> PL[Load project layer<br/>docs/review/name.md]
+  PL --> SC[Run scan.sh per file<br/>inventory.sh once]
+  SC --> J[One pass per rubric<br/>judge only what the diff added]
+  J --> O[Merge into one ranked list<br/>red / yellow / white]
+  G --> O

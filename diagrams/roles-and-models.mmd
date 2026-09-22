@@ -1,0 +1,20 @@
+graph LR
+  H[Human<br/>approves chunks, reads diffs,<br/>decides what becomes a commit]
+  C[Controller<br/>Fable 5.1<br/>holds plan + chunk summaries]
+  IM[Implementer, mechanical<br/>Haiku 4.5]
+  IO[Implementer, one-way doors<br/>Opus 5.5<br/>schema, auth, money, contracts]
+  RV[Task reviewer<br/>Sonnet 5, Opus 5.5 if high risk<br/>uses review-routing]
+  RR[Scoped re-review<br/>Haiku 4.5]
+  FW[Whole-tree review<br/>Opus 5.5]
+  XM[Cross-model review<br/>Codex, different model family]
+  H -- plan + next --> C
+  C -- task by risk class --> IM
+  C -- task by risk class --> IO
+  IM & IO -- uncommitted diff --> RV
+  RV -- findings --> IM
+  RV -- clean --> RR
+  RR -- clean, high risk --> XM
+  XM -- claims to adjudicate --> C
+  C -- after last chunk --> FW
+  FW --> XM
+  C -- chunk report --> H

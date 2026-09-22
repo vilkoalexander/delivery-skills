@@ -22,6 +22,37 @@ Two halves:
 Skills then appear as `delivery-skills:<name>`. Update later with
 `/plugin marketplace update vilkoalexander`.
 
+## How it works
+
+### One chunk at a time
+
+A plan is grouped into chunks a human can read in one sitting. Each chunk is
+snapshotted, implemented, reviewed to clean, reported in under twenty lines,
+and then the run **stops** until the human answers. Nothing is committed at
+any point; the working tree is the deliverable.
+
+![Chunked delivery loop](diagrams/chunked-delivery.svg)
+
+### Who does what, on which model
+
+The controller holds the plan. Implementers and reviewers are fresh subagents
+per task, picked by the task's risk class. A second model family reads the
+diff on high-risk chunks and once over the whole tree; its findings are claims
+the controller rules on, not a fix queue.
+
+![Roles and models](diagrams/roles-and-models.svg)
+
+### Routing a diff to rubrics
+
+Each rubric reviews one file. A diff is routed by path shape to the rubrics it
+touches, each rubric runs once over everything it owns, and the findings merge
+into one ranked list.
+
+![Review routing](diagrams/review-routing.svg)
+
+The mermaid sources live in `diagrams/*.mmd`; the `.excalidraw` files next to
+them open at excalidraw.com for editing.
+
 ## Skills
 
 ### Delivery
