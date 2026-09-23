@@ -8,6 +8,12 @@
 # Reporting script: a grep with no match is a normal outcome, not an error.
 set -uo pipefail
 
+# Output is bounded: INVENTORY_LIMIT lines per section (default 40), overflow
+# reported as a count. INVENTORY_DOCS=1 adds doc-comment lines where supported.
+LIMIT="${INVENTORY_LIMIT:-40}"
+DOCS="${INVENTORY_DOCS:-0}"
+cap() { awk -v n="$LIMIT" 'NR<=n{print;next} END{if(NR>n) printf "  … +%d more lines (raise INVENTORY_LIMIT=%d to see them)\n", NR-n, n}'; }
+
 root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 TENANT="${TENANT_FIELD-tenantId}"
 target="${1:-}"
@@ -18,7 +24,7 @@ fi
 if [ -d "$target" ]; then files=$(find "$target" -name '*.prisma' -not -path '*/migrations/*' | sort); else files="$target"; fi
 echo "schema: $(echo "$files" | sed "s|$root/||" | paste -sd' ' -)"
 
-awk -v tenant="$TENANT" '
+awk -v tenant="$TENANT" -v limit="$LIMIT" '
   /^model [A-Za-z]+ / {
     name = $2; models[++n] = name
     scoped[name] = 0; money[name] = ""; idx[name] = ""; upd[name] = 0; mapped[name] = ""; order[name] = ""
@@ -43,6 +49,7 @@ awk -v tenant="$TENANT" '
   }
   END {
     for (i = 1; i <= n; i++) {
+      if (i > limit) { printf "\n  … +%d more models (raise INVENTORY_LIMIT=%d, or pass the changed file)\n", n - limit, limit; break }
       m = models[i]
       printf "\n%s  (%s)\n", m, mapped[m] ? mapped[m] : "no @@map"
       if (tenant != "")
@@ -64,12 +71,12 @@ awk -v tenant="$TENANT" '
 if [ -n "$TENANT" ]; then
   echo
   echo "=== indexes whose leading column is not $TENANT (verify each is intentional)"
-  grep -hnE '@@(index|unique)\(\[' $files | grep -vE "@@(index|unique)\(\[$TENANT" | sed 's/^/  /'
+  grep -hnE '@@(index|unique)\(\[' $files | grep -vE "@@(index|unique)\(\[$TENANT" | sed 's/^/  /' | cap
 fi
 
 echo
 echo "=== enums"
-grep -hE '^enum [A-Za-z]+' $files | sed 's/^/  /'
+grep -hE '^enum [A-Za-z]+' $files | sed 's/^/  /' | cap
 
 mig=$(find "$(dirname "$(echo "$files" | head -1)")/.." "$root" -maxdepth 4 -type d -name migrations -path '*prisma*' 2>/dev/null | head -1)
 if [ -n "$mig" ]; then

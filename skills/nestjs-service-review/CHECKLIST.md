@@ -1,11 +1,58 @@
 # NestJS Service Review Checklist
 
-Eight categories. Walk them in order. Each rule is tagged **[hard]**,
-**[prefer]** or **[context]** — see SKILL.md. Name the consequence: "this is
+Eight categories. Walk them in order. Each rule is tagged **[hard]** (always
+report), **[prefer]** (report unless the file gives a reason not to) or
+**[context]** (report only with a concrete consequence in this file). Name the consequence: "this is
 wrong" without "because X breaks" is not a finding.
 
 `<tenant>` below stands for the project's tenant key (`TENANT_FIELD`). Skip §1
 on a single-tenant service and say so in one line.
+
+## Before you start
+
+### Version baseline
+
+Read before applying §3, §4 and §7 below:
+
+```bash
+node -e 'const p=require("./package.json");for(const k of ["@nestjs/core","@nestjs/common","prisma","@prisma/client","nestjs-zod","zod","class-validator","@nestjs/swagger","jest","vitest"])console.log(k,(p.dependencies||{})[k]||(p.devDependencies||{})[k]||"-")'
+```
+
+The switches: **validation library** (`nestjs-zod` vs `class-validator`
+changes §4's DTO rules); **Prisma 5+** (`$extends` replaces `$use`; §8);
+**NestJS 11** (Express 5 route syntax); **NestJS 12** (ESM, Standard Schema,
+Vitest) — do not recommend a version the project has not adopted.
+
+### Tooling coverage
+
+Do not assume what lint catches. Run once per review:
+
+```bash
+npx eslint --print-config <file> | grep -E '"parserOptions"|"project"|no-floating-promises|no-misused-promises|require-await|no-console|no-explicit-any'
+```
+
+If `parserOptions.project` is unset there is **no type-aware linting at all**,
+and these have zero coverage — squarely this skill's job:
+
+- `no-floating-promises` — an unawaited `prisma.*` call or `$transaction`
+  silently resolves after the response is sent
+- `no-misused-promises` — an async callback passed where void is expected
+- `require-await` / `await-thenable`
+- `no-console`
+
+Rules at `"warn"` do not fail the build — still report. `scripts/scan.sh`
+targets the commonly absent set.
+
+## Severity floor
+
+Always 🔴, regardless of effort:
+
+- in a multi-tenant service, a query on a tenant-scoped model without the
+  tenant key in its `where`
+- anything that answers a cross-tenant miss with 403 instead of 404
+- the outer Prisma client used inside a `$transaction` callback
+- a Prisma call or `$transaction` that is neither awaited, returned, nor
+  assigned
 
 ## 1. Tenant isolation — merge blocker
 
@@ -165,10 +212,13 @@ Every new backend unit needs a spec — services **and** controllers.
 
 ---
 
-## Sources
+## Do NOT report
 
-- [Prisma — Transactions and batch queries](https://www.prisma.io/docs/orm/prisma-client/queries/transactions) — interactive transaction timeout / maxWait, isolation levels, lock duration
-- [Prisma discussion #25922 — transaction deadlocks and timeouts](https://github.com/prisma/prisma/discussions/25922) — the `this.prisma`-inside-`tx` hang
-- [NestJS — Testing](https://docs.nestjs.com/fundamentals/testing) — `overrideGuard`, `createTestingModule`
-- [Prisma — Unit testing](https://www.prisma.io/docs/orm/prisma-client/testing/unit-testing) — mocking the client by injection
-- [typescript-eslint — no-floating-promises](https://typescript-eslint.io/rules/no-floating-promises/) — requires type information (`parserOptions.project`)
+- Anything ESLint already **errors** on in this project (see Tooling coverage above).
+- Restating the project's instructions file as if it were a finding.
+- **Missing e2e tests** — this skill reviews one unit. Unit + controller
+  delegation spec is the ask; e2e coverage is a PR-level concern.
+- Features the project has documented as deferred. Check the project layer;
+  do not propose them as gaps.
+- Renaming things after sprints or tickets.
+- TODO shapes the project mandates.

@@ -1,8 +1,51 @@
 # React Review Checklist
 
-Eight categories. Walk them in order. Each rule is tagged **[hard]**,
-**[prefer]** or **[context]** — see SKILL.md. For each finding, name the
+Eight categories. Walk them in order. Each rule is tagged **[hard]** (always
+report), **[prefer]** (report unless the file gives a reason not to) or
+**[context]** (report only with a concrete consequence in this file). For each finding, name the
 consequence: "this is wrong" without "because X breaks" is not a finding.
+
+## Before you start
+
+### Version baseline
+
+Read the installed versions before applying §2 below:
+
+```bash
+node -e 'const p=require("./package.json");for(const k of ["react","react-native","expo","next","typescript"])console.log(k,(p.dependencies||{})[k]||(p.devDependencies||{})[k]||"-")'
+```
+
+Two switches change the rules:
+
+- **React 19** — `forwardRef` is obsolete (`ref` is a prop); ref callbacks may
+  return a cleanup. On React 18 those rules do not apply.
+- **React Compiler** — look for `babel-plugin-react-compiler` or
+  `experiments.reactCompiler`. When it is enabled, the over-/under-memoization
+  rules in §2 invert: manual `useMemo`/`useCallback` becomes noise,
+  not diligence. When it is absent, manual memoization still matters.
+
+### Tooling coverage
+
+Do not assume what lint catches. Run once per review:
+
+```bash
+npx eslint --print-config <file> | grep -E '"(react-hooks/|react/jsx-key|no-console|@typescript-eslint/no-explicit-any)' 
+```
+
+Rules that resolve to `"error"` are the build's job — skip them. Rules that
+resolve to `"warn"` do not fail the build and get scrolled past — still report
+them. Rules that are **absent** (`rules-of-hooks`, `exhaustive-deps`,
+`jsx-key`, `no-console`, any a11y plugin) have zero automated coverage and are
+squarely this skill's job. `scripts/scan.sh` targets the absent set.
+
+## Severity floor
+
+Always 🔴, regardless of effort:
+
+- a hook called conditionally, in a loop, or after an early return
+- an effect with a subscription, timer, listener or fetch and no cleanup
+- an unbounded list rendered with `.map()` inside a scroll container on React
+  Native
 
 ## 1. Over-engineering & scope
 
@@ -23,7 +66,7 @@ The most common defect in AI-generated code. The bias is toward too much.
 
 ## 2. React correctness & smells
 
-Check the version baseline in SKILL.md first — React 19 and the React Compiler
+Check the version baseline above first — React 19 and the React Compiler
 each flip rules in this section.
 
 ### Effects — the top smell
@@ -193,9 +236,15 @@ AI code type-checks and still drifts from house style. Compare to the sibling.
 
 ---
 
-## Sources
+## Do NOT report
 
-- [You Might Not Need an Effect — react.dev](https://react.dev/learn/you-might-not-need-an-effect) — §2 effects table
-- [React v19 — react.dev](https://react.dev/blog/2024/12/05/react-19) and [forwardRef — react.dev](https://react.dev/reference/react/forwardRef) — ref-as-prop, ref cleanup functions
-- [React Compiler — react.dev](https://react.dev/learn/react-compiler) — when manual memoization stops mattering
-- [Accessibility — reactnative.dev](https://reactnative.dev/docs/accessibility) — roles, labels, states
+- Anything ESLint already **errors** on in this project (see Tooling coverage above).
+- Restating the project's instructions file as if it were a finding.
+- Test recommendations the project has decided against. Check the project layer
+  first — a mobile app that tests through an end-to-end flow runner only does not want RN unit
+  tests suggested.
+- Deep performance analysis (list virtualization internals, re-render
+  profiling, Hermes) — name the concern once and point at the project's perf
+  guidance, do not duplicate it.
+- Style-only rewrites of untouched sibling/legacy code. Review the file in front
+  of you; do not commission a migration.

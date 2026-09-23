@@ -9,6 +9,12 @@
 # Reporting script: a grep with no match is a normal outcome, not an error.
 set -uo pipefail
 
+# Output is bounded: INVENTORY_LIMIT lines per section (default 40), overflow
+# reported as a count. INVENTORY_DOCS=1 adds doc-comment lines where supported.
+LIMIT="${INVENTORY_LIMIT:-40}"
+DOCS="${INVENTORY_DOCS:-0}"
+cap() { awk -v n="$LIMIT" 'NR<=n{print;next} END{if(NR>n) printf "  … +%d more lines (raise INVENTORY_LIMIT=%d to see them)\n", NR-n, n}'; }
+
 root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 targets=()
 if [ -n "${1:-}" ]; then
@@ -35,14 +41,14 @@ describe() {
   cls=$(grep -oE 'export class [A-Za-z0-9_]+' "$f" | head -1 | sed 's/export class //')
   doc=$(grep -m1 -oE '^ \*[[:space:]]+[A-Z].*' "$f" | sed -E 's/^ \*[[:space:]]+//' | cut -c1-64)
   printf '  %-10s %-32s %s\n' "$kind" "${sel:-—}" "$cls"
-  [ -n "$doc" ] && printf '  %-10s %-32s   ↳ %s\n' "" "" "$doc"
+  [ "$DOCS" = 1 ] && [ -n "$doc" ] && printf '  %-10s %-32s   ↳ %s\n' "" "" "$doc"
 }
 
 for t in "${targets[@]}"; do
   echo "=== ${t#$PWD/}"
-  while IFS= read -r f; do describe "$f"; done < <(
+  { while IFS= read -r f; do describe "$f"; done < <(
     find "$t" -type f \( -name '*.ts' \) ! -name '*.spec.ts' ! -name '*.stories.ts' \
-      ! -path '*/node_modules/*' ! -name 'index.ts' ! -name '*.module.ts' ! -name '*.routes.ts' | sort)
+      ! -path '*/node_modules/*' ! -name 'index.ts' ! -name '*.module.ts' ! -name '*.routes.ts' | sort); } | cap
   echo
 done
 

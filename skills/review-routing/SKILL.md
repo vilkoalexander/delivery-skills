@@ -6,15 +6,17 @@ description: Use when reviewing a diff, a branch, or a pull request, when dispat
 # Review Routing
 
 Domain review rubrics each cover one slice of a codebase and are written to
-review **one file**. A diff review sees many files at once and has no single
-target. This routes the diff to the right rubrics and says how to apply them
-without re-reviewing the whole repository.
+review **one file**. A diff review sees many files at once. This routes the
+diff to the right rubrics and says how to apply them without re-reviewing the
+whole repository.
 
-Invoke this before judging any diff. It costs one read and stops a reviewer from
-grading backend code against frontend conventions.
+Invoke this before judging any diff. A project may ship its own
+`review-routing` skill; if it does, that one wins outright — it is this file
+with the project's real paths filled in.
 
-A project may ship its own `review-routing` skill. If it does, that one wins
-outright — it is this file with the project's real paths filled in.
+**A scoped re-review never comes here.** It checks the findings it was handed
+against the fix diff. It loads no rubric, runs no script, and reads nothing
+but the fix diff and the findings list.
 
 ## Routing table
 
@@ -41,32 +43,44 @@ line rather than stretching a rubric to reach them.
 A path that matches a row but whose rubric you cannot load is a gap worth
 reporting, not a reason to skip the category.
 
-## Applying a single-file rubric to a diff
+## What to load per rubric
 
-Each rubric ships `CHECKLIST.md` plus `INVARIANTS.md` (or `INVENTORY.md` for
-the UI rubrics). Those two files are the rubric. Load them; they are what the
-domain knowledge lives in. Each rubric also names where the **project layer**
-comes from — the reference implementations, shared primitives and ceilings that
-belong to this codebase and not to the framework. Load that too.
+A rubric lives at `${CLAUDE_PLUGIN_ROOT}/skills/<rubric>/`, or at
+`.claude/skills/<rubric>/` when the project forked it. Read **two files** from
+it directly. Do not invoke the rubric as a skill: its `SKILL.md` is the
+single-file entry point and adds nothing to a diff review.
+
+- `CHECKLIST.md` — version baseline, tooling coverage, severity floor, the
+  rules tagged **[hard]** (always report), **[prefer]** (report unless the
+  file gives a reason not to) and **[context]** (report only with a concrete
+  consequence in this file), and the do-not-report list.
+- `INVARIANTS.md` (backend, schema, contract) or `INVENTORY.md` (UI).
+
+Plus the **project layer** the rubric names — `docs/review/<rubric>.md` when
+the repository has one. It carries the reference implementations, shared
+primitives and ceilings that belong to this codebase, not to the framework.
+
+## Applying a single-file rubric to a diff
 
 - **The diff is your view of the file.** The diff's context lines are the code.
   Do not open a changed file separately unless a hunk you must judge is cut off
   mid-function — and say in your report when you did.
 - **One pass per rubric, not per file.** A diff touching six services gets one
-  `nestjs-service-review` pass covering all six, ranked together. Six passes
-  produce six reports nobody reads.
+  `nestjs-service-review` pass covering all six, ranked together.
 - **Judge what the change contributed.** A pre-existing violation in untouched
   code is not this diff's finding. A violation the diff introduces, or leaves
   standing in a block it rewrites, is.
 - **Run the mechanical scans, bounded by the diff.** `scripts/scan.sh <file>`
-  per changed file the rubric owns, and `scripts/inventory.sh` once. Both are
-  cheap and repo-local. Their output is a set of flags to judge, never a
+  per changed file the rubric owns, and `scripts/inventory.sh` once per
+  rubric. Inventory output is capped at `INVENTORY_LIMIT` lines per section
+  (default 40); pass the changed file or root where the script takes one, and
+  set `REVIEW_FILES` for the NestJS one so its spec check covers only the
+  files under review. Script output is a set of flags to judge, never a
   verdict.
 - **Cross-file risk is in scope when you can name it.** A changed service
   method signature, a renamed shared type, an altered delete action — check the
-  call sites, and name both the risk and the check in your report. That is not
-  crawling the codebase; opening files to see what else might be interesting
-  is.
+  call sites, and name both the risk and the check in your report. Opening
+  files to see what else might be interesting is not that.
 
 ## Multi-domain diffs
 
@@ -74,14 +88,22 @@ When a diff spans two or more rows, run each rubric as its own pass, then merge
 the findings into one ranked list. Do not emit a section per rubric — the
 reader wants severity order, not a tour of the taxonomy.
 
+When the controller fans out one reviewer per rubric, each reviewer gets only
+its rubric's slice of the diff (`git diff -- <paths>`), not the whole
+snapshot. A reviewer handed a full snapshot reads only the hunks its rubric
+owns.
+
 A change that crosses the shared contract package and any of its consumers is
 a contract change first. Run `api-contract-review` before the others: if the
 shape is wrong, findings in the consumers are downstream noise.
 
-## Severity translation
+## Effort and severity
 
-The domain rubrics emit 🔴 / 🟡 / ⚪. A diff review that reports under
-Critical / Important / Minor headings maps them:
+Default effort is **medium**: 🔴 and 🟡 only, roughly seven findings at most,
+and zero findings is a valid outcome. **high** adds ⚪ nits, still ranked.
+
+The rubrics emit 🔴 / 🟡 / ⚪. A diff review that reports under Critical /
+Important / Minor headings maps them:
 
 | Rubric | Diff review | Meaning |
 | --- | --- | --- |
@@ -89,9 +111,8 @@ Critical / Important / Minor headings maps them:
 | 🟡 | Important | The change cannot be trusted until it is fixed. |
 | ⚪ | Minor | Worth saying once, blocks nothing. |
 
-Each rubric carries a **severity floor** — findings that are always 🔴 at any
-effort level. A project's review SOP may add more; those are Critical too.
-
-Each rubric's own **Do NOT report** section still binds in diff review. It is
-what keeps these reports free of out-of-scope feature suggestions and restated
-project instructions.
+Each checklist carries a **severity floor** — findings that are always 🔴 at
+any effort. A project's review SOP may add more; those are Critical too. Each
+checklist's **Do NOT report** list still binds in diff review; it is what
+keeps these reports free of out-of-scope suggestions and restated project
+instructions.

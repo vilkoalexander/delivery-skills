@@ -1,12 +1,54 @@
 # Prisma Schema Review Checklist
 
-Seven categories. Walk them in order. Each rule is tagged **[hard]**,
-**[prefer]** or **[context]** — see SKILL.md. Name the consequence, and for a
+Seven categories. Walk them in order. Each rule is tagged **[hard]** (always
+report), **[prefer]** (report unless the file gives a reason not to) or
+**[context]** (report only with a concrete consequence in this file). Name the consequence, and for a
 schema change the consequence includes *what the fix costs once rows exist*.
 
 `<tenant>` below stands for the project's tenant key (`TENANT_FIELD`, e.g.
 `tenantId`, `orgId`, `accountId`). Skip §1 entirely on a single-tenant
 schema and say so in one line.
+
+## Before you start
+
+### Version baseline
+
+Read before applying §5 below:
+
+```bash
+node -e 'const p=require("./package.json");for(const k of ["prisma","@prisma/client"])console.log(k,(p.dependencies||{})[k]||(p.devDependencies||{})[k]||"-")'
+grep -rE 'provider *= *"' prisma/ --include='*.prisma' | head -2
+```
+
+Two things move the rules: the **database provider** (the migration-safety
+section is written for PostgreSQL; MySQL and SQLite differ on enum handling,
+`ADD COLUMN` rewrites and transactional DDL) and the **Postgres major** — on
+PG ≥ 11 `ADD COLUMN ... DEFAULT` does not rewrite the table and several enum
+values may be added in one migration; on older majors both are false.
+
+### Tooling coverage
+
+`prisma validate` and `prisma migrate diff` catch syntax, relation
+well-formedness and drift. **Nothing** checks the rules in this skill: tenant
+scoping, index leading column, money types, ledger immutability, or lock
+duration. There is no schema linter that knows these.
+
+`prisma generate` must pass after any schema change — it is a build
+dependency, not an optional step.
+
+## Severity floor
+
+Always 🔴, regardless of effort:
+
+- in a multi-tenant schema, a tenant-scoped model without the tenant key, or
+  an index on one whose leading column is not the tenant key
+- money stored as anything but integer minor units, or an amount without a
+  currency
+- a stored / denormalised balance column next to a ledger that already
+  answers the question
+- a ledger row made mutable or deletable (a cascading FK, `@updatedAt`, or a
+  migration that UPDATEs / DELETEs ledger rows)
+- an applied migration edited in place
 
 ## 1. Tenant scoping — one-way door
 
@@ -158,9 +200,16 @@ A schema is wrong if the queries it must serve cannot use an index.
 
 ---
 
-## Sources
+## Do NOT report
 
-- [Prisma — Relations: referential actions](https://www.prisma.io/docs/orm/prisma-schema/data-model/relations/referential-actions) — `onDelete` defaults per provider
-- [Prisma — Migrations: customizing migrations](https://www.prisma.io/docs/orm/prisma-migrate/workflows/customizing-migrations) — expand/contract, why applied migrations are immutable
-- [PostgreSQL — ALTER TYPE](https://www.postgresql.org/docs/current/sql-altertype.html) — enum values unusable before the adding transaction commits
-- [PostgreSQL — ALTER TABLE notes](https://www.postgresql.org/docs/current/sql-altertable.html) — `ADD COLUMN DEFAULT` without rewrite on 11+, `SET NOT NULL` full-table scan
+- Restating the project's instructions or data-architecture doc as if it were
+  a finding.
+- `varchar(n)` length limits when the project caps lengths at the API boundary
+  on purpose — check the project layer.
+- Forward hooks the project documents as intentionally unused (a nullable
+  column with no reader yet, a FK-less id kept for portability).
+- Demanding `CREATE INDEX CONCURRENTLY` — it cannot run inside a Prisma
+  migration transaction (see INVARIANTS.md ceilings).
+- Zero-downtime ceremony on small tables. Name the table size before flagging
+  lock duration.
+- Naming anything after a sprint, quarter or ticket.

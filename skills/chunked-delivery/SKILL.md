@@ -1,6 +1,6 @@
 ---
 name: chunked-delivery
-description: Runs an approved plan one human-reviewable chunk at a time — fans out subagents for a chunk, reviews it, then stops and hands the diff back for human review before touching the next chunk. Nothing is ever committed. Use when asked to build a feature with subagents, execute a plan in chunks, or run the agent team; and whenever work should pause for review between units instead of running a plan end to end.
+description: Use when asked to execute an approved plan with subagents in chunks, build a feature with the agent team, or pause for human review between units instead of running a plan end to end.
 ---
 
 # Chunked Delivery
@@ -27,8 +27,9 @@ that ships its own `delivery-pipeline` overrides the global one.
 
 ## Preflight
 
-- The controller runs on the most capable model available. It holds the plan and every chunk summary for the whole
-  run; a model swap mid-run loses that.
+- The controller runs on the model `delivery-pipeline` names for the run's
+  length. It holds the plan and every chunk summary for the whole run; a model
+  swap mid-run loses that.
 - Work happens in place, in the checkout the human is using, on a feature branch
   that is not `main` (create one if needed). Do NOT create or enter a git
   worktree unless the human explicitly asks for one in their message — the
@@ -60,10 +61,14 @@ For each approved chunk, in order:
    They leave their work uncommitted and unstaged.
 3. **Snapshot the result** to `chunk-N.diff`, and dispatch the task reviewer
    against that file — with the line that sends it to the project's rubric
-   routing, if the project has one.
+   routing, if the project has one. Do not read the snapshot yourself.
 4. **Run fix rounds to clean.** Findings go back to the implementer, then a
-   scoped re-review. This is agent work — do not surface individual rounds. If
-   the round counter trips at five, park what remains and say so in the report.
+   scoped re-review that gets the findings and the fix diff, nothing else.
+   This is agent work — do not surface individual rounds. The round counter
+   trips at **three** on a low- or medium-risk chunk and **five** on a
+   high-risk one; the human reads the chunk next anyway, so a parked finding
+   costs them a minute where two more rounds cost two implementer and two
+   re-review seats. Park what remains and say so in the report.
 5. **Cross-model review** if the chunk is high-risk — `delivery-pipeline` has the
    invocation and the adjudication rules. Its findings are claims you rule on,
    not a fix queue.
@@ -73,7 +78,9 @@ For each approved chunk, in order:
 ## The chunk report
 
 This is what a human reads. It is not the ledger — the ledger is crash recovery
-and never appears in a report.
+and never appears in a report. The counts come from `git diff --stat`; the
+`Changed` lines come from the implementer and reviewer reports. The controller
+does not read the diff to write this.
 
 ```
 Chunk N/M — <name>   [risk]

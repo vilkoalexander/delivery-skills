@@ -59,9 +59,9 @@ them open at excalidraw.com for editing.
 
 | Skill | What it settles |
 | --- | --- |
-| `delivery-pipeline` | Model per role (controller, implementer, reviewer, re-review), the Global Constraints block every plan carries, how review works when nothing is committed, and where a second model family reads the diff. Builds on `superpowers:subagent-driven-development`. |
-| `chunked-delivery` | Runs an approved plan one chunk at a time. Each chunk: snapshot, implement, review to clean, report in twenty lines, **stop**. Nothing proceeds until the human says `next`. Ends with a whole-tree review. |
-| `review-routing` | Maps changed paths in a diff to the rubrics below and says how to apply a single-file rubric to a multi-file diff — one pass per rubric, judge only what the change contributed, merge into one ranked list. |
+| `delivery-pipeline` | Model per role (controller, implementer, reviewer, re-review), the Global Constraints block every plan carries, how review works when nothing is committed, what the controller does and does not read, and where a second model family reads the diff. Builds on `superpowers:subagent-driven-development`. |
+| `chunked-delivery` | Runs an approved plan one chunk at a time. Each chunk: snapshot, implement, review to clean (three fix rounds, five on high risk), report in twenty lines, **stop**. Nothing proceeds until the human says `next`. Ends with a whole-tree review. |
+| `review-routing` | Maps changed paths in a diff to the rubrics below and says how to apply a single-file rubric to a multi-file diff — one pass per rubric, only the two rubric files loaded, judge only what the change contributed, merge into one ranked list. Scoped re-reviews skip it entirely. |
 
 ### Review rubrics
 
@@ -77,14 +77,18 @@ Every rubric shares one shape:
 
 ```
 <name>/
-  SKILL.md        workflow · effort scaling · rule confidence · severity floor ·
-                  do-not-report · tooling coverage · output format · version baseline
-  CHECKLIST.md    the rules, each tagged [hard] / [prefer] / [context], each with its consequence
+  SKILL.md        single-file entry point: workflow · effort · output format
+  CHECKLIST.md    the rubric: version baseline · tooling coverage · severity floor ·
+                  the rules, each tagged [hard] / [prefer] / [context] · do-not-report
   INVARIANTS.md   the one-way doors, and what the project layer must supply   (UI rubrics: INVENTORY.md)
+  SOURCES.md      references behind the checklist; never loaded during a review
   scripts/
     scan.sh       mechanical pre-scan of one file — flags, never a verdict
     inventory.sh  what exists right now — shared primitives, modules, models — so nothing is reinvented
 ```
+
+A diff review loads `CHECKLIST.md` and `INVARIANTS.md` / `INVENTORY.md` only;
+`SKILL.md` is for reviewing one named file.
 
 And one output shape:
 
@@ -126,6 +130,15 @@ The scripts take the project-specific names from the environment:
 | `EXEMPT_MODELS` | nestjs, prisma | models deliberately without the tenant key, `\|`-separated |
 | `LEDGER_TABLES` | prisma | append-only tables by `@@map` name, `\|`-separated |
 | `CLIENT_LIBS` | api-contract | package dirs that reach a client bundle |
+| `INVENTORY_LIMIT` | all `inventory.sh` | lines per section before the output is cut with an overflow count (default 40) |
+| `INVENTORY_DOCS` | react, angular | `1` adds each module's first doc-comment line |
+| `REVIEW_FILES` | nestjs | space-separated files under review; limits the missing-spec check to them |
+
+## Token budget
+
+`bash scripts/token-budget.sh` prints an estimate of what each dispatch loads
+— controller start, one task reviewer per rubric, the extra per added rubric
+— so a change to a skill can be checked against what it costs every task.
 
 ## Design notes
 
@@ -143,6 +156,10 @@ The scripts take the project-specific names from the environment:
 - **Version baselines are read, not assumed.** Each rubric says which
   installed versions flip which rules (React 19, the React Compiler, Angular
   17 / 19 / 20, Prisma 5, Postgres 11).
+- **Every dispatch loads only what it acts on.** The controller never reads a
+  diff; a task reviewer reads two rubric files, not the rubric's skill; a
+  scoped re-review reads the findings and the fix diff and nothing else;
+  inventory scripts cut their output at a limit.
 - **Nothing is committed by an agent.** The delivery skills override the
   upstream "commit your work" step. The human reads the working tree and
   decides what becomes a commit.

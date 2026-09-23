@@ -8,6 +8,12 @@
 # Reporting script: a grep with no match is a normal outcome, not an error.
 set -uo pipefail
 
+# Output is bounded: INVENTORY_LIMIT lines per section (default 40), overflow
+# reported as a count. INVENTORY_DOCS=1 adds doc-comment lines where supported.
+LIMIT="${INVENTORY_LIMIT:-40}"
+DOCS="${INVENTORY_DOCS:-0}"
+cap() { awk -v n="$LIMIT" 'NR<=n{print;next} END{if(NR>n) printf "  … +%d more lines (raise INVENTORY_LIMIT=%d to see them)\n", NR-n, n}'; }
+
 root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 src="${1:-}"
 if [ -z "$src" ]; then
@@ -35,7 +41,7 @@ list() {
                } 2>/dev/null | grep -v '^$' | sort -u | paste -sd, - || true)
     doc=$(grep -m1 -oE '^ \*[[:space:]]+[A-Z].*' "$f" | sed -E 's/^ \*[[:space:]]+//' | cut -c1-72)
     printf '  %-28s %s\n' "$base" "${exports:-—}"
-    [ -n "$doc" ] && printf '  %-28s   ↳ %s\n' "" "$doc"
+    [ "$DOCS" = 1 ] && [ -n "$doc" ] && printf '  %-28s   ↳ %s\n' "" "$doc"
   done
 }
 
@@ -43,14 +49,14 @@ for layer in components/ui components ui hooks lib utils constants shared; do
   [ -d "$src/$layer" ] || continue
   echo
   echo "=== $layer"
-  list "$src/$layer"
+  list "$src/$layer" | cap
 done
 
 if [ -d "$src/features" ]; then
   echo
   echo "=== feature-local (reused within one feature only)"
   find "$src/features" -type d \( -name components -o -name hooks -o -name lib \) 2>/dev/null \
-    | sed "s|$src/||" | sort | sed 's/^/  /'
+    | sed "s|$src/||" | sort | sed 's/^/  /' | cap
 fi
 
 echo

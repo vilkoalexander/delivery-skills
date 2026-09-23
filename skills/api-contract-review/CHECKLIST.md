@@ -1,8 +1,51 @@
 # API Contract Review Checklist
 
-Six categories. Walk them in order. Each rule is tagged **[hard]**,
-**[prefer]** or **[context]** — see SKILL.md. Every finding names which side
+Six categories. Walk them in order. Each rule is tagged **[hard]** (always
+report), **[prefer]** (report unless the file gives a reason not to) or
+**[context]** (report only with a concrete consequence in this file). Every finding names which side
 breaks: **new server + old client**, or **old server + new client**.
+
+## Before you start
+
+### Version baseline
+
+```bash
+node -e 'const p=require("./package.json");for(const k of ["zod","nestjs-zod","class-validator","class-transformer","typescript","valibot","@sinclair/typebox"])console.log(k,(p.dependencies||{})[k]||(p.devDependencies||{})[k]||"-")'
+```
+
+The checklist is written for zod. With `class-validator`, §3's `.strict()`
+rule becomes `forbidNonWhitelisted: true` on the `ValidationPipe`, and the
+"hand-written twin" rule inverts — the DTO class *is* the schema. Note zod 3.25+
+ships Zod 4 at the `zod/v4` subpath; mixing subpaths splits the type system,
+and `nestjs-zod` supports Zod 4 only from v5.
+
+### Tooling coverage
+
+Do not assume. Check two things:
+
+```bash
+# 1. Does anything stop a client app importing a backend-only package?
+grep -rn 'depConstraints\|enforce-module-boundaries' eslint.config.* .eslintrc* nx.json 2>/dev/null
+# 2. Which client apps import which shared package?
+grep -rhoE "@[a-z0-9-]+/(schemas|types|dto|utils|contracts|shared)[a-z/-]*" apps/*/src 2>/dev/null | sort | uniq -c
+```
+
+`tsc` catches a type that stops compiling. It cannot see that a field became
+optional, that an enum lost a member, or that an installed client is parsing
+the old shape. If nothing enforces the dependency direction, say so once and
+name the gate that would (Nx project tags + `depConstraints`, or an ESLint
+`no-restricted-imports` rule).
+
+## Severity floor
+
+Always 🔴, regardless of effort:
+
+- a response field removed, renamed, or narrowed (nullable → required, wider
+  enum → narrower) — installed clients parse it
+- a request field made required, or a new required request field
+- an import that pulls a backend-only dependency into a client-consumed
+  package
+- a response enum that no longer covers a value the database can produce
 
 ## 1. Backward compatibility with installed clients
 
@@ -133,9 +176,13 @@ the generic shape is schema → DTO (server validation + docs) → inferred type
 
 ---
 
-## Sources
+## Do NOT report
 
-- [Zod — versioning](https://zod.dev/v4/versioning) and [zod#4371](https://github.com/colinhacks/zod/issues/4371) — Zod 4 ships at the `zod/v4` subpath alongside 3.25
-- [Zod — for library authors](https://zod.dev/library-authors) — subpath discipline
-- [nestjs-zod MIGRATION.md](https://github.com/BenLorantfy/nestjs-zod/blob/main/MIGRATION.md) — Zod 4 support lands in v5
-- [Nx — enforce-module-boundaries](https://nx.dev/nx-api/eslint-plugin/documents/enforce-module-boundaries) — the gate that would make §4 permanent
+- Restating the project's instructions file as if it were a finding.
+- Proposing API versioning (`/v2`, `Accept-Version`) when the project has
+  not built it. Say "this is breaking" and let the human choose.
+- Proposing a codegen pipeline when the chain is hand-written on purpose.
+- Proposing a validation-library major upgrade the project has pinned
+  against — check the project layer.
+- Duplicating nestjs-service-review (tenant scoping, ledger rules) or
+  prisma-schema-review (columns). This skill only owns the shared boundary.

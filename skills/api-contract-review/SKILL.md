@@ -6,101 +6,52 @@ description: Use when a shared contract package changes — a zod or other valid
 # API Contract Review
 
 Structured review of ONE change to a shared contract package — the schemas,
-DTOs and types that more than one app consumes. Report + suggest — never
-edits the file.
+DTOs and types more than one app consumes. Report and suggest — never edit
+the file.
 
-The thing that makes this different from any other review: **a client on a
-separate release train.** A backend deploy reaches users in minutes; a mobile
-or desktop app reaches them when they take the update, which may be never. A
-web SPA sits in between — cached bundles outlive the deploy by hours. Every
-contract change is therefore evaluated twice — **new server + old client**,
-and **old server + new client**.
+What makes this different: **a client on a separate release train.** A
+backend deploy reaches users in minutes; a mobile app reaches them when they
+take the update, which may be never; a cached web bundle sits in between.
+Every contract change is evaluated twice — **new server + old client** and
+**old server + new client**.
+
+[CHECKLIST.md](CHECKLIST.md) is the rubric: version baseline, tooling
+coverage, severity floor, the six categories, and what not to report.
+[INVARIANTS.md](INVARIANTS.md) is the compatibility matrix and the generic
+chain. A diff review reaches both through `review-routing` and never loads
+this file.
 
 ## Workflow
 
-1. **Identify the target.** A file under the shared contract package, or a
-   diff of one. If none was given, ask which.
-2. **Load the project layer** (do not skip):
-   - [INVARIANTS.md](INVARIANTS.md) — the compatibility matrix and the
-     generic chain.
-   - `docs/review/api-contract-review.md` if the repository has one — the
-     project's contract chain, which packages reach which bundle, the release
-     trains, shared primitives and ceilings. If absent, derive the same from
-     `CLAUDE.md` / `AGENTS.md` and the package graph, and say so in one line.
-   - The file under review **and its whole chain**: a schema change implies
-     the inferred type and, for a request/response shape, the DTO.
-   - The consumers. `grep` for the exported symbol across every app before
-     judging anything — a type with no consumer and a type with 40 are
-     different changes.
-3. **Run `scripts/inventory.sh [contract-dir]`** — the chain per entity, which
-   apps consume which package, barrel gaps, and a Prisma ↔ schema enum drift
-   check when a Prisma schema is present.
-4. **Run `scripts/scan.sh <file-or-dir>`** — mechanical pre-scan.
-5. **Walk [CHECKLIST.md](CHECKLIST.md)** — all 6 categories, in order.
-6. **Emit the report** (format below).
+1. **Target.** A file under the shared contract package, or a diff of one.
+   None given — ask which.
+2. **Project layer.** INVARIANTS.md, then `docs/review/api-contract-review.md`
+   if the repository has one: the contract chain, which packages reach which
+   bundle, release trains, shared primitives, ceilings. If it is absent,
+   derive the same from `CLAUDE.md` / `AGENTS.md` and the package graph, and
+   say so in one line. Then the file under review **and its whole chain** — a
+   schema change implies the inferred type and, for a request/response shape,
+   the DTO — and its consumers: `grep` the exported symbol across every app
+   before judging anything.
+3. **`scripts/inventory.sh [contract-dir]`** — chain per entity, consumers
+   per package, barrel gaps, Prisma ↔ schema enum drift.
+4. **`scripts/scan.sh <file-or-dir>`** — mechanical pre-scan. Flags, not a
+   verdict.
+5. **Walk CHECKLIST.md** top to bottom.
+6. **Report** in the format below.
 
-Scripts live next to this file. Installed as a plugin, that is
+Scripts live next to this file; installed as a plugin, under
 `${CLAUDE_PLUGIN_ROOT}/skills/api-contract-review/scripts/`. `scan.sh` reads
-`CLIENT_LIBS` (a `|`-separated list of package dir names that reach a client
-bundle, default `schemas|types|utils`) from the environment.
+`CLIENT_LIBS` (`|`-separated package dir names that reach a client bundle,
+default `schemas|types|utils`) from the environment.
 
-## Effort scaling
+## Effort
 
-Default **medium**. The user may say low / medium / high.
-
-- **low / medium** — 🔴 and 🟡 only; roughly 7 findings. **Zero findings is a
-  valid outcome.**
-- **high** — add ⚪ nits, still ranked.
-
-## Rule confidence
-
-- **[hard]** — never correct. Always report.
-- **[prefer]** — the right default. Report unless the file gives a reason.
-- **[context]** — depends. Report only with a concrete consequence.
-
-## Severity floor
-
-Always 🔴, regardless of effort:
-
-- a response field removed, renamed, or narrowed (nullable → required, wider
-  enum → narrower) — installed clients parse it
-- a request field made required, or a new required request field
-- an import that pulls a backend-only dependency into a client-consumed
-  package
-- a response enum that no longer covers a value the database can produce
-
-## Do NOT report
-
-- Restating the project's instructions file as if it were a finding.
-- Proposing API versioning (`/v2`, `Accept-Version`) when the project has
-  not built it. Say "this is breaking" and let the human choose.
-- Proposing a codegen pipeline when the chain is hand-written on purpose.
-- Proposing a validation-library major upgrade the project has pinned
-  against — check the project layer.
-- Duplicating nestjs-service-review (tenant scoping, ledger rules) or
-  prisma-schema-review (columns). This skill only owns the shared boundary.
-
-## Tooling coverage
-
-Do not assume. Check two things:
-
-```bash
-# 1. Does anything stop a client app importing a backend-only package?
-grep -rn 'depConstraints\|enforce-module-boundaries' eslint.config.* .eslintrc* nx.json 2>/dev/null
-# 2. Which client apps import which shared package?
-grep -rhoE "@[a-z0-9-]+/(schemas|types|dto|utils|contracts|shared)[a-z/-]*" apps/*/src 2>/dev/null | sort | uniq -c
-```
-
-`tsc` catches a type that stops compiling. It cannot see that a field became
-optional, that an enum lost a member, or that an installed client is parsing
-the old shape. If nothing enforces the dependency direction, say so once and
-name the gate that would (Nx project tags + `depConstraints`, or an ESLint
-`no-restricted-imports` rule).
+Default **medium**: 🔴 and 🟡 only, roughly seven findings at most, and
+**zero findings is a valid outcome** — say so and stop. **high** adds ⚪ nits,
+still ranked.
 
 ## Output format
-
-Findings ranked most-severe first. Every finding names the WHY, and for a
-contract the WHY names **which side breaks**.
 
 ```
 ### <file> review
@@ -118,16 +69,5 @@ contract the WHY names **which side breaks**.
 Verdict: <SHIP | FIX FIRST> — <one line>
 ```
 
-If a checklist category is clean, say so in one line.
-
-## Version baseline
-
-```bash
-node -e 'const p=require("./package.json");for(const k of ["zod","nestjs-zod","class-validator","class-transformer","typescript","valibot","@sinclair/typebox"])console.log(k,(p.dependencies||{})[k]||(p.devDependencies||{})[k]||"-")'
-```
-
-The checklist is written for zod. With `class-validator`, §3's `.strict()`
-rule becomes `forbidNonWhitelisted: true` on the `ValidationPipe`, and the
-"hand-written twin" rule inverts — the DTO class *is* the schema. Note zod 3.25+
-ships Zod 4 at the `zod/v4` subpath; mixing subpaths splits the type system,
-and `nestjs-zod` supports Zod 4 only from v5.
+Most-severe first. For a contract the why names **which side breaks**. A clean
+category gets one line.

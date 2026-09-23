@@ -1,8 +1,59 @@
 # Angular Review Checklist
 
-Eight categories. Walk them in order. Each rule is tagged **[hard]**,
-**[prefer]** or **[context]** — see SKILL.md. For each finding, name the
+Eight categories. Walk them in order. Each rule is tagged **[hard]** (always
+report), **[prefer]** (report unless the file gives a reason not to) or
+**[context]** (report only with a concrete consequence in this file). For each finding, name the
 consequence: "this is wrong" without "because X breaks" is not a finding.
+
+## Before you start
+
+### Version baseline
+
+Read the installed version before applying §2 below:
+
+```bash
+node -e 'const p=require("./package.json");for(const k of ["@angular/core","@angular/cli","typescript","rxjs"])console.log(k,(p.dependencies||{})[k]||(p.devDependencies||{})[k]||"-")'
+```
+
+The switches that change the rules:
+
+| Angular | What becomes available — and what becomes a finding to omit |
+| --- | --- |
+| 14 | standalone components (preview), `inject()` |
+| 16 | signals (preview), `takeUntilDestroyed`, `DestroyRef` |
+| 17 | built-in control flow `@if` / `@for` / `@switch`, `@defer`, signals stable |
+| 17.1 – 17.2 | signal inputs `input()`, `model()`, `output()`, signal queries |
+| 19 | standalone is the default (`standalone: true` is redundant, `standalone: false` is the opt-out), `linkedSignal`, `resource` |
+| 20 | new style guide: no `Component`/`Service` class suffix, no `.component` file suffix, for **new** projects |
+| 21 | zoneless change detection stable |
+
+Below the row a rule needs, the rule does not apply. Above it, the project's
+own generation choice (project layer) decides whether omitting it is a finding.
+
+### Tooling coverage
+
+Do not assume what lint catches. Run once per review:
+
+```bash
+npx eslint --print-config <file> | grep -E '"@angular-eslint/(prefer-signals|prefer-standalone|prefer-inject|prefer-on-push-component-change-detection|template/prefer-control-flow|template/use-track-by-function|template/click-events-have-key-events|template/interactive-supports-focus|no-async-lifecycle-method)|rxjs-angular|no-console'
+```
+
+Rules that resolve to `"error"` are the build's job — skip them. `"warn"` does
+not fail the build — still report. Absent rules are this skill's job.
+`scripts/scan.sh` targets the commonly absent set. The compiler itself owns:
+`@for` track, unused standalone imports (v19+ diagnostic), template type
+errors under `strictTemplates`.
+
+## Severity floor
+
+Always 🔴, regardless of effort:
+
+- a manual `.subscribe()` with no teardown (`takeUntilDestroyed`, `DestroyRef`,
+  or the `async` pipe instead) on a stream that outlives the component
+- an `effect()` that writes application state to propagate a change — the
+  documented path to circular updates
+- a clickable `<div>` / `<span>` standing in for a `<button>` with no role,
+  keyboard handler and focusability
 
 ## 1. Over-engineering & scope
 
@@ -25,7 +76,7 @@ The most common defect in AI-generated code. The bias is toward too much.
 
 ## 2. Angular correctness
 
-Check the version baseline in SKILL.md, then the project's generation. The
+Check the version baseline above, then the project's generation. The
 rules below assume the signals generation is available; each says what to do
 when it is not.
 
@@ -200,10 +251,16 @@ AI code compiles and still drifts from house style. Compare to the sibling.
 
 ---
 
-## Sources
+## Do NOT report
 
-- [Angular style guide — angular.dev](https://angular.dev/style-guide) — naming, `inject()`, `input()` / `output()`, `computed`, direct class/style bindings
-- [Signals: effect — angular.dev](https://angular.dev/guide/signals/effect) — effects as last resort; state propagation causes circular updates
-- [Built-in control flow — angular.dev](https://angular.dev/guide/templates/control-flow) — `@if` / `@for` / `track`
-- [Zoneless — angular.dev](https://angular.dev/guide/zoneless) — `markForCheck` after imperative mutation
-- [rxjs-interop: takeUntilDestroyed — angular.dev](https://angular.dev/api/core/rxjs-interop/takeUntilDestroyed) — subscription teardown
+- Anything the Angular compiler or angular-eslint already **errors** on in this
+  project (see Tooling coverage above). `@for` without `track` is a compile error —
+  never a finding.
+- Restating the project's instructions file as if it were a finding.
+- A migration the project has not chosen. On a codebase still on `*ngIf` and
+  `@Input()` throughout, one more of each is consistency, not a defect — the
+  finding is a *new file* mixing both generations. Say once, at the top, which
+  generation the project is on.
+- Test recommendations the project has decided against; check the project
+  layer first.
+- Style-only rewrites of untouched sibling/legacy code.

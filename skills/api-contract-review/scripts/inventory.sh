@@ -9,6 +9,12 @@
 # Reporting script: a grep with no match is a normal outcome, not an error.
 set -uo pipefail
 
+# Output is bounded: INVENTORY_LIMIT lines per section (default 40), overflow
+# reported as a count. INVENTORY_DOCS=1 adds doc-comment lines where supported.
+LIMIT="${INVENTORY_LIMIT:-40}"
+DOCS="${INVENTORY_DOCS:-0}"
+cap() { awk -v n="$LIMIT" 'NR<=n{print;next} END{if(NR>n) printf "  … +%d more lines (raise INVENTORY_LIMIT=%d to see them)\n", NR-n, n}'; }
+
 root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 lib="${1:-}"
 if [ -z "$lib" ]; then
@@ -23,7 +29,7 @@ scope=$(grep -ohE '"name": *"@[a-z0-9-]+/' "$lib"/*/package.json 2>/dev/null | h
 
 echo
 echo "=== chain coverage (schema → dto → type)"
-for s in "$lib"/schemas/src/lib/*.schema.ts "$lib"/schemas/src/*.schema.ts; do
+{ for s in "$lib"/schemas/src/lib/*.schema.ts "$lib"/schemas/src/*.schema.ts; do
   [ -e "$s" ] || continue
   e=$(basename "$s" .schema.ts)
   d=$(find "$lib/dto" -name "$e.dto.ts" 2>/dev/null | wc -l | tr -d ' ')
@@ -31,12 +37,12 @@ for s in "$lib"/schemas/src/lib/*.schema.ts "$lib"/schemas/src/*.schema.ts; do
   printf '  %-20s schema:yes  dto:%-4s type:%s\n' "$e" \
     "$([ "$d" != 0 ] && echo yes || echo NO)" \
     "$([ "$t" != 0 ] && echo yes || echo NO)"
-done
+done; } | cap
 
 if [ -n "$apps" ]; then
   echo
   echo "=== consumption per app (nothing usually enforces these boundaries)"
-  for l in $(ls "$lib"); do
+  { for l in $(ls "$lib"); do
     [ -d "$lib/$l" ] || continue
     line="  $scope/$(printf '%-12s' "$l")"
     for a in "$apps"/*/; do
@@ -47,13 +53,13 @@ if [ -n "$apps" ]; then
       [ "$l" = "test-utils" ] && [ "$c" != "0" ] && grep -rqE "$scope/test-utils" "$a/src" --include='*.ts' --include='*.tsx' --exclude='*.spec.*' --exclude='*.test.*' --exclude-dir='__tests__' 2>/dev/null && line="$line <-- test-utils in app code"
     done
     echo "$line"
-  done
+  done; } | cap
 fi
 
 echo
 echo "=== backend-only imports inside client-consumed packages (must be empty)"
 grep -rnE "from '(node:|@nestjs|@prisma|fs|path|crypto|buffer|express|fastify)" \
-  "$lib"/schemas/src "$lib"/types/src "$lib"/utils/src --include='*.ts' 2>/dev/null | grep -v node_modules | sed "s|$root/||" | sed 's/^/  /'
+  "$lib"/schemas/src "$lib"/types/src "$lib"/utils/src --include='*.ts' 2>/dev/null | grep -v node_modules | sed "s|$root/||" | sed 's/^/  /' | cap
 
 echo
 echo "=== zod entry points in use (must be one)"
@@ -61,7 +67,7 @@ grep -rhoE "from 'zod(/v[34])?'" "$lib" "$apps" --include='*.ts' --include='*.ts
 
 echo
 echo "=== files missing from a barrel"
-for l in $(ls "$lib"); do
+{ for l in $(ls "$lib"); do
   idx="$lib/$l/src/index.ts"; [ -f "$idx" ] || continue
   for f in "$lib/$l"/src/lib/*.ts; do
     [ -e "$f" ] || continue
@@ -69,7 +75,7 @@ for l in $(ls "$lib"); do
     case "$b" in *.spec|*.test) continue;; esac
     grep -q "\./lib/$b'" "$idx" || printf '  %s/src/lib/%s.ts not exported from index.ts\n' "$l" "$b"
   done
-done
+done; } | cap
 
 prisma=$(find "$root" -maxdepth 5 -name '*.prisma' -not -path '*/node_modules/*' -not -path '*/migrations/*' 2>/dev/null | head -50)
 if [ -n "$prisma" ] && [ -d "$lib/schemas" ]; then
@@ -88,6 +94,6 @@ if [ -n "$prisma" ] && [ -d "$lib/schemas" ]; then
       v = $1
       if (!(v in zod)) printf "  %s.%s exists in Prisma but in no schema enum — a row carrying it fails serialization\n", e, v
     }
-  ' $prisma
+  ' $prisma | cap
   echo "  (values covered by any schema enum are not listed; split create/response enums are expected)"
 fi

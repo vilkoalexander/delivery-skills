@@ -1,6 +1,6 @@
 ---
 name: delivery-pipeline
-description: Controller-side settings for running subagent-driven development — which model fills each role, where project constraints come from, how review works without commits, and where cross-model review attaches. Use when executing an implementation plan with subagents, dispatching an implementer or a task reviewer, or setting up a multi-agent run. Read it before dispatching the first task.
+description: Use when executing an implementation plan with subagents, dispatching an implementer or a task reviewer, or setting up a multi-agent run. Read it before dispatching the first task.
 ---
 
 # Delivery Pipeline
@@ -23,7 +23,7 @@ inherits the session's most expensive. Pick the cheapest that can hold the role.
 
 | Role | Model | Dispatch as | Why |
 | --- | --- | --- | --- |
-| Controller | Fable 5.1 | the session itself | Holds plan and chunk summaries across the whole run |
+| Controller | Opus 5.5 | the session itself | Holds plan and chunk summaries; Fable 5.1 only on long runs (below) |
 | Implementer — mechanical | Haiku 4.5 | `model: haiku` | One or two files against a specified plan |
 | Implementer — one-way doors | Opus 5.5 | `model: opus` | Schema, auth, money, migrations, public contracts |
 | Task reviewer — default | Sonnet 5 | `model: sonnet` | Reads a diff against rubrics; needs judgement, not the top tier |
@@ -38,21 +38,12 @@ when a point release ships. Never pass a dated model ID.
 Tag each task in the plan with its risk class, and let the tag pick the model.
 A judgement made fresh at dispatch time drifts toward whatever is cheapest.
 
-### The lineup this table assumes (22 September 2026)
-
-| Family | Current | API ID | Tier |
-| --- | --- | --- | --- |
-| Fable | Fable 5.1 | `claude-fable-5-1` | most capable; 1M context; thinking always on |
-| Opus | Opus 5.5 (Opus 5 and 4.8 still served) | `claude-opus-5-5` | one-way doors, final review, high-risk review |
-| Sonnet | Sonnet 5 (Sonnet 5.5 announced, not yet shipped) | `claude-sonnet-5` | default task review |
-| Haiku | Haiku 4.5 (Haiku 5.5 announced, not yet shipped) | `claude-haiku-4-5` | mechanical implementers, scoped re-review |
-
 Substitutions, in order:
 
-- **No Fable on the plan** — controller runs on Opus 5.5. Nothing else changes.
-  Opus 5.5 beats Fable 5.1 on many coding benchmarks and costs about 40% less
-  to run; Fable stays the default controller only because Anthropic still
-  positions it for the longest-horizon agentic runs.
+- **Long runs** — a plan over six chunks, or one whose context you expect to
+  outgrow what Opus holds, runs the controller on Fable 5.1 (1M context,
+  thinking always on). On anything shorter Fable pays for reasoning the plan
+  does not need: Opus 5.5 matches it on coding and costs about 40% less.
 - **Opus 5.5 defaults to `medium` effort.** Every other current model defaults
   to `high`. Pass effort explicitly on Opus 5.5 reviewer and one-way-door
   dispatches, or its reviews run shallower than the Sonnet ones.
@@ -61,8 +52,8 @@ Substitutions, in order:
   at high. On the Claude 5 family, a cheaper model at high effort is usually
   worse than the same model at lower effort.
 - **A newer family member ships** — the short dispatch names already point at
-  it. Re-check only the "Why" column: does the new Haiku hold a mechanical
-  implementer, does the new Sonnet still need Opus above it for high risk.
+  it. Re-check the "Why" column against `MODELS.md` next to this file, which
+  holds the lineup this table was written against.
 
 The roles and how they hand work to each other: `diagrams/roles-and-models.svg`
 in this repository.
@@ -108,8 +99,23 @@ into a dispatch prompt: it drifts from the skill within two edits.
 **One reviewer per task** is the default, with those rubrics as its checklist.
 Fan out to a reviewer per rubric only when a task's diff spans two or more
 domains *and* is large enough that one reviewer would read past its useful
-attention. Fan-out costs a full review seat each and leaves you merging and
-de-duplicating findings. When you do it, record why.
+attention. Each fanned-out reviewer gets only its rubric's slice of the diff
+(`git diff -- <paths> > "$WORKSPACE/chunk-$N-<rubric>.diff"`). Fan-out costs a
+full review seat each and leaves you merging and de-duplicating findings. When
+you do it, record why.
+
+**Scoped re-reviews get none of this.** No rubric line, no `review-routing`:
+the re-reviewer receives the findings list and the fix diff, per SDD's
+re-review prompt, and nothing else. Re-loading the rubrics for a twenty-line
+fix costs more than the original review did.
+
+## What the controller reads
+
+The controller never reads a diff snapshot. Its view of the work is the
+implementer reports, the reviewer reports and `git diff --stat`. Reading a
+chunk diff puts the whole change into the most expensive context on the plan
+and keeps it there for the rest of the run; the reviewer has already read it
+once, on a cheaper model, and reported what matters.
 
 ## Nothing is ever committed
 
