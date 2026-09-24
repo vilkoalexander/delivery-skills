@@ -35,10 +35,12 @@ any point; the working tree is the deliverable.
 
 ### Who does what, on which model
 
-The controller holds the plan. Implementers and reviewers are fresh subagents
-per task, picked by the task's risk class. A second model family reads the
-diff on high-risk chunks and once over the whole tree; its findings are claims
-the controller rules on, not a fix queue.
+The controller holds the plan. Every task carries a risk class — low, medium
+or high — set by what it touches, not how hard it looks. The class picks the
+implementer and reviewer models, whether the chunk is reviewed at all (low-risk
+chunks go straight to the human), and how many fix rounds it gets. A second
+model family reads the diff on high-risk chunks and once over the whole tree;
+its findings are claims the controller rules on, not a fix queue.
 
 ![Roles and models](diagrams/roles-and-models.svg)
 
@@ -59,8 +61,8 @@ them open at excalidraw.com for editing.
 
 | Skill | What it settles |
 | --- | --- |
-| `delivery-pipeline` | Model per role (controller, implementer, reviewer, re-review), the Global Constraints block every plan carries, how review works when nothing is committed, what the controller does and does not read, and where a second model family reads the diff. Builds on `superpowers:subagent-driven-development`. |
-| `chunked-delivery` | Runs an approved plan one chunk at a time. Each chunk: snapshot, implement, review to clean (three fix rounds, five on high risk), report in twenty lines, **stop**. Nothing proceeds until the human says `next`. Ends with a whole-tree review. |
+| `delivery-pipeline` | Model per role (controller, implementer, reviewer, re-review), the three risk classes and what each buys (`scripts/risk.sh` suggests one from changed paths), the Global Constraints block every plan carries, how review works when nothing is committed, what the controller does and does not read, and where a second model family reads the diff. Builds on `superpowers:subagent-driven-development`. |
+| `chunked-delivery` | Runs an approved plan one chunk at a time. Each chunk: snapshot, implement, review to clean on medium and high risk (three fix rounds, five on high; low-risk chunks skip review), report in twenty lines, **stop**. Nothing proceeds until the human says `next`. Ends with a whole-tree review. |
 | `review-routing` | Maps changed paths in a diff to the rubrics below and says how to apply a single-file rubric to a multi-file diff — one pass per rubric, only the two rubric files loaded, judge only what the change contributed, merge into one ranked list. Scoped re-reviews skip it entirely. |
 
 ### Review rubrics

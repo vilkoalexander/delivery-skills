@@ -35,8 +35,9 @@ inherits the session's most expensive. Pick the cheapest that can hold the role.
 resolve to the current generation of that family, so the table stays right
 when a point release ships. Never pass a dated model ID.
 
-Tag each task in the plan with its risk class, and let the tag pick the model.
-A judgement made fresh at dispatch time drifts toward whatever is cheapest.
+Tag each task in the plan with its risk class (next section), and let the tag
+pick the model. A judgement made fresh at dispatch time drifts toward whatever
+is cheapest.
 
 Substitutions, in order:
 
@@ -57,6 +58,48 @@ Substitutions, in order:
 
 The roles and how they hand work to each other: `diagrams/roles-and-models.svg`
 in this repository.
+
+## Risk class
+
+Every plan task carries one of three classes. The class picks the models
+above, whether the chunk gets a review at all, and the fix-round cap. Classify
+on what the task **touches**, not on how hard it looks: any one predicate in a
+row puts the task in that row.
+
+| Class | Any of these | Wrong means |
+| --- | --- | --- |
+| **high** | Prisma schema or migration; the shared contract package (`libs/shared`, `packages/contracts`, or whatever the project calls it); auth, guards, strategies, sessions; payments, ledger, billing; deletes data or drops a column; env, secrets, CI, deploy; public API surface | Data lost or exposed, or consumers broken with no error |
+| **medium** | NestJS service, controller or module logic; a shared primitive, hook or util (`components/ui`, `hooks`, `lib`, `utils`) with callers outside the chunk; a changed signature anything else calls; state store, data fetching, error handling; a new runtime dependency; more than five files or three hundred lines | A behaviour bug others depend on, fixable in a normal fix round |
+| **low** | Feature-local UI (`features/<x>/…`, a leaf component); styling, copy, i18n; tests, docs, dev-tooling config; additive code with no callers yet; a rename inside one file; five files or fewer | Visible, local, and the human sees it at the gate |
+
+- **A chunk takes the highest class of its tasks.**
+- **Two rows match — the higher wins.** No averaging.
+- **Unsure is medium.** Low is never the default.
+- **Escalators.** Cannot name the callers of what changes: at least medium.
+  Touches the path production data takes: high. A small file count lowers
+  neither.
+- The human sees each chunk's class in the chunk list at plan approval.
+  Raising it needs no reason; lowering it gets a one-line reason recorded in
+  the plan.
+
+`bash scripts/risk.sh <paths…>` — or `git diff --name-only | bash
+scripts/risk.sh` — prints the class the path shapes suggest, one line per
+path with the rule it hit, then the class for the set. It sees paths, not
+content: it cannot know a signature changed or a caller exists. A floor to tag
+from, never a verdict. `RISK_HIGH` and `RISK_MEDIUM` take an extra regex each
+for the project's own always-high and always-medium paths.
+
+What each class buys:
+
+| Class | Implementer | Chunk review | Fix rounds | Cross-model |
+| --- | --- | --- | --- | --- |
+| low | Haiku 4.5 | none — the human reads the diff at the gate, and the whole-tree review at the end covers it | 0 | no |
+| medium | Haiku 4.5; Sonnet 5 when the task touches more than two files | Sonnet 5 | up to 3 | no |
+| high | Opus 5.5 | Opus 5.5 | up to 5 | yes |
+
+A low-risk chunk skipping review is the deliberate trade: the review seat and
+its fix rounds cost more than the human spends reading a small local diff, and
+nothing in that class is expensive to fix after the fact.
 
 ## Project constraints
 
@@ -96,8 +139,9 @@ single file. Where such a skill exists (often named `review-routing`), it owns
 the mapping and the single-file-to-diff adaptation. Never inline that mapping
 into a dispatch prompt: it drifts from the skill within two edits.
 
-**One reviewer per task** is the default, with those rubrics as its checklist.
-Fan out to a reviewer per rubric only when a task's diff spans two or more
+**One reviewer per chunk** is the default, on medium- and high-risk chunks
+only (see Risk class), with those rubrics as its checklist. Fan out to a
+reviewer per rubric only when a chunk's diff spans two or more
 domains *and* is large enough that one reviewer would read past its useful
 attention. Each fanned-out reviewer gets only its rubric's slice of the diff
 (`git diff -- <paths> > "$WORKSPACE/chunk-$N-<rubric>.diff"`). Fan-out costs a
@@ -152,8 +196,8 @@ confirmed first.
 The second opinion is a different model family reading the same diff. It attaches
 at two points, never inside the SDD fix loop:
 
-1. **Per task, high-risk only** — after the task review passes, before marking
-   the task complete.
+1. **Per chunk, high-risk only** — after the chunk review passes, before the
+   chunk report.
 2. **Whole working tree, always** — after the final whole-branch review, before
    handing off.
 

@@ -43,8 +43,9 @@ Plans for this skill group their tasks into **chunks**. One chunk is one thing a
 human can read in a sitting and judge as a whole — a slice that stands on its
 own, not an arbitrary task count. Typically one to three plan tasks.
 
-Each chunk carries a risk class. It picks the implementer and reviewer models,
-per `delivery-pipeline`.
+Each chunk carries a risk class, assigned by the rules in `delivery-pipeline`
+(its `scripts/risk.sh` suggests one from the paths). The class picks the
+models, whether the chunk is reviewed at all, and the fix-round cap.
 
 Before any dispatch, present the chunk list — name, risk, one line each — and
 **wait for approval**. This is the only plan-level gate; after it, approval is
@@ -59,16 +60,18 @@ For each approved chunk, in order:
 2. **Dispatch implementers.** One per task. Parallel only when the chunk's tasks
    touch disjoint files; sequential otherwise. Models per `delivery-pipeline`.
    They leave their work uncommitted and unstaged.
-3. **Snapshot the result** to `chunk-N.diff`, and dispatch the task reviewer
-   against that file — with the line that sends it to the project's rubric
-   routing, if the project has one. Do not read the snapshot yourself.
+3. **Snapshot the result** to `chunk-N.diff`. On a **low-risk chunk stop
+   here** — no reviewer, no fix rounds; the human reads the diff at the gate
+   and the whole-tree review at the end covers it. Otherwise dispatch the task
+   reviewer against that file — with the line that sends it to the project's
+   rubric routing, if the project has one. Do not read the snapshot yourself.
 4. **Run fix rounds to clean.** Findings go back to the implementer, then a
    scoped re-review that gets the findings and the fix diff, nothing else.
    This is agent work — do not surface individual rounds. The round counter
-   trips at **three** on a low- or medium-risk chunk and **five** on a
-   high-risk one; the human reads the chunk next anyway, so a parked finding
-   costs them a minute where two more rounds cost two implementer and two
-   re-review seats. Park what remains and say so in the report.
+   trips at **three** on a medium-risk chunk and **five** on a high-risk one;
+   the human reads the chunk next anyway, so a parked finding costs them a
+   minute where two more rounds cost two implementer and two re-review seats.
+   Park what remains and say so in the report.
 5. **Cross-model review** if the chunk is high-risk — `delivery-pipeline` has the
    invocation and the adjudication rules. Its findings are claims you rule on,
    not a fix queue.
@@ -88,7 +91,8 @@ Chunk N/M — <name>   [risk]
 
 Changed: <three to five lines. What it now does and why — not a file list.>
 
-Fixed:   <one line per finding the review caught and the implementer fixed>
+Fixed:   <one line per finding the review caught and the implementer fixed,
+          or "not reviewed — low risk">
 Parked:  <one line per finding left standing, each with its reason>
 Cross:   <one line verdict, or "not run — low risk">
 Rulings: <only decisions that could have gone the other way. Omit if none.>
@@ -123,9 +127,9 @@ question is not approval.
 ## After the last chunk
 
 Approving the final chunk does not end the run. Per-chunk review only ever saw
-one chunk's diff; nothing has yet judged the work as a whole — where chunk 3
-quietly broke what chunk 1 established, or where four clean chunks add up to an
-incoherent module.
+one chunk's diff, and low-risk chunks saw no reviewer at all; nothing has yet
+judged the work as a whole — where chunk 3 quietly broke what chunk 1
+established, or where four clean chunks add up to an incoherent module.
 
 Run both, once, before handing off:
 

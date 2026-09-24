@@ -4,9 +4,11 @@ graph TD
   A -- yes --> S1[Snapshot before<br/>chunk-N-before.diff]
   S1 --> I[Dispatch implementers<br/>one per task, model by risk]
   I --> S2[Snapshot after<br/>chunk-N.diff]
-  S2 --> R[Task reviewer<br/>routes diff to rubrics]
+  S2 --> L{Low risk?}
+  L -- yes, no review --> REP
+  L -- no --> R[Task reviewer<br/>routes diff to rubrics]
   R --> F{Findings?}
-  F -- yes, max 5 rounds --> X[Fix implementer +<br/>scoped re-review]
+  F -- yes, max 3 rounds<br/>5 on high risk --> X[Fix implementer +<br/>scoped re-review]
   X --> F
   F -- clean --> C{High risk?}
   C -- yes --> M[Cross-model review<br/>second model family]
