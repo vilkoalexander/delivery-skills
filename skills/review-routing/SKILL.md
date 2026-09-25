@@ -99,8 +99,8 @@ shape is wrong, findings in the consumers are downstream noise.
 
 ## Effort and severity
 
-Default effort is **medium**: 🔴 and 🟡 only, roughly seven findings at most,
-and zero findings is a valid outcome. **high** adds ⚪ nits, still ranked.
+Default effort is **medium**: 🔴 and 🟡 only, and zero findings is a valid
+outcome. **high** adds ⚪ nits, still ranked.
 
 The rubrics emit 🔴 / 🟡 / ⚪. A diff review that reports under Critical /
 Important / Minor headings maps them:

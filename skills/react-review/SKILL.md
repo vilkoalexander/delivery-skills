@@ -31,9 +31,9 @@ Scripts live next to this file; installed as a plugin, under
 
 ## Effort
 
-Default **medium**: 🔴 and 🟡 only, roughly seven findings at most, and
-**zero findings is a valid outcome** — say so and stop. **high** adds ⚪ nits,
-still ranked. A short report of real defects beats an exhaustive one.
+Default **medium**: 🔴 and 🟡 only, and **zero findings is a valid outcome**
+— say so and stop. **high** adds ⚪ nits, still ranked. A short report of
+real defects beats an exhaustive one.
 
 ## Output format
 

@@ -27,7 +27,7 @@ Skills then appear as `delivery-skills:<name>`. Update later with
 ### One chunk at a time
 
 A plan is grouped into chunks a human can read in one sitting. Each chunk is
-snapshotted, implemented, reviewed to clean, reported in under twenty lines,
+snapshotted, implemented, reviewed to clean, reported in a few lines,
 and then the run **stops** until the human answers. Nothing is committed at
 any point; the working tree is the deliverable.
 
@@ -62,7 +62,7 @@ them open at excalidraw.com for editing.
 | Skill | What it settles |
 | --- | --- |
 | `delivery-pipeline` | Model per role (controller, implementer, reviewer, re-review), the three risk classes and what each buys (`scripts/risk.sh` suggests one from changed paths), the Global Constraints block every plan carries, how review works when nothing is committed, what the controller does and does not read, and where a second model family reads the diff. Builds on `superpowers:subagent-driven-development`. |
-| `chunked-delivery` | Runs an approved plan one chunk at a time. Each chunk: snapshot, implement, review to clean on medium and high risk (three fix rounds, five on high; low-risk chunks skip review), report in twenty lines, **stop**. Nothing proceeds until the human says `next`. Ends with a whole-tree review. |
+| `chunked-delivery` | Runs an approved plan one chunk at a time. Each chunk: snapshot, implement, review to clean on medium and high risk (three fix rounds, five on high; low-risk chunks skip review), report briefly, **stop**. Nothing proceeds until the human says `next`. Ends with a whole-tree review. |
 | `review-routing` | Maps changed paths in a diff to the rubrics below and says how to apply a single-file rubric to a multi-file diff — one pass per rubric, only the two rubric files loaded, judge only what the change contributed, merge into one ranked list. Scoped re-reviews skip it entirely. |
 
 ### Review rubrics
@@ -109,9 +109,8 @@ And one output shape:
 Verdict: SHIP | FIX FIRST — <one line>
 ```
 
-Effort defaults to medium — roughly seven findings, 🔴 and 🟡 only, and
-**zero findings is a valid outcome**. A short report of real defects beats an
-exhaustive one.
+Effort defaults to medium — 🔴 and 🟡 only, and **zero findings is a valid
+outcome**. A short report of real defects beats an exhaustive one.
 
 ## The project layer
 

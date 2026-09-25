@@ -67,8 +67,9 @@ For each approved chunk, in order:
    rubric routing, if the project has one. Do not read the snapshot yourself.
 4. **Run fix rounds to clean.** Findings go back to the implementer, then a
    scoped re-review that gets the findings and the fix diff, nothing else.
-   This is agent work — do not surface individual rounds. The round counter
-   trips at **three** on a medium-risk chunk and **five** on a high-risk one;
+   Say in one line that fix rounds are running; the rounds themselves are not
+   narrated. The round counter trips at **three** on a medium-risk chunk and
+   **five** on a high-risk one;
    the human reads the chunk next anyway, so a parked finding costs them a
    minute where two more rounds cost two implementer and two re-review seats.
    Park what remains and say so in the report.
@@ -101,8 +102,7 @@ Read it:  git diff
 Next:     "next" · "fix <thing>" · "redo" · "stop"
 ```
 
-Keep it under twenty lines. A report longer than the diff it describes has failed
-at its job.
+A report longer than the diff it describes has failed at its job.
 
 ## Resuming
 
@@ -137,8 +137,9 @@ Run both, once, before handing off:
    tree, not the last chunk's. On the most capable model per `delivery-pipeline`.
 2. **Cross-model over the whole working tree**, regardless of risk class.
 
-Findings here follow the same rule as a chunk's: fix rounds run silently, what
-survives gets reported. Then report once more, in the chunk format, named
+Findings here follow the same rule as a chunk's: one line that rounds are
+running, then what survives gets reported. Report once more, in the chunk
+format, named
 `Final — whole tree`.
 
 If either pass finds something that changes a chunk already approved, say so

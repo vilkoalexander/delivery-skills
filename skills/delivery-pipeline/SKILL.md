@@ -44,10 +44,12 @@ Substitutions, in order:
 - **Long runs** — a plan over six chunks, or one whose context you expect to
   outgrow what Opus holds, runs the controller on Fable 5.1 (1M context,
   thinking always on). On anything shorter Fable pays for reasoning the plan
-  does not need: Opus 5.5 matches it on coding and costs about 40% less.
-- **Opus 5.5 defaults to `medium` effort.** Every other current model defaults
-  to `high`. Pass effort explicitly on Opus 5.5 reviewer and one-way-door
-  dispatches, or its reviews run shallower than the Sonnet ones.
+  does not need: Opus 5.5 matches it on coding and costs about 60% less.
+- **Opus 5.5 defaults to `medium` effort**; Sonnet 5 and Fable 5.1 default to
+  `high`, and Haiku 4.5 takes no effort setting. The Agent tool takes no effort
+  per call — it comes from the agent definition (`.claude/agents/<role>.md`
+  frontmatter). Give the Opus 5.5 reviewer and one-way-door roles a definition
+  with effort `high`, or their reviews run shallower than the Sonnet ones.
 - **Cost pressure** — lower the *effort* of a role before lowering its model.
   Implementers and re-reviews run fine at low or medium effort; reviewers stay
   at high. On the Claude 5 family, a cheaper model at high effort is usually
@@ -208,10 +210,11 @@ CODEX_ROOT=$(ls -d ~/.claude/plugins/cache/openai-codex/codex/*/ | sort -V | tai
 node "${CODEX_ROOT}scripts/codex-companion.mjs" adversarial-review --background --scope working-tree <focus text>
 ```
 
-Gotchas, both verified:
+Gotchas, verified against codex 1.0.4:
 
 - `adversarial-review` takes focus text positionally, so an **unrecognised flag
-  becomes focus text**. There is no `--help`; passing one starts a real review.
+  becomes focus text** and starts a real review. `--help` works only bare
+  (`codex-companion.mjs --help`), never after a subcommand.
 - `review` is the built-in reviewer and takes no focus text. Use
   `adversarial-review` whenever you need to aim it.
 - `--scope` accepts `auto`, `working-tree` or `branch`. Staged-only and

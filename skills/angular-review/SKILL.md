@@ -41,9 +41,8 @@ Scripts live next to this file; installed as a plugin, under
 
 ## Effort
 
-Default **medium**: 🔴 and 🟡 only, roughly seven findings at most, and
-**zero findings is a valid outcome** — say so and stop. **high** adds ⚪ nits,
-still ranked.
+Default **medium**: 🔴 and 🟡 only, and **zero findings is a valid outcome**
+— say so and stop. **high** adds ⚪ nits, still ranked.
 
 ## Output format
 
