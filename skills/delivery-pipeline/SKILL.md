@@ -26,7 +26,7 @@ inherits the session's most expensive. Pick the cheapest that can hold the role.
 | Controller | Opus 5.5 | the session itself | Holds plan and chunk summaries; Fable 5.1 only on long runs (below) |
 | Implementer — mechanical | Haiku 4.5 | `model: haiku` | One or two files against a specified plan |
 | Implementer — one-way doors | Opus 5.5 | `model: opus` | Schema, auth, money, migrations, public contracts |
-| Task reviewer — default | Sonnet 5 | `model: sonnet` | Reads a diff against rubrics; needs judgement, not the top tier |
+| Task reviewer — default | Sonnet 5.5 | `model: sonnet` | Reads a diff against rubrics; needs judgement, not the top tier |
 | Task reviewer — high risk | Opus 5.5 | `model: opus` | Anything on the one-way-door list above |
 | Scoped re-review | Haiku 4.5 | `model: haiku` | Small fix diff, findings already written |
 | Final whole-branch review | Opus 5.5 | `model: opus` | SDD mandates the most capable available |
@@ -45,7 +45,7 @@ Substitutions, in order:
   outgrow what Opus holds, runs the controller on Fable 5.1 (1M context,
   thinking always on). On anything shorter Fable pays for reasoning the plan
   does not need: Opus 5.5 matches it on coding and costs about 60% less.
-- **Opus 5.5 defaults to `medium` effort**; Sonnet 5 and Fable 5.1 default to
+- **Opus 5.5 defaults to `medium` effort**; Sonnet 5.5 and Fable 5.1 default to
   `high`, and Haiku 4.5 takes no effort setting. The Agent tool takes no effort
   per call — it comes from the agent definition (`.claude/agents/<role>.md`
   frontmatter). Give the Opus 5.5 reviewer and one-way-door roles a definition
@@ -98,7 +98,7 @@ What each class buys:
 | Class | Implementer | Chunk review | Fix rounds | Cross-model |
 | --- | --- | --- | --- | --- |
 | low | Haiku 4.5 | none — the human reads the diff at the gate, and the whole-tree review at the end covers it | 0 | no |
-| medium | Haiku 4.5; Sonnet 5 when the task touches more than two files | Sonnet 5 | up to 3 | no |
+| medium | Haiku 4.5; Sonnet 5.5 when the task touches more than two files | Sonnet 5.5 | up to 3 | no |
 | high | Opus 5.5 | Opus 5.5 | up to 5 | yes |
 
 A low-risk chunk skipping review is the deliberate trade: the review seat and
