@@ -26,6 +26,25 @@ will skim both.
 | `nestjs-service-review.md` | `docs/review/nestjs-service-review.md` |
 | `prisma-schema-review.md` | `docs/review/prisma-schema-review.md` |
 | `api-contract-review.md` | `docs/review/api-contract-review.md` |
+| `test-review.md` | `docs/review/test-review.md` |
+| `observability-review.md` | `docs/review/observability-review.md` |
+
+## Script variables
+
+The rubric scripts take project-specific names from the environment:
+
+| Variable | Used by | Meaning |
+| --- | --- | --- |
+| `TENANT_FIELD` | nestjs, prisma | tenant key column; `""` for single-tenant |
+| `EXEMPT_MODELS` | nestjs, prisma | models deliberately without the tenant key, `\|`-separated |
+| `LEDGER_TABLES` | prisma | append-only tables by `@@map` name, `\|`-separated |
+| `CLIENT_LIBS` | api-contract | package dirs that reach a client bundle |
+| `INVENTORY_LIMIT` | all `inventory.sh` | lines per section before the output is cut with an overflow count (default 40) |
+| `INVENTORY_DOCS` | react, angular | `1` adds each module's first doc-comment line |
+| `REVIEW_FILES` | nestjs | space-separated files under review; limits the missing-spec check to them |
+| `LOG_CALL`, `SECRETS` | observability | regex for the project's log call; extra field names that must never be logged |
+| `TEST_CMD` | test `revert-check.sh` | command that runs the test files passed to it, when detection from `package.json` is wrong |
+| `STATIC_SKIP`, `STATIC_TEST` | `static-gate.sh` | steps to skip (`typecheck lint format test prisma`); override for the related-tests command |
 
 ## The other way: fork the rubric into the project
 

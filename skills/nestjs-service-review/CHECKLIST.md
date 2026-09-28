@@ -25,7 +25,9 @@ Vitest) — do not recommend a version the project has not adopted.
 
 ### Tooling coverage
 
-Do not assume what lint catches. Run once per review:
+Do not assume what lint catches. When the dispatch handed you the static
+gate's coverage lines, use them and skip the command. Otherwise run once
+per review:
 
 ```bash
 npx eslint --print-config <file> | grep -E '"parserOptions"|"project"|no-floating-promises|no-misused-promises|require-await|no-console|no-explicit-any'
@@ -42,6 +44,11 @@ and these have zero coverage — squarely this skill's job:
 
 Rules at `"warn"` do not fail the build — still report. `scripts/scan.sh`
 targets the commonly absent set.
+
+For the full picture — every analyzer the repository has or lacks, and the
+strict recipe for each missing one — `bash
+${CLAUDE_PLUGIN_ROOT}/skills/delivery-pipeline/scripts/static-gate.sh
+coverage` and its `STATIC-SETUP.md`.
 
 ## Severity floor
 

@@ -47,8 +47,14 @@ Each chunk carries a risk class, assigned by the rules in `delivery-pipeline`
 (its `scripts/risk.sh` suggests one from the paths). The class picks the
 models, whether the chunk is reviewed at all, and the fix-round cap.
 
-Before any dispatch, present the chunk list — name, risk, one line each — and
-**wait for approval**. This is the only plan-level gate; after it, approval is
+Order chunks leaf first. A change to what an existing caller already gets is
+its own chunk, as late as the plan allows, behind a flag when the project has
+flags. Trunk exposure is then one small chunk the human reads hardest, not a
+slice of every chunk.
+
+Before any dispatch, run `static-gate.sh coverage` per `delivery-pipeline`
+and present the chunk list — name, risk, one line each — with any proposed
+tooling chunk first, marked as optional. Then **wait for approval**. This is the only plan-level gate; after it, approval is
 per chunk.
 
 ## The loop
@@ -59,16 +65,21 @@ For each approved chunk, in order:
    the only undo this run has.
 2. **Dispatch implementers.** One per task. Parallel only when the chunk's tasks
    touch disjoint files; sequential otherwise. Models per `delivery-pipeline`.
-   They leave their work uncommitted and unstaged.
-3. **Snapshot the result** to `chunk-N.diff`. On a **low-risk chunk stop
-   here** — no reviewer, no fix rounds; the human reads the diff at the gate
-   and the whole-tree review at the end covers it. Otherwise dispatch the task
-   reviewer against that file — with the line that sends it to the project's
-   rubric routing, if the project has one. Do not read the snapshot yourself.
+   They leave their work uncommitted and unstaged, and their report ends with
+   the Proof block from `delivery-pipeline`; one without it goes back for it.
+3. **Snapshot the result** to `chunk-N.diff`, then **run the static gate**
+   on the changed paths per `delivery-pipeline` — typecheck, lint, format,
+   related tests, and the revert check when tests changed. A failure goes
+   back to the implementer with the tool output as fix round zero; nothing
+   else happens until it is clean. On a **low-risk chunk stop here** — no
+   reviewer, no fix rounds; the human reads the proof and the diff at the
+   gate and the whole-tree review at the end covers it. Otherwise dispatch
+   the task reviewer against the snapshot — with the line that sends it to
+   the project's rubric routing, if the project has one. Do not read the
+   snapshot yourself.
 4. **Run fix rounds to clean.** Findings go back to the implementer, then a
    scoped re-review that gets the findings and the fix diff, nothing else.
-   Say in one line that fix rounds are running; the rounds themselves are not
-   narrated. The round counter trips at **three** on a medium-risk chunk and
+   Say in one line that fix rounds are running. The round counter trips at **three** on a medium-risk chunk and
    **five** on a high-risk one;
    the human reads the chunk next anyway, so a parked finding costs them a
    minute where two more rounds cost two implementer and two re-review seats.
@@ -82,18 +93,28 @@ For each approved chunk, in order:
 ## The chunk report
 
 This is what a human reads. It is not the ledger — the ledger is crash recovery
-and never appears in a report. The counts come from `git diff --stat`; the
-`Changed` lines come from the implementer and reviewer reports. The controller
+and never appears in a report. The counts come from `git diff --stat`, the
+`Files` line from `git diff --name-only | bash scripts/risk.sh`, and the
+`Changed` lines from the implementer and reviewer reports. The controller
 does not read the diff to write this.
 
 ```
 Chunk N/M — <name>   [risk]
 <files> files changed, <added>/<removed> lines
 
+Files:   high: <each path> · medium: <each path> · low: <count> files
+         (from `scripts/risk.sh` on the after-snapshot; read high closely,
+          skim medium, take low on its proof)
+
 Changed: <three to five lines. What it now does and why — not a file list.>
 
-Fixed:   <one line per finding the review caught and the implementer fixed,
-          or "not reviewed — low risk">
+Proof:   <one line per task — ran · shows · exercised, condensed from the
+          implementer's block — then "not verified: <items>" or
+          "not verified: nothing">
+
+Fixed:   <"static: clean" or "static: <n> type/lint/test failures, fixed";
+          then one line per finding the review caught and the implementer
+          fixed, or "not reviewed — low risk">
 Parked:  <one line per finding left standing, each with its reason>
 Cross:   <one line verdict, or "not run — low risk">
 Rulings: <only decisions that could have gone the other way. Omit if none.>
@@ -134,13 +155,21 @@ established, or where four clean chunks add up to an incoherent module.
 Run both, once, before handing off:
 
 1. **Whole-tree review** — one reviewer against a snapshot of the entire working
-   tree, not the last chunk's. On the most capable model per `delivery-pipeline`.
+   tree, not the last chunk's, with the plan's goal and acceptance criteria as
+   input. It answers spec first, then code quality. On the most capable model
+   per `delivery-pipeline`.
 2. **Cross-model over the whole working tree**, regardless of risk class.
 
 Findings here follow the same rule as a chunk's: one line that rounds are
 running, then what survives gets reported. Report once more, in the chunk
-format, named
-`Final — whole tree`.
+format, named `Final — whole tree`, with one extra line after `Proof:`:
+
+```
+Spec:    met · or one line per acceptance criterion the tree does not meet
+```
+
+Merge-ready is not launch-ready. A `Spec:` line with gaps is a plan
+conversation with the human, not a fix round.
 
 If either pass finds something that changes a chunk already approved, say so
 plainly rather than quietly re-opening it. Approval was given on what was shown.

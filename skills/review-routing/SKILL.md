@@ -31,12 +31,14 @@ fixed directory depth — backend units nest.
 | A shared contract package consumed by more than one app — `libs/shared/**`, `packages/shared/**`, `packages/contracts/**`, `packages/api-types/**`, or whatever the project names it | `api-contract-review` |
 | `*.tsx` under a React or React Native app | `react-review` |
 | `*.component.ts`, `*.directive.ts`, `*.pipe.ts` with an `@Component`/`@Directive`/`@Pipe` decorator, and their `.html` templates, under an Angular app | `angular-review` |
+| `*.spec.ts`, `*.test.ts`, `*.test.tsx`, anything under `__tests__/`, `test/`, `tests/`, `e2e/` | `test-review` |
+| Any backend runtime file — the NestJS row above plus `*.gateway.ts`, `*.processor.ts`, `*.consumer.ts`, `*.job.ts`, `*.middleware.ts`, `*.resolver.ts` — **in addition to** its own row | `observability-review` |
 
 Two rows can claim `*.pipe.ts`. An Angular pipe carries `@Pipe`; a NestJS pipe
 implements `PipeTransform`. Open the file's first twenty lines and route on the
 decorator.
 
-No row matches — tests, scripts, config, docs, plain `.ts` utilities — means no
+No row matches — scripts, config, docs, plain `.ts` utilities — means no
 domain rubric applies. Review those on general quality alone and say so in one
 line rather than stretching a rubric to reach them.
 
@@ -92,6 +94,12 @@ When the controller fans out one reviewer per rubric, each reviewer gets only
 its rubric's slice of the diff (`git diff -- <paths>`), not the whole
 snapshot. A reviewer handed a full snapshot reads only the hunks its rubric
 owns.
+
+`test-review` judges the tests against the diff they cover, so its pass
+reads the non-test hunks too; when a revert-check result was handed to you,
+its list is the first set of findings. `observability-review` is a second
+pass over the backend rows, never a replacement for `nestjs-service-review`;
+when the controller gives it its own seat, that reviewer runs only this row.
 
 A change that crosses the shared contract package and any of its consumers is
 a contract change first. Run `api-contract-review` before the others: if the

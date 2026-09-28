@@ -36,6 +36,11 @@ duration. There is no schema linter that knows these.
 `prisma generate` must pass after any schema change — it is a build
 dependency, not an optional step.
 
+For the full picture — every analyzer the repository has or lacks, and the
+strict recipe for each missing one — `bash
+${CLAUDE_PLUGIN_ROOT}/skills/delivery-pipeline/scripts/static-gate.sh
+coverage` and its `STATIC-SETUP.md`.
+
 ## Severity floor
 
 Always 🔴, regardless of effort:

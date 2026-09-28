@@ -26,7 +26,9 @@ Two switches change the rules:
 
 ### Tooling coverage
 
-Do not assume what lint catches. Run once per review:
+Do not assume what lint catches. When the dispatch handed you the static
+gate's coverage lines, use them and skip the command. Otherwise run once
+per review:
 
 ```bash
 npx eslint --print-config <file> | grep -E '"(react-hooks/|react/jsx-key|no-console|@typescript-eslint/no-explicit-any)' 
@@ -37,6 +39,11 @@ resolve to `"warn"` do not fail the build and get scrolled past — still report
 them. Rules that are **absent** (`rules-of-hooks`, `exhaustive-deps`,
 `jsx-key`, `no-console`, any a11y plugin) have zero automated coverage and are
 squarely this skill's job. `scripts/scan.sh` targets the absent set.
+
+For the full picture — every analyzer the repository has or lacks, and the
+strict recipe for each missing one — `bash
+${CLAUDE_PLUGIN_ROOT}/skills/delivery-pipeline/scripts/static-gate.sh
+coverage` and its `STATIC-SETUP.md`.
 
 ## Severity floor
 

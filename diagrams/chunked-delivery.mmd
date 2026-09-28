@@ -4,21 +4,23 @@ graph TD
   A -- yes --> S1[Snapshot before<br/>chunk-N-before.diff]
   S1 --> I[Dispatch implementers<br/>one per task, model by risk]
   I --> S2[Snapshot after<br/>chunk-N.diff]
-  S2 --> L{Low risk?}
+  S2 --> SG{Static gate<br/>tsc · lint · tests · revert check}
+  SG -- fails, round zero --> I
+  SG -- clean --> L{Low risk?}
   L -- yes, no review --> REP
-  L -- no --> R[Task reviewer<br/>routes diff to rubrics]
+  L -- no --> R[Task reviewer<br/>routes diff to rubrics<br/>+ observability pass on backend]
   R --> F{Findings?}
   F -- yes, max 3 rounds<br/>5 on high risk --> X[Fix implementer +<br/>scoped re-review]
   X --> F
   F -- clean --> C{High risk?}
   C -- yes --> M[Cross-model review<br/>second model family]
   C -- no --> REP
-  M --> REP[Chunk report<br/>under 20 lines]
+  M --> REP[Chunk report<br/>proof + changes, under 20 lines]
   REP --> W{Human says}
   W -- next --> S1
   W -- fix thing --> X
   W -- redo --> U[git apply -R snapshot<br/>re-dispatch]
   U --> S2
   W -- stop --> H
-  W -- last chunk approved --> T[Whole-tree review +<br/>cross-model, once]
+  W -- last chunk approved --> T[Whole-tree review<br/>spec then code +<br/>cross-model, once]
   T --> H[Hand off:<br/>working tree, nothing committed]

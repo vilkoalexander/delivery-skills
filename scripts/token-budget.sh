@@ -24,6 +24,9 @@ echo
 echo "Single-file review entry point (SKILL.md, not loaded in diff review)"
 for r in skills/*-review; do row "$(basename "$r")" "$(t "$r/SKILL.md")"; done
 echo
+echo "Loaded only when a tooling chunk is proposed"
+row "delivery-pipeline/STATIC-SETUP.md" "$(t skills/delivery-pipeline/STATIC-SETUP.md)"
+echo
 echo "Skill descriptions in every session's system prompt (chars)"
 row "all skills" "$(grep -h '^description:' skills/*/SKILL.md | wc -c | tr -d ' ')"
 echo

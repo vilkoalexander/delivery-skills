@@ -21,7 +21,8 @@ and `nestjs-zod` supports Zod 4 only from v5.
 
 ### Tooling coverage
 
-Do not assume. Check two things:
+Do not assume. When the dispatch handed you the static gate's coverage
+lines, item 1 is answered there. Otherwise check two things:
 
 ```bash
 # 1. Does anything stop a client app importing a backend-only package?
@@ -35,6 +36,11 @@ optional, that an enum lost a member, or that an installed client is parsing
 the old shape. If nothing enforces the dependency direction, say so once and
 name the gate that would (Nx project tags + `depConstraints`, or an ESLint
 `no-restricted-imports` rule).
+
+For the full picture — every analyzer the repository has or lacks, and the
+strict recipe for each missing one — `bash
+${CLAUDE_PLUGIN_ROOT}/skills/delivery-pipeline/scripts/static-gate.sh
+coverage` and its `STATIC-SETUP.md`.
 
 ## Severity floor
 

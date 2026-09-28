@@ -32,7 +32,9 @@ own generation choice (project layer) decides whether omitting it is a finding.
 
 ### Tooling coverage
 
-Do not assume what lint catches. Run once per review:
+Do not assume what lint catches. When the dispatch handed you the static
+gate's coverage lines, use them and skip the command. Otherwise run once
+per review:
 
 ```bash
 npx eslint --print-config <file> | grep -E '"@angular-eslint/(prefer-signals|prefer-standalone|prefer-inject|prefer-on-push-component-change-detection|template/prefer-control-flow|template/use-track-by-function|template/click-events-have-key-events|template/interactive-supports-focus|no-async-lifecycle-method)|rxjs-angular|no-console'
@@ -43,6 +45,11 @@ not fail the build — still report. Absent rules are this skill's job.
 `scripts/scan.sh` targets the commonly absent set. The compiler itself owns:
 `@for` track, unused standalone imports (v19+ diagnostic), template type
 errors under `strictTemplates`.
+
+For the full picture — every analyzer the repository has or lacks, and the
+strict recipe for each missing one — `bash
+${CLAUDE_PLUGIN_ROOT}/skills/delivery-pipeline/scripts/static-gate.sh
+coverage` and its `STATIC-SETUP.md`.
 
 ## Severity floor
 

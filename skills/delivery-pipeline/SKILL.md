@@ -78,8 +78,10 @@ row puts the task in that row.
 - **Two rows match — the higher wins.** No averaging.
 - **Unsure is medium.** Low is never the default.
 - **Escalators.** Cannot name the callers of what changes: at least medium.
-  Touches the path production data takes: high. A small file count lowers
-  neither.
+  Touches the path production data takes: high. Changes what an existing
+  caller already gets, with no flag in front of it: one class up. Additive
+  code behind a flag that ships off stays where its paths put it. A small
+  file count lowers none of these.
 - The human sees each chunk's class in the chunk list at plan approval.
   Raising it needs no reason; lowering it gets a one-line reason recorded in
   the plan.
@@ -123,11 +125,81 @@ Build the block once, at controller start, from what the project already states:
 - Never run git commit, git add, git push, or open a PR. Work stays uncommitted.
 - Names describe behaviour — never a sprint, quarter, wave or ticket number.
 - Follow the patterns already in the files being changed, not a better idea.
+- A test that still passes with the change reverted is not a test. Assert the
+  behaviour the change adds, or leave the test out.
 - <project invariants, one line each, each stated as a rule a reviewer can check>
 ```
 
 Keep it short enough that it stays read. Constraints specific to one task belong
 in that task's text; this block is what binds every task.
+
+## Implementer proof
+
+On a low-risk chunk the implementer's report is the only check before the
+human; on the others it is what the human reads before the diff. SDD's
+implementer prompt already asks for test results, which is one kind of proof.
+Append this to its `## Report Format`, and the report file ends with it filled
+in:
+
+```
+## Proof
+- ran: <exact command> — <the pass/fail line from its output>
+- shows: <path to a screenshot or recording of the change on screen>
+  (only when the diff touches a rendered file)
+- exercised: <the output itself, pasted — a log line, a response body, a
+  CLI result — of the changed path running>   (medium and high risk)
+- not verified: <one line per thing you did not run or see, or "nothing">
+```
+
+A test written but not run is not proof; it goes under `not verified`. A
+sentence about what was checked is not proof either: `exercised` holds
+output, and "manually verified N cases" goes back for the output. A report
+that arrives without the block goes back for the block, not for a second
+implementation. The controller condenses the block into the chunk
+report's `Proof:` line and routes on `not verified`: on a high-risk chunk each
+item there becomes a reviewer focus, on a low-risk chunk it is what the human
+checks first.
+
+## Static gate
+
+Whatever the toolchain can decide, it decides before a reviewer reads a line.
+`bash scripts/static-gate.sh` next to this file has two modes.
+
+**`coverage`, once per run, at controller start.** It prints what the
+project enforces — strict flags, type-aware lint, the rules each rubric cares
+about at error / warn / absent, prettier, module boundaries, pre-commit — and
+ends with an `ABSENT:` list. Two lines of the Global Constraints block come
+from it:
+
+```
+- Enforced by tooling, never a finding: <rules at error>
+- Not enforced, reviewers report: <the ABSENT list>
+```
+
+A rubric's own "Tooling coverage" step then reads those lines instead of
+running `eslint --print-config` per review; that is one invocation per run
+in place of one per reviewer. When the report ends with a `SETUP:` line,
+name a **tooling chunk** at plan approval, first in the list and marked
+optional: the sections it names in `STATIC-SETUP.md` next to this file are
+the strict recipe for each missing piece — what to install, the config, and
+the script that makes warnings fail. Load that file only when the human
+takes the chunk; its implementer gets the named sections as the task text.
+One chunk of config removes that class of finding from every review after
+it. Propose it; never add it unasked.
+
+**`check <paths>`, after every after-snapshot, before any reviewer, on every
+risk class.** It runs the project's typecheck, lint, format, `prisma
+validate` and related tests over the changed paths and exits non-zero with
+the tool output. A failure goes back to the implementer with that output as
+**fix round zero**: no reviewer has been dispatched, so it does not count
+against the review cap. Two static rounds, then park it and say so. The
+reviewer only ever sees a diff that already passes what a machine can check.
+
+When the diff touches tests, `test-review`'s `scripts/revert-check.sh` runs
+here too: it reverses the non-test hunks, runs the changed tests, restores
+the tree, and names any test that still passed. Each one is a finding
+before a reviewer reads it, and it is the check behind the Global
+Constraints line about tests that survive reversion.
 
 ## Reviewer dispatch
 
@@ -142,13 +214,20 @@ the mapping and the single-file-to-diff adaptation. Never inline that mapping
 into a dispatch prompt: it drifts from the skill within two edits.
 
 **One reviewer per chunk** is the default, on medium- and high-risk chunks
-only (see Risk class), with those rubrics as its checklist. Fan out to a
+only (see Risk class), with those rubrics as its checklist; on a backend
+chunk the routing adds `observability-review` as a second pass over the
+backend rows, in the same seat. Fan out to a
 reviewer per rubric only when a chunk's diff spans two or more
 domains *and* is large enough that one reviewer would read past its useful
 attention. Each fanned-out reviewer gets only its rubric's slice of the diff
 (`git diff -- <paths> > "$WORKSPACE/chunk-$N-<rubric>.diff"`). Fan-out costs a
 full review seat each and leaves you merging and de-duplicating findings. When
 you do it, record why.
+
+**The whole-tree reviewer gets the plan's goal and acceptance criteria**
+alongside the snapshot and the Global Constraints, and answers spec before
+quality: does the tree do what the plan said, then is the code sound. Chunk
+reviewers do not get the criteria; one chunk cannot meet a spec on its own.
 
 **Scoped re-reviews get none of this.** No rubric line, no `review-routing`:
 the re-reviewer receives the findings list and the fix diff, per SDD's

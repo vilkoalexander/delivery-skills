@@ -1,9 +1,9 @@
 {
   "name": "delivery-skills",
-  "version": "0.3.1",
-  "description": "Subagent-driven delivery with human review at every chunk, plus single-file review rubrics for React, Angular, NestJS, Prisma and shared API contracts",
+  "version": "0.4.0",
+  "description": "Subagent-driven delivery with human review at every chunk, a static gate before every reviewer, and single-file review rubrics for React, Angular, NestJS, Prisma, shared API contracts, tests and backend observability",
   "author": { "name": "Alexander Vilko", "url": "https://github.com/vilkoalexander" },
   "repository": "https://github.com/vilkoalexander/delivery-skills",
   "license": "MIT",
-  "keywords": ["claude-code", "skills", "code-review", "subagents", "react", "angular", "nestjs", "prisma"]
+  "keywords": ["claude-code", "skills", "code-review", "subagents", "react", "angular", "nestjs", "prisma", "testing", "observability"]
 }
