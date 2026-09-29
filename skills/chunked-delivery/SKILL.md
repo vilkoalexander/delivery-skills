@@ -108,6 +108,8 @@ Files:   high: <each path> · medium: <each path> · low: <count> files
 
 Changed: <three to five lines. What it now does and why — not a file list.>
 
+Flow:    <a `graph LR` mermaid block, or omit the line — see below>
+
 Proof:   <one line per task — ran · shows · exercised, condensed from the
           implementer's block — then "not verified: <items>" or
           "not verified: nothing">
@@ -124,6 +126,34 @@ Next:     "next" · "fix <thing>" · "redo" · "stop"
 ```
 
 A report longer than the diff it describes has failed at its job.
+
+### The Flow line
+
+A diagram of the chunk, not of its files. Draw one when the `Changed` lines
+describe something moving — a request, an event, a job, a row — through
+three or more steps, or through a branch. Then a picture is faster to check
+than prose. Skip it when the chunk is one place edited, a rename, config,
+tests only, tooling, or when the arrows would just restate the file list;
+most chunks are one of those. Omit the line entirely rather than draw a
+two-box diagram.
+
+The controller draws it from the implementer reports, the same source as
+`Changed`, and does not open the diff for it. One `graph LR`, five to ten
+nodes, labels are behaviour steps (`validate`, `enqueue`, `notify`) not
+paths, quoted so punctuation survives. Mark what the chunk added or changed
+with a suffix such as `(new)` so the eye lands there. Text only: no render,
+no file in the tree.
+
+````
+Flow:    ```mermaid
+         graph LR
+           A["POST /orders"] --> B["validate"]
+           B --> C["reserve stock (new)"]
+           C -->|ok| D["persist"]
+           C -->|short| E["409 + reason (new)"]
+           D --> F["enqueue confirm mail"]
+         ```
+````
 
 ## Resuming
 
