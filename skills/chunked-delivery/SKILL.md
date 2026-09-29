@@ -108,7 +108,7 @@ Files:   high: <each path> · medium: <each path> · low: <count> files
 
 Changed: <three to five lines. What it now does and why — not a file list.>
 
-Flow:    <a `graph LR` mermaid block, or omit the line — see below>
+Flow:    <an ASCII flow, or omit the line — see below>
 
 Proof:   <one line per task — ran · shows · exercised, condensed from the
           implementer's block — then "not verified: <items>" or
@@ -138,22 +138,20 @@ most chunks are one of those. Omit the line entirely rather than draw a
 two-box diagram.
 
 The controller draws it from the implementer reports, the same source as
-`Changed`, and does not open the diff for it. One `graph LR`, five to ten
-nodes, labels are behaviour steps (`validate`, `enqueue`, `notify`) not
-paths, quoted so punctuation survives. Mark what the chunk added or changed
-with a suffix such as `(new)` so the eye lands there. Text only: no render,
-no file in the tree.
+`Changed`, and does not open the diff for it. Plain ASCII, because the
+report is read in a terminal and nothing renders there: an indented tree
+with `─>` for a step, `├─`/`└─` for a fork, and the outcome on the branch.
+No boxes, no mermaid, no alignment across lines beyond the indent. Five to
+ten steps, labels are behaviour (`validate`, `enqueue`, `notify`) not paths.
+Mark what the chunk added or changed with a suffix such as `(new)` so the
+eye lands there. When several sources feed one target, list them under the
+target with `<─` instead of forcing a tree. No file in the working tree.
 
-````
-Flow:    ```mermaid
-         graph LR
-           A["POST /orders"] --> B["validate"]
-           B --> C["reserve stock (new)"]
-           C -->|ok| D["persist"]
-           C -->|short| E["409 + reason (new)"]
-           D --> F["enqueue confirm mail"]
-         ```
-````
+```
+Flow:    POST /orders ─> validate ─> reserve stock (new)
+         ├─ ok ────> persist ─> enqueue confirm mail
+         └─ short ─> 409 + reason (new)
+```
 
 ## Resuming
 
