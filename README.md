@@ -17,9 +17,10 @@ Skills appear as `delivery-skills:<name>`.
 
 1. You approve a plan split into chunks. Each chunk is something you can read
    in one sitting and carries a risk class: low, medium or high.
-2. For each chunk, subagents implement it. The toolchain runs first:
-   typecheck, lint, related tests, and a check that new tests fail when the
-   change is reverted. Anything that fails goes straight back to the
+2. For each chunk, subagents implement it. An implementer creating a new
+   screen reads the authoring checklist for it first. The toolchain runs
+   next: typecheck, lint, related tests, and a check that new tests fail when
+   the change is reverted. Anything that fails goes straight back to the
    implementer.
 3. A reviewer reads the diff against the rubrics for the files it touches.
    Low-risk chunks skip this; you read those yourself.
@@ -64,6 +65,12 @@ Each rubric is a checklist with rules tagged by confidence, a list of things
 it must not report, and two scripts: one that scans a file for mechanical
 smells, one that lists what already exists in the repo so nothing gets
 reinvented. Reports are short. Zero findings is a valid outcome.
+
+One runs before generation instead of after:
+
+| Skill | Does |
+| --- | --- |
+| `react-screen-authoring` | Read before a new screen, sheet, form or picker is written. The container / view / builder split, the contracts a builder and a view keep, the platform checklist, and the lint that enforces the split. Shares `react-review`'s inventory script; `react-review` judges the result against the same table. |
 
 ![Review routing](diagrams/review-routing.svg)
 

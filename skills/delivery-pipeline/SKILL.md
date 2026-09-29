@@ -201,6 +201,20 @@ the tree, and names any test that still passed. Each one is a finding
 before a reviewer reads it, and it is the check behind the Global
 Constraints line about tests that survive reversion.
 
+## Implementer dispatch
+
+Add one line to SDD's implementer prompt body:
+
+> If this project has a skill for authoring the kind of file this task
+> creates, invoke it before writing the first line. Otherwise follow the
+> patterns in the sibling files and say so in one line.
+
+Lint catches the wrong shape after the file exists; an authoring skill
+(such as `react-screen-authoring` for a new React screen, sheet, form or
+picker) puts the shape in context before generation, so the static gate and
+the reviewer see fewer round trips. As with review, never inline the skill's
+rules into the dispatch prompt: they drift within two edits.
+
 ## Reviewer dispatch
 
 Add one line to SDD's task-reviewer prompt body:

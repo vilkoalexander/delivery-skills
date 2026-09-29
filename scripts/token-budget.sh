@@ -24,6 +24,9 @@ echo
 echo "Single-file review entry point (SKILL.md, not loaded in diff review)"
 for r in skills/*-review; do row "$(basename "$r")" "$(t "$r/SKILL.md")"; done
 echo
+echo "Implementer, loaded before a new screen is written (only those tasks)"
+row "react-screen-authoring: SKILL + CHECKLIST + react-review INVENTORY.md + template project layer" "$(t skills/react-screen-authoring/SKILL.md skills/react-screen-authoring/CHECKLIST.md skills/react-review/INVENTORY.md templates/react-screen-authoring.md)"
+echo
 echo "Loaded only when a tooling chunk is proposed"
 row "delivery-pipeline/STATIC-SETUP.md" "$(t skills/delivery-pipeline/STATIC-SETUP.md)"
 echo

@@ -55,3 +55,11 @@ Verdict: <SHIP | FIX FIRST> — <one line>
 
 Most-severe first. Every finding names the why. Before/after is the two lines
 that change. A clean category gets one line.
+
+## Sibling
+
+`react-screen-authoring` is the authoring side: read before a new screen,
+sheet, form or picker is written, it produces the container / view / builder
+split that §2 "Role fit" in CHECKLIST.md judges. A rule that changes in one
+changes in the other in the same change set; the two must never describe
+different shapes.

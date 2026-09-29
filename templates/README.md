@@ -28,6 +28,7 @@ will skim both.
 | `api-contract-review.md` | `docs/review/api-contract-review.md` |
 | `test-review.md` | `docs/review/test-review.md` |
 | `observability-review.md` | `docs/review/observability-review.md` |
+| `react-screen-authoring.md` | `docs/review/react-screen-authoring.md` |
 
 ## Script variables
 

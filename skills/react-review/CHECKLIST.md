@@ -119,6 +119,35 @@ With the React Compiler on, both rules invert: manual memoization is noise and
 the finding is the *presence* of hand-written `useMemo`/`useCallback` that the
 compiler already does.
 
+### Role fit
+
+`react-screen-authoring/CHECKLIST.md` §1 is the roles table: container, view,
+primitive, builder, behaviour hook, query hook, and what each may import.
+This rubric judges a finished file against that table; the two must never
+describe different shapes. Apply this subsection when the project has
+adopted the split — its lint config carries the role blocks, or
+`docs/review/react-screen-authoring.md` exists. Otherwise skip it and say so
+in one line.
+
+- **[hard] A container has no effects.** `useEffect` / `useLayoutEffect` in a
+  `*Screen.tsx` / `*Page.tsx` → a behaviour hook, a builder, or a query hook,
+  whichever the effect was standing in for.
+- **[hard] A view never fetches**, directly or through a hook that does. A
+  query hook or service client imported under `components/` → the container
+  calls it and passes `options` / `status` / `retry` down.
+- **[hard] Dependency direction is UI -> lib.** A `lib/` file importing
+  `react`, `react-native`, the i18n singleton or anything under `components/`
+  is the inversion. Types shared by a component and its logic live beside the
+  logic.
+- **[hard] Builders take `t`, `locale`, domain labels and clock values as
+  arguments**, never as imports. An imported singleton or `Date.now()` inside
+  a builder makes its spec untestable in Node.
+- **[prefer] Line caps, code lines only:** container 150, view and primitive
+  250, hook 100. Over the cap without a file-level exception and its why →
+  report; with one → do not.
+- **[context] Counted exceptions.** A file-level `eslint-disable` with a why is
+  a shape the project chose; report it only when the why no longer holds.
+
 ### The rest
 
 - **[hard] List keys** — stable unique `key`/`keyExtractor`; never the array
@@ -129,7 +158,9 @@ compiler already does.
   `ref` as an ordinary prop. A new `forwardRef` in a React 19 codebase is a
   regression.
 - **[context] Component doing too much** — fetch + transform + layout + 6
-  `useState` in one body → extract a hook or split the component.
+  `useState` in one body → split it the way `react-screen-authoring` lays
+  out: derivations to a builder in `lib/`, lifecycle to a behaviour hook,
+  the fetch to the container, the rest a view.
 - **[prefer] Prop drilling** — a prop threaded through 3+ layers untouched →
   context or composition.
 
