@@ -12,6 +12,17 @@
 #
 #   RISK_HIGH    extra ERE for paths that are always high   (project layer)
 #   RISK_MEDIUM  extra ERE for paths that are always medium
+#
+# With TYPESAFE_API_KEY set, the path class becomes a floor and risk-content.sh
+# reads the hunks for the escalators (signature changed, caller sees a change,
+# production data path, deletes data, auth or money). The last line then says
+# who owns the escalators: `escalators: jev` when the content pass ran,
+# `escalators: controller` when it did not and the controller must apply the
+# escalator bullets from SKILL.md itself.
+#
+#   RISK_CONTENT=off    skip the content pass even with a key
+#   RISK_DIFF_RANGE     base..head for the content pass (default: working tree)
+#   RISK_DIFF_FILE      read the diff from this file instead of git
 set -uo pipefail
 
 MAX_LOW="${RISK_MAX_LOW_FILES:-5}"
@@ -69,4 +80,35 @@ note=""
 if [ "$n" -gt "$MAX_LOW" ] && [ "$top" -lt 2 ]; then top=2; note="  (raised: $n files > RISK_MAX_LOW_FILES=$MAX_LOW)"; fi
 case "$top" in 3) cls=high;; 2) cls=medium;; *) cls=low;; esac
 echo "files: $n"
-echo "class: $cls$note"
+
+# ---------------------------------------------------------------- router
+here=$(cd "$(dirname "$0")" && pwd)
+if [ -z "${TYPESAFE_API_KEY:-}" ] || [ "${RISK_CONTENT:-on}" = "off" ]; then
+  echo "class: $cls$note"
+  echo "escalators: controller"
+  exit 0
+fi
+
+# Collect the hunks. A path git diff does not know (new, untracked) gets a
+# whole-file diff so the content pass still sees it.
+diff_for() {
+  if [ -n "${RISK_DIFF_FILE:-}" ]; then cat "$RISK_DIFF_FILE"; return; fi
+  local out; out=$(git diff ${RISK_DIFF_RANGE:-} -- "${paths[@]}" 2>/dev/null)
+  printf '%s\n' "$out"
+  local p
+  for p in "${paths[@]}"; do
+    [ -f "$p" ] || continue
+    printf '%s' "$out" | grep -qF "diff --git a/$p b/$p" && continue
+    git diff --no-index -- /dev/null "$p" 2>/dev/null | sed "1s#a/dev/null b/$p#a/$p b/$p#"
+  done
+  return 0
+}
+
+echo "paths: $cls$note"
+echo "--- content (${RISK_CONTENT_MODEL:-jev-latest})"
+if diff_for | bash "$here/risk-content.sh" --floor "$cls"; then
+  if [ "${RISK_CONTENT_DRY:-}" = "1" ]; then echo "escalators: controller  (dry run)"; else echo "escalators: jev"; fi
+else
+  echo "escalators: controller  (content pass failed; apply the escalators yourself)"
+  exit 1
+fi

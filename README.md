@@ -89,6 +89,15 @@ reaches a reviewer.
 `bash scripts/token-budget.sh` shows what each dispatch loads, so you can
 see what an edit to a skill costs every task.
 
+Set `TYPESAFE_API_KEY` and `scripts/risk.sh` stops guessing at the escalators
+it cannot see from paths. Each changed file's diff goes to
+[TypeSafe's Jev model](https://docs.typesafe.ai) as six yes/no questions —
+signature changed, caller sees a change, production data path, deletes data,
+auth or money, additive only — and the class is raised in code from the
+probabilities, never lowered. Borderline files are listed as `unsure:` for
+you to settle at plan approval. Without the key the controller reads the
+diff for the escalators itself, as before.
+
 ## Why it is built this way
 
 - The human reads the working tree, not a commit log. Agents never run

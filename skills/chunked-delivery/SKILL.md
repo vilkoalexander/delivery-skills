@@ -44,7 +44,9 @@ human can read in a sitting and judge as a whole — a slice that stands on its
 own, not an arbitrary task count. Typically one to three plan tasks.
 
 Each chunk carries a risk class, assigned by the rules in `delivery-pipeline`
-(its `scripts/risk.sh` suggests one from the paths). The class picks the
+(its `scripts/risk.sh` suggests one from the paths, and from the hunks too
+when `TYPESAFE_API_KEY` is set; its `unsure:` lines belong in the chunk list
+for the human to settle). The class picks the
 models, whether the chunk is reviewed at all, and the fix-round cap.
 
 Order chunks leaf first. A change to what an existing caller already gets is

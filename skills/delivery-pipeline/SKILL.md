@@ -93,6 +93,29 @@ content: it cannot know a signature changed or a caller exists. A floor to tag
 from, never a verdict. `RISK_HIGH` and `RISK_MEDIUM` take an extra regex each
 for the project's own always-high and always-medium paths.
 
+**Who checks the escalators.** The last line of `risk.sh` says.
+
+- `escalators: jev` — `TYPESAFE_API_KEY` was set, so `risk.sh` piped the
+  hunks through `scripts/risk-content.sh`. That script sends each changed
+  file's diff to TypeSafe's Jev model with the escalators above as literal
+  yes/no questions (signature changed, caller sees a change, production data
+  path, deletes data, auth or money) and raises the class in code from the
+  probabilities: a data, auth or money hit is high; a signature or caller hit
+  is one class up; anything the model puts between `RISK_P_UNSURE` (0.35) and
+  `RISK_P_ACT` (0.7) lands on an `unsure:` line and holds the file at medium.
+  It never lowers the path floor. The `unsure:` lines go into the chunk list
+  at plan approval for the human to settle; the tagged class is otherwise
+  final. About a hundred milliseconds and a fraction of a cent per file, and
+  the same answer every run — which is the point: a class that drifts between
+  runs moves review seats and fix rounds with it.
+- `escalators: controller` — no key, `RISK_CONTENT=off`, or the content pass
+  failed. Read the diff for the escalator bullets yourself and tag from that,
+  as before. Nothing else changes.
+
+`RISK_DIFF_RANGE=base..head` points the content pass at a range instead of the
+working tree. `bash scripts/risk-content.test.sh` checks both scripts against
+a fake endpoint and needs no key.
+
 What each class buys:
 
 | Class | Implementer | Chunk review | Fix rounds | Cross-model |
