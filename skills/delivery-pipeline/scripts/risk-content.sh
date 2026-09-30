@@ -13,6 +13,10 @@
 #   signature_changed, caller_sees_change        >= RISK_P_ACT  -> one class up
 #   any predicate in [RISK_P_UNSURE, RISK_P_ACT)               -> unsure: at least medium
 #
+# An unsure predicate is listed only when a yes would still raise the file:
+# nothing is listed for a file already at high, and the one-class-up
+# predicates are not listed for a file already there.
+#
 # A brand-new file (`new file mode` in its header) has no existing callers or
 # signatures, so the two one-class-up predicates are ignored for it in code.
 #
@@ -26,7 +30,7 @@
 #   TYPESAFE_API_URL        default https://api.typesafe.ai/v1/systemone
 #   RISK_CONTENT_MODEL      default jev-latest
 #   RISK_P_ACT              default 0.7   probability that counts as yes
-#   RISK_P_UNSURE           default 0.35  below this counts as no
+#   RISK_P_UNSURE           default 0.5   below this counts as no
 #   RISK_CONTENT_MAX_CHARS  default 100000 per file; longer hunks are cut and the file marked unsure
 #   RISK_CONTENT_DRY=1      print the requests as JSON lines, call nothing
 #
@@ -62,7 +66,7 @@ const DRY = env.RISK_CONTENT_DRY === '1';
 const ENDPOINT = env.TYPESAFE_API_URL || 'https://api.typesafe.ai/v1/systemone';
 const MODEL = env.RISK_CONTENT_MODEL || 'jev-latest';
 const P_ACT = Number(env.RISK_P_ACT || 0.7);
-const P_UNSURE = Number(env.RISK_P_UNSURE || 0.35);
+const P_UNSURE = Number(env.RISK_P_UNSURE || 0.5);
 const MAX_CHARS = Number(env.RISK_CONTENT_MAX_CHARS || 100000);
 
 // Literal yes/no questions. Jev answers what is written, so each names the
@@ -70,18 +74,18 @@ const MAX_CHARS = Number(env.RISK_CONTENT_MAX_CHARS || 100000);
 const QUESTIONS = {
   signature_changed: {
     type: 'noul',
-    instructions: 'The diff changes the name, parameters or return type of a function, method, class, type or exported value that existed before the change.',
-    criteria: { yes: 'An existing declaration is renamed, gains or loses a parameter, or changes what it returns.', no: 'Only new declarations are added, or bodies change with the same name, parameters and return type.' },
+    instructions: 'The diff renames an existing exported function, method, class, type or value, removes or renames one of its parameters or properties, makes an optional one required, or changes its return type.',
+    criteria: { yes: 'Some existing call or use of the declaration would no longer be valid as written.', no: 'Only new declarations are added; a body changes with the same name, parameters and return type; or an optional parameter or property with a default is added and every existing call stays valid.' },
   },
   caller_sees_change: {
     type: 'noul',
-    instructions: 'Code that already called the changed code before this diff would now receive different data or behaviour, and no feature flag or option guards the new path.',
-    criteria: { yes: 'An existing call site gets a different result, side effect or error with no flag in front of it.', no: 'Existing calls behave as before, or the new behaviour is behind a flag that defaults off.' },
+    instructions: 'Code that already called the changed code before this diff would now receive different data, a different side effect or a different error, and no feature flag or option guards the new path.',
+    criteria: { yes: 'An existing call site gets a different value, a different side effect or a different error with no flag in front of it.', no: 'Existing calls get the same data and effects; only appearance changes such as class names, styles, spacing, copy or layout; or the new behaviour is behind a flag that defaults off.' },
   },
   prod_data_path: {
     type: 'noul',
-    instructions: 'The changed code reads or writes a database, queue, file store or external API that holds real records in production.',
-    criteria: { yes: 'The hunks touch repository, ORM, SQL, queue, storage or HTTP client calls on the production data path.', no: 'The hunks are UI, formatting, tests, docs, config or pure computation with no data store or external call.' },
+    instructions: 'The changed code runs on the server and reads or writes the system of record: a database, queue, file store or third-party API that holds production records.',
+    criteria: { yes: 'Server-side hunks touch a repository, ORM, SQL, migration, queue producer or consumer, object storage or an outbound call to a third-party system.', no: 'Client or UI code, including screens, hooks and components that call its own backend API or use device storage; or tests, docs, config and pure computation.' },
   },
   deletes_data: {
     type: 'noul',
@@ -150,19 +154,23 @@ async function ask(body) {
 function judge(path, p, truncated, isNew) {
   const start = RANK[floorOf(path)];
   let rank = start;
-  const fired = [], unsure = [];
+  const fired = [], maybeHigh = [], maybeUp = [];
   const tag = (k) => `${k} p=${p[k].toFixed(2)}`;
   for (const k of HIGH) {
     if (p[k] >= P_ACT) { rank = 3; fired.push(tag(k)); }
-    else if (p[k] >= P_UNSURE) unsure.push(tag(k));
+    else if (p[k] >= P_UNSURE) maybeHigh.push(tag(k));
   }
   let up = false;
   if (!isNew) for (const k of UP) {
     if (p[k] >= P_ACT) { up = true; fired.push(tag(k)); }
-    else if (p[k] >= P_UNSURE) unsure.push(tag(k));
+    else if (p[k] >= P_UNSURE) maybeUp.push(tag(k));
   }
   if (up) rank = Math.max(rank, Math.min(3, start + 1));
-  if (truncated) unsure.push('diff cut at RISK_CONTENT_MAX_CHARS');
+  // Only list what could still move the file.
+  const unsure = [];
+  if (rank < 3) unsure.push(...maybeHigh);
+  if (rank < Math.min(3, start + 1)) unsure.push(...maybeUp);
+  if (truncated && rank < 3) unsure.push('diff cut at RISK_CONTENT_MAX_CHARS');
   if (unsure.length && rank < 2) rank = 2;
   let rule = fired.length ? fired.join(', ') : (p.additive_only >= P_ACT ? `additive only p=${p.additive_only.toFixed(2)}` : 'no escalator');
   if (isNew) rule = `new file; ${rule}`;
@@ -203,7 +211,7 @@ async function main() {
   return failed ? 1 : 0;
 }
 
-main().then(code => process.exit(code), e => { console.error(`risk-content.sh: ${e.message}`); process.exit(1); });
+main().then(code => { process.exitCode = code; }, e => { console.error(`risk-content.sh: ${e.message}`); process.exitCode = 1; });
 EOF
 )
 

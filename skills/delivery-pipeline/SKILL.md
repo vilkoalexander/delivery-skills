@@ -101,8 +101,9 @@ for the project's own always-high and always-medium paths.
   yes/no questions (signature changed, caller sees a change, production data
   path, deletes data, auth or money) and raises the class in code from the
   probabilities: a data, auth or money hit is high; a signature or caller hit
-  is one class up; anything the model puts between `RISK_P_UNSURE` (0.35) and
-  `RISK_P_ACT` (0.7) lands on an `unsure:` line and holds the file at medium.
+  is one class up; anything the model puts between `RISK_P_UNSURE` (0.5) and
+  `RISK_P_ACT` (0.7) lands on an `unsure:` line and holds the file at medium,
+  but only when a yes could still raise that file.
   Each file starts from its own path class; a brand-new file skips the
   signature and caller checks, since nothing called it before. It never
   lowers a path floor. The `unsure:` lines go into the chunk list

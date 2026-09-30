@@ -148,6 +148,18 @@ set_answers '{"src/users/users.helper.ts":{"prod_data_path":0.9}}'
 out=$(TYPESAFE_API_KEY=x run_content --floor low < "$diff_new_file")
 assert_contains "new file: high predicates still apply" "$out" "class: high"
 
+# unsure only matters when the predicate could still raise the file
+set_answers '{"src/users/users.service.ts":{"caller_sees_change":0.55,"prod_data_path":0.55}}'
+out=$(TYPESAFE_API_KEY=x run_content --floor high < "$diff_two_files")
+assert_contains "unsure: a file already high lists nothing" "$out" "unsure: none"
+out=$(TYPESAFE_API_KEY=x run_content --floor medium < "$diff_two_files")
+assert_contains "unsure: a medium file lists both (either could make it high)" "$out" "unsure: src/users/users.service.ts  (prod_data_path p=0.55, caller_sees_change p=0.55)"
+set_answers '{"src/users/users.service.ts":{"caller_sees_change":0.45}}'
+out=$(TYPESAFE_API_KEY=x run_content --floor low < "$diff_two_files")
+assert_contains "unsure: default band starts at 0.5, so 0.45 is a no" "$out" "unsure: none"
+out=$(RISK_P_UNSURE=0.4 TYPESAFE_API_KEY=x run_content --floor low < "$diff_two_files")
+assert_contains "unsure: RISK_P_UNSURE lowers the band" "$out" "caller_sees_change p=0.45"
+
 floors="$tmp/floors"
 printf 'low\tsrc/features/profile/Avatar.tsx\nmedium\tsrc/users/users.service.ts\n' > "$floors"
 set_answers '{"src/users/users.service.ts":{"signature_changed":0.9},"src/features/profile/Avatar.tsx":{"signature_changed":0.9}}'
@@ -173,6 +185,27 @@ set_answers '{}'
 out=$(TYPESAFE_API_KEY=x RISK_DIFF_FILE="$diff_two_files" bash "$here/risk.sh" src/features/profile/Avatar.tsx src/users/users.service.ts 2>&1)
 assert_contains "router: content pass starts from each file's path class (low)" "$out" "low     src/features/profile/Avatar.tsx  (no escalator)"
 assert_contains "router: content pass starts from each file's path class (medium)" "$out" "medium  src/users/users.service.ts  (no escalator)"
+
+# A real repo: a tracked file with a change, a renamed file, and an untracked
+# new file. Each must reach the content pass exactly once.
+repo="$tmp/repo"; mkdir -p "$repo/src" && (
+  cd "$repo" && git init -q && git config user.email t@t && git config user.name t
+  echo 'export const a = 1' > src/a.ts; echo 'export const old = 1' > src/old.ts
+  git add . && git commit -qm init
+  # a.ts grows past the 64 KB pipe buffer so a `printf | grep -q` in the router would hit SIGPIPE
+  { echo 'export const a = 2'; for i in $(seq 1 3000); do echo "export const pad$i = 'xxxxxxxxxxxxxxxxxxxx';"; done; } > src/a.ts
+  git mv src/old.ts src/renamed.ts; echo 'export const brandNew = 1' > src/new.ts
+) >/dev/null 2>&1
+set_answers '{}'
+out=$(cd "$repo" && TYPESAFE_API_KEY=x bash "$here/risk.sh" src/a.ts src/renamed.ts src/new.ts 2>&1)
+content=$(printf '%s' "$out" | sed -n '/--- content/,$p')
+n_a=$(printf '%s\n' "$content" | grep -cE '^(low|medium|high) +src/a.ts ')
+n_new=$(printf '%s\n' "$content" | grep -cE '^(low|medium|high) +src/new.ts ')
+[ "$n_a" -eq 1 ] && ok "real repo: changed tracked file scored once" || nok "real repo: changed tracked file scored once" "count=$n_a"$'\n'"$out"
+[ "$n_new" -eq 1 ] && ok "real repo: untracked new file scored once" || nok "real repo: untracked new file scored once" "count=$n_new"$'\n'"$out"
+assert_contains "real repo: untracked file is a new file" "$content" "src/new.ts  (new file"
+assert_not_contains "real repo: no broken pipe noise" "$out" "Broken pipe"
+assert_contains "real repo: files count is three" "$content" "files: 3"
 
 set_answers '{"src/features/profile/Avatar.tsx":{"auth_or_money":0.92}}'
 out=$(TYPESAFE_API_KEY=x RISK_DIFF_FILE="$diff_two_files" bash "$here/risk.sh" src/features/profile/Avatar.tsx 2>&1)

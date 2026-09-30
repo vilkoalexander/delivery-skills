@@ -100,7 +100,10 @@ diff_for() {
   local p
   for p in "${paths[@]}"; do
     [ -f "$p" ] || continue
-    printf '%s' "$out" | grep -qF "diff --git a/$p b/$p" && continue
+    # Seen already (as a change or as the target of a rename)? A substring
+    # test, not a pipe into grep -q: on a large diff grep exits first and the
+    # writer takes SIGPIPE, which pipefail reads as "not found".
+    [[ "$out" == *"diff --git a/"*" b/$p"$'\n'* ]] && continue
     git diff --no-index -- /dev/null "$p" 2>/dev/null | sed "1s#a/dev/null b/$p#a/$p b/$p#"
   done
   return 0
