@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Raises a risk class from what a diff *does*, using TypeSafe's Jev model.
 #
-#   git diff | bash scripts/risk-content.sh [--floor low|medium|high]
+#   git diff | bash scripts/risk-content.sh [--floor low|medium|high] [--floors <file>]
 #   git diff base..head -- <paths> | bash scripts/risk-content.sh --floor medium
 #
 # risk.sh sees paths; this sees hunks. Each changed file becomes one request:
@@ -13,9 +13,14 @@
 #   signature_changed, caller_sees_change        >= RISK_P_ACT  -> one class up
 #   any predicate in [RISK_P_UNSURE, RISK_P_ACT)               -> unsure: at least medium
 #
-# It never lowers the floor. Output mirrors risk.sh: one line per file (class,
-# path, predicates that fired), `unsure:` lines for the human, then `files:`
-# and `class:` for the set.
+# A brand-new file (`new file mode` in its header) has no existing callers or
+# signatures, so the two one-class-up predicates are ignored for it in code.
+#
+# --floor is the starting class for every file; --floors names a file of
+# `class<TAB>path` lines (what risk.sh prints, tab-separated) giving each file
+# its own start, with --floor for the rest. It never lowers a floor. Output
+# mirrors risk.sh: one line per file (class, path, predicates that fired),
+# `unsure:` lines for the human, then `files:` and `class:` for the set.
 #
 #   TYPESAFE_API_KEY        required; absent -> "skipped", exit 0
 #   TYPESAFE_API_URL        default https://api.typesafe.ai/v1/systemone
@@ -30,14 +35,17 @@
 set -uo pipefail
 
 floor="low"
+floors=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --floor) floor="${2:-}"; shift 2;;
+    --floors) floors="${2:-}"; shift 2;;
     -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2;;
     *) echo "risk-content.sh: unknown argument $1" >&2; exit 2;;
   esac
 done
 case "$floor" in low|medium|high) ;; *) echo "risk-content.sh: --floor must be low, medium or high" >&2; exit 2;; esac
+[ -n "$floors" ] && [ ! -r "$floors" ] && { echo "risk-content.sh: cannot read --floors $floors" >&2; exit 2; }
 
 if [ -z "${TYPESAFE_API_KEY:-}" ]; then
   echo "skipped: no TYPESAFE_API_KEY"
@@ -48,6 +56,7 @@ script=$(cat <<'EOF'
 const fs = require('node:fs');
 
 const floor = process.argv[1];
+const floorsFile = process.argv[2];
 const env = process.env;
 const DRY = env.RISK_CONTENT_DRY === '1';
 const ENDPOINT = env.TYPESAFE_API_URL || 'https://api.typesafe.ai/v1/systemone';
@@ -95,6 +104,15 @@ const UP = ['signature_changed', 'caller_sees_change'];
 const RANK = { low: 1, medium: 2, high: 3 };
 const NAME = { 1: 'low', 2: 'medium', 3: 'high' };
 
+const floors = {};
+if (floorsFile) {
+  for (const line of fs.readFileSync(floorsFile, 'utf8').split('\n')) {
+    const m = /^(low|medium|high)\t(.+)$/.exec(line);
+    if (m) floors[m[2]] = m[1];
+  }
+}
+const floorOf = (path) => floors[path] || floor;
+
 function splitDiff(text) {
   const files = [];
   let cur = null;
@@ -103,7 +121,7 @@ function splitDiff(text) {
     if (m) { cur = { path: m[2], lines: [] }; files.push(cur); continue; }
     if (cur) cur.lines.push(line);
   }
-  return files.map(f => ({ path: f.path, diff: f.lines.join('\n') }));
+  return files.map(f => ({ path: f.path, diff: f.lines.join('\n'), isNew: f.lines.some(l => /^new file mode /.test(l)) }));
 }
 
 function request(file) {
@@ -129,8 +147,9 @@ async function ask(body) {
   return out;
 }
 
-function judge(path, p, truncated) {
-  let rank = RANK[floor];
+function judge(path, p, truncated, isNew) {
+  const start = RANK[floorOf(path)];
+  let rank = start;
   const fired = [], unsure = [];
   const tag = (k) => `${k} p=${p[k].toFixed(2)}`;
   for (const k of HIGH) {
@@ -138,14 +157,15 @@ function judge(path, p, truncated) {
     else if (p[k] >= P_UNSURE) unsure.push(tag(k));
   }
   let up = false;
-  for (const k of UP) {
+  if (!isNew) for (const k of UP) {
     if (p[k] >= P_ACT) { up = true; fired.push(tag(k)); }
     else if (p[k] >= P_UNSURE) unsure.push(tag(k));
   }
-  if (up) rank = Math.max(rank, Math.min(3, RANK[floor] + 1));
+  if (up) rank = Math.max(rank, Math.min(3, start + 1));
   if (truncated) unsure.push('diff cut at RISK_CONTENT_MAX_CHARS');
   if (unsure.length && rank < 2) rank = 2;
-  const rule = fired.length ? fired.join(', ') : (p.additive_only >= P_ACT ? `additive only p=${p.additive_only.toFixed(2)}` : 'no escalator');
+  let rule = fired.length ? fired.join(', ') : (p.additive_only >= P_ACT ? `additive only p=${p.additive_only.toFixed(2)}` : 'no escalator');
+  if (isNew) rule = `new file; ${rule}`;
   return { path, rank, rule, unsure };
 }
 
@@ -163,14 +183,14 @@ async function main() {
   const results = await Promise.all(reqs.map(async (r, i) => {
     try {
       const p = await ask(r.body);
-      return judge(files[i].path, p, r.truncated);
+      return judge(files[i].path, p, r.truncated, files[i].isNew);
     } catch (e) {
       failed = true;
-      return { path: files[i].path, rank: Math.max(2, RANK[floor]), rule: 'not evaluated', unsure: [`error: ${e.message}`] };
+      return { path: files[i].path, rank: Math.max(2, RANK[floorOf(files[i].path)]), rule: 'not evaluated', unsure: [`error: ${e.message}`] };
     }
   }));
 
-  let top = RANK[floor];
+  let top = Math.max(RANK[floor], ...results.map(r => RANK[floorOf(r.path)]), 1);
   for (const r of results) {
     console.log(`${r.rank === 3 ? 'high   ' : r.rank === 2 ? 'medium ' : 'low    '} ${r.path}  (${r.rule})`);
     if (r.rank > top) top = r.rank;
@@ -187,4 +207,4 @@ main().then(code => process.exit(code), e => { console.error(`risk-content.sh: $
 EOF
 )
 
-node -e "$script" "$floor"
+node -e "$script" "$floor" "$floors"

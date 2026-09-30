@@ -69,9 +69,11 @@ classify() {
 rank() { case "$1" in high) echo 3;; medium) echo 2;; *) echo 1;; esac; }
 
 top=1
+floors=$(mktemp); trap 'rm -f "$floors"' EXIT
 for p in "${paths[@]}"; do
   IFS=$'\t' read -r cls rule < <(classify "$p")
   printf '%-7s %s  (%s)\n' "$cls" "$p" "$rule"
+  printf '%s\t%s\n' "$cls" "$p" >> "$floors"
   r=$(rank "$cls"); [ "$r" -gt "$top" ] && top=$r
 done
 
@@ -106,7 +108,7 @@ diff_for() {
 
 echo "paths: $cls$note"
 echo "--- content (${RISK_CONTENT_MODEL:-jev-latest})"
-if diff_for | bash "$here/risk-content.sh" --floor "$cls"; then
+if diff_for | bash "$here/risk-content.sh" --floor "$cls" --floors "$floors"; then
   if [ "${RISK_CONTENT_DRY:-}" = "1" ]; then echo "escalators: controller  (dry run)"; else echo "escalators: jev"; fi
 else
   echo "escalators: controller  (content pass failed; apply the escalators yourself)"

@@ -103,7 +103,9 @@ for the project's own always-high and always-medium paths.
   probabilities: a data, auth or money hit is high; a signature or caller hit
   is one class up; anything the model puts between `RISK_P_UNSURE` (0.35) and
   `RISK_P_ACT` (0.7) lands on an `unsure:` line and holds the file at medium.
-  It never lowers the path floor. The `unsure:` lines go into the chunk list
+  Each file starts from its own path class; a brand-new file skips the
+  signature and caller checks, since nothing called it before. It never
+  lowers a path floor. The `unsure:` lines go into the chunk list
   at plan approval for the human to settle; the tagged class is otherwise
   final. About a hundred milliseconds and a fraction of a cent per file, and
   the same answer every run — which is the point: a class that drifts between

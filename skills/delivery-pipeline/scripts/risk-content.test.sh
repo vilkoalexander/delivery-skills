@@ -42,6 +42,19 @@ index 3333333..4444444 100644
  }
 EOF
 
+diff_new_file="$tmp/new.diff"
+cat > "$diff_new_file" <<'EOF'
+diff --git a/src/users/users.helper.ts b/src/users/users.helper.ts
+new file mode 100644
+index 0000000..5555555
+--- /dev/null
++++ b/src/users/users.helper.ts
+@@ -0,0 +1,3 @@
++export function fullName(u: { first: string; last: string }) {
++  return `${u.first} ${u.last}`;
++}
+EOF
+
 # Fake endpoint: answers come from the JSON file named by FAKE_ANSWERS, keyed
 # by state.path; a path with no entry gets every noul at 0.05.
 fake_server="$tmp/server.mjs"
@@ -126,6 +139,26 @@ assert_contains "request: model defaults to jev-latest" "$req" '"model":"jev-lat
 assert_contains "request: every question is a noul" "$req" '"type":"noul"'
 assert_not_contains "request: no choice questions" "$req" '"type":"choice"'
 
+set_answers '{"src/users/users.helper.ts":{"caller_sees_change":0.8,"signature_changed":0.38,"additive_only":0.79}}'
+out=$(TYPESAFE_API_KEY=x run_content --floor low < "$diff_new_file")
+assert_contains "new file: caller/signature predicates ignored" "$out" "low     src/users/users.helper.ts  (new file"
+assert_contains "new file: not listed unsure for signature" "$out" "unsure: none"
+assert_contains "new file: class stays" "$out" "class: low"
+set_answers '{"src/users/users.helper.ts":{"prod_data_path":0.9}}'
+out=$(TYPESAFE_API_KEY=x run_content --floor low < "$diff_new_file")
+assert_contains "new file: high predicates still apply" "$out" "class: high"
+
+floors="$tmp/floors"
+printf 'low\tsrc/features/profile/Avatar.tsx\nmedium\tsrc/users/users.service.ts\n' > "$floors"
+set_answers '{"src/users/users.service.ts":{"signature_changed":0.9},"src/features/profile/Avatar.tsx":{"signature_changed":0.9}}'
+out=$(TYPESAFE_API_KEY=x run_content --floors "$floors" < "$diff_two_files")
+assert_contains "per-file floors: tsx goes low -> medium" "$out" "medium  src/features/profile/Avatar.tsx"
+assert_contains "per-file floors: service goes medium -> high" "$out" "high    src/users/users.service.ts"
+set_answers '{}'
+out=$(TYPESAFE_API_KEY=x run_content --floors "$floors" < "$diff_two_files")
+assert_contains "per-file floors: each file keeps its own floor" "$out" "low     src/features/profile/Avatar.tsx  (no escalator)"
+assert_contains "per-file floors: set is the highest file" "$out" "class: medium"
+
 # ---------------------------------------------------------------- risk.sh router
 echo "# risk.sh router"
 
@@ -135,6 +168,11 @@ assert_contains "no key: path class still printed" "$out" "class: medium"
 
 out=$(TYPESAFE_API_KEY=x RISK_CONTENT=off bash "$here/risk.sh" src/users/users.service.ts 2>&1)
 assert_contains "RISK_CONTENT=off: controller" "$out" "escalators: controller"
+
+set_answers '{}'
+out=$(TYPESAFE_API_KEY=x RISK_DIFF_FILE="$diff_two_files" bash "$here/risk.sh" src/features/profile/Avatar.tsx src/users/users.service.ts 2>&1)
+assert_contains "router: content pass starts from each file's path class (low)" "$out" "low     src/features/profile/Avatar.tsx  (no escalator)"
+assert_contains "router: content pass starts from each file's path class (medium)" "$out" "medium  src/users/users.service.ts  (no escalator)"
 
 set_answers '{"src/features/profile/Avatar.tsx":{"auth_or_money":0.92}}'
 out=$(TYPESAFE_API_KEY=x RISK_DIFF_FILE="$diff_two_files" bash "$here/risk.sh" src/features/profile/Avatar.tsx 2>&1)
