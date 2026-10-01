@@ -217,6 +217,29 @@ Every new backend unit needs a spec — services **and** controllers.
 - **[prefer] Class member order matches the siblings** — constructor, public
   methods, then private and static helpers.
 
+## 9. Comment quality
+
+The default is no comment; a rename, an extracted method or a type comes
+first.
+
+- **[hard] Delete comments that restate the code or describe the change** —
+  `// inject the repository`, `// loop over items`, "now uses", "added",
+  "fixed", a banner, a step number, JSDoc repeating the parameter types.
+- **[hard] Delete commented-out code** — git remembers it.
+- **[hard] No ticket, PR, SHA, date or link in a comment** — the code does
+  not know the outside world; those live in commit messages and PR bodies.
+- **[prefer] A comment that stays is one line and one of four kinds** — why
+  this and not the obvious alternative, an outside constraint, a warning
+  about what breaks if edited, a workaround with its removal condition. On a
+  constant or a DTO field: only units, where a number comes from, a domain
+  term, or what null means, and only when a rename cannot say it.
+- **[context] A missing comment** is a finding only for one of those four
+  kinds, with the consequence named — a query that skips the tenant scope on
+  purpose, a call that must stay outside the transaction.
+- **[context] A comment the diff removed** that was still true and one of the
+  four kinds — restore it.
+- **[hard] A lint or type suppression states its reason.**
+
 ---
 
 ## Do NOT report

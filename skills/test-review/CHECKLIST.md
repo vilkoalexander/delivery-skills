@@ -154,6 +154,9 @@ Judge against the diff, not the whole test file.
   setup that a factory would remove.
 - **[context] Console noise** — output the project's runner does not
   silence; report when it hides a real failure.
+- **[prefer] Comments that narrate the test** — the name says what it
+  checks. A comment stays, on one line, only for why a fixture value or an
+  ordering matters. No ticket, PR, date or link in a comment or a test name.
 
 ## Do NOT report
 

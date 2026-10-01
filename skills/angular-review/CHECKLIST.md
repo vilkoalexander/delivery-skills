@@ -170,15 +170,27 @@ The template is half the component. Load it.
 
 ## 4. Comment quality
 
-- **[hard] Delete "what" comments** — `// inject the service`, `// loop over
-  items`, anything restating the code.
+The default is no comment; a rename, an extracted method or a type comes
+first.
+
+- **[hard] Delete comments that restate the code or describe the change** —
+  `// inject the service`, `// loop over items`, "now uses", "added",
+  "fixed", a banner, a step number, JSDoc repeating the input types.
 - **[hard] Delete commented-out code** — git remembers it.
-- **[prefer] Keep / expect "why" comments** — rationale, non-obvious
-  constraints, gotchas. A non-trivial decision with NO why-comment is itself a
-  finding. A component-level `providers: []`, an `effect()`, a
-  `ViewEncapsulation.None`, a `runOutsideAngular` each need one.
-- **[hard] No issue/PR/SHA/date refs in code comments** — those live in commit
-  messages and PR bodies.
+- **[hard] No ticket, PR, SHA, date or link in a comment** — the code does
+  not know the outside world; those live in commit messages and PR bodies.
+- **[prefer] A comment that stays is one line and one of four kinds** — why
+  this and not the obvious alternative, an outside constraint, a warning
+  about what breaks if edited, a workaround with its removal condition. On a
+  constant or an interface field: only units, where a number comes from, a
+  domain term, or what null means, and only when a rename cannot say it.
+- **[context] A missing comment** is a finding only for one of those four
+  kinds, with the consequence named. A component-level `providers: []`, an
+  `effect()`, a `ViewEncapsulation.None`, a `runOutsideAngular` each need
+  one.
+- **[context] A comment the diff removed** that was still true and one of the
+  four kinds — restore it.
+- **[hard] A lint or type suppression states its reason.**
 
 ## 5. Styling & design tokens
 

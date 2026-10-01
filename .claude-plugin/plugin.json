@@ -1,7 +1,7 @@
 {
   "name": "delivery-skills",
-  "version": "0.5.0",
-  "description": "Subagent-driven delivery with human review at every chunk, a static gate before every reviewer, and single-file review rubrics for React, Angular, NestJS, Prisma, shared API contracts, tests and backend observability, and a screen-authoring checklist read before React UI is generated",
+  "version": "0.6.0",
+  "description": "Subagent-driven delivery with human review at every chunk, a static gate before every reviewer, single-file review rubrics for React, Angular, NestJS, Prisma, shared API contracts, tests and backend observability, a screen-authoring checklist read before React UI is generated, and a comment cleanup that leaves only the comments a reader needs",
   "author": { "name": "Alexander Vilko", "url": "https://github.com/vilkoalexander" },
   "repository": "https://github.com/vilkoalexander/delivery-skills",
   "license": "MIT",

@@ -153,10 +153,18 @@ Build the block once, at controller start, from what the project already states:
 - Follow the patterns already in the files being changed, not a better idea.
 - A test that still passes with the change reverted is not a test. Assert the
   behaviour the change adds, or leave the test out.
+- Comments: none by default; rename, extract or type it first. One line, and
+  only for why this and not the obvious alternative, an outside constraint, a
+  warning about what breaks if edited, or a workaround with its removal
+  condition. On a constant or an interface field: only units, where a number
+  comes from, a domain term, or what null means. Never restate the code,
+  describe the change, or name a ticket, PR, date or link. Leave an existing
+  comment alone unless the change makes it false.
 - <project invariants, one line each, each stated as a rule a reviewer can check>
 ```
 
-Keep it short enough that it stays read. Constraints specific to one task belong
+The comment line is `comment-cleanup`'s `RULES.md` condensed; the two change
+together. Keep it short enough that it stays read. Constraints specific to one task belong
 in that task's text; this block is what binds every task.
 
 ## Implementer proof

@@ -27,6 +27,9 @@ echo
 echo "Implementer, loaded before a new screen is written (only those tasks)"
 row "react-screen-authoring: SKILL + CHECKLIST + react-review INVENTORY.md + template project layer" "$(t skills/react-screen-authoring/SKILL.md skills/react-screen-authoring/CHECKLIST.md skills/react-review/INVENTORY.md templates/react-screen-authoring.md)"
 echo
+echo "Loaded only when a comment cleanup is asked for"
+row "comment-cleanup: SKILL + RULES" "$(t skills/comment-cleanup/SKILL.md skills/comment-cleanup/RULES.md)"
+echo
 echo "Loaded only when a tooling chunk is proposed"
 row "delivery-pipeline/STATIC-SETUP.md" "$(t skills/delivery-pipeline/STATIC-SETUP.md)"
 echo

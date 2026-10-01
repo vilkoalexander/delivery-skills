@@ -170,7 +170,9 @@ the generic shape is schema → DTO (server validation + docs) → inferred type
   client-consumed package they also ship.
 - **[prefer] Every exported symbol has a why-comment** when its behaviour is
   non-obvious — the currency schema and the integer ceiling each explain the
-  failure they prevent.
+  failure they prevent. One line, on what the name and the schema cannot
+  say: units, where a number comes from, what null means. Never a
+  restatement of the schema, a ticket or a link.
 - **[context] Import extensions match the project's module resolution.** A
   `.js` suffix on a relative import is required under `nodenext` and breaks
   Metro / jest under `bundler`. Check `tsconfig.base.json` before flagging

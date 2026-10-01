@@ -72,6 +72,12 @@ One runs before generation instead of after:
 | --- | --- |
 | `react-screen-authoring` | Read before a new screen, sheet, form or picker is written. The container / view / builder split, the contracts a builder and a view keep, the platform checklist, and the lint that enforces the split. Shares `react-review`'s inventory script; `react-review` judges the result against the same table. |
 
+One cleans up what is already there:
+
+| Skill | Does |
+| --- | --- |
+| `comment-cleanup` | Deletes or shrinks the comments a reader does not need, across a file, a directory or the repo, and proves the diff touched comment lines only. Its `RULES.md` is the comment rule every implementer and reviewer here works to: none by default, one line, and only for a why the code cannot show. |
+
 ![Review routing](diagrams/review-routing.svg)
 
 ## Making it yours

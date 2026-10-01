@@ -13,7 +13,7 @@ Prisma call and the outer client used inside a transaction reach production
 unchallenged. That is what this review is for.
 
 [CHECKLIST.md](CHECKLIST.md) is the rubric: version baseline, tooling
-coverage, severity floor, the eight categories, and what not to report.
+coverage, severity floor, the nine categories, and what not to report.
 [INVARIANTS.md](INVARIANTS.md) is the generic non-negotiables. A diff review
 reaches both through `review-routing` and never loads this file.
 
