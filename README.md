@@ -11,7 +11,9 @@ so you can read the diff. Nothing is ever committed on your behalf.
 /plugin install delivery-skills@vilkoalexander
 ```
 
-Skills appear as `delivery-skills:<name>`.
+Skills appear as `delivery-skills:<name>`. Two agents come with them,
+`delivery-skills:reviewer` (read-only) and `delivery-skills:oneway-implementer`,
+both at high effort. The pipeline dispatches them; you never call them.
 
 ## What a run looks like
 

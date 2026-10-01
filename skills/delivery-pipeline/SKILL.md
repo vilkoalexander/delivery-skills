@@ -25,15 +25,21 @@ inherits the session's most expensive. Pick the cheapest that can hold the role.
 | --- | --- | --- | --- |
 | Controller | Opus 5.5 | the session itself | Holds plan and chunk summaries; Fable 5.1 only on long runs (below) |
 | Implementer — mechanical | Haiku 4.5 | `model: haiku` | One or two files against a specified plan |
-| Implementer — one-way doors | Opus 5.5 | `model: opus` | Schema, auth, money, migrations, public contracts |
-| Task reviewer — default | Sonnet 5.5 | `model: sonnet` | Reads a diff against rubrics; needs judgement, not the top tier |
-| Task reviewer — high risk | Opus 5.5 | `model: opus` | Anything on the one-way-door list above |
+| Implementer — one-way doors | Opus 5.5 | `subagent_type: delivery-skills:oneway-implementer`, `model: opus` | Schema, auth, money, migrations, public contracts |
+| Task reviewer — default | Sonnet 5.5 | `subagent_type: delivery-skills:reviewer`, `model: sonnet` | Reads a diff against rubrics; needs judgement, not the top tier |
+| Task reviewer — high risk | Opus 5.5 | `subagent_type: delivery-skills:reviewer`, `model: opus` | Anything on the one-way-door list above |
 | Scoped re-review | Haiku 4.5 | `model: haiku` | Small fix diff, findings already written |
-| Final whole-branch review | Opus 5.5 | `model: opus` | SDD mandates the most capable available |
+| Final whole-branch review | Opus 5.5 | `subagent_type: delivery-skills:reviewer`, `model: opus` | SDD mandates the most capable available |
 
-"Dispatch as" is the `model` value the Agent tool takes. The short names
-resolve to the current generation of that family, so the table stays right
-when a point release ships. Never pass a dated model ID.
+"Dispatch as" is what the Agent tool takes. The short model names resolve to
+the current generation of that family, so the table stays right when a point
+release ships. Never pass a dated model ID.
+
+Where a row names a `subagent_type`, it replaces the `general-purpose` in
+SDD's prompt template for that seat; the prompt body is unchanged. Those two
+definitions ship in this plugin's `agents/` and carry what a call cannot:
+effort `high`, and for the reviewer no Edit or Write tool. A row without one
+stays `general-purpose`.
 
 Tag each task in the plan with its risk class (next section), and let the tag
 pick the model. A judgement made fresh at dispatch time drifts toward whatever
@@ -47,9 +53,9 @@ Substitutions, in order:
   does not need: Opus 5.5 matches it on coding and costs about 60% less.
 - **Opus 5.5 defaults to `medium` effort**; Sonnet 5.5 and Fable 5.1 default to
   `high`, and Haiku 4.5 takes no effort setting. The Agent tool takes no effort
-  per call — it comes from the agent definition (`.claude/agents/<role>.md`
-  frontmatter). Give the Opus 5.5 reviewer and one-way-door roles a definition
-  with effort `high`, or their reviews run shallower than the Sonnet ones.
+  per call — it comes from the agent definition, which is why the reviewer and
+  one-way-door seats have one. Dispatched as `general-purpose` on Opus 5.5
+  they run shallower than the Sonnet reviews.
 - **Cost pressure** — lower the *effort* of a role before lowering its model.
   Implementers and re-reviews run fine at low or medium effort; reviewers stay
   at high. On the Claude 5 family, a cheaper model at high effort is usually

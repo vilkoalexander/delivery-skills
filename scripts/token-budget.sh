@@ -15,6 +15,7 @@ row "delivery-pipeline + chunked-delivery" "$(t skills/delivery-pipeline/SKILL.m
 echo
 echo "Task reviewer, fixed load before the diff (every task)"
 [ -n "$sdd" ] && row "SDD task-reviewer prompt" "$(t "$sdd/task-reviewer-prompt.md")"
+row "reviewer agent definition" "$(t agents/reviewer.md)"
 row "review-routing" "$(t skills/review-routing/SKILL.md)"
 for r in skills/*-review; do
   n=$(basename "$r"); inv="$r/INVARIANTS.md"; [ -f "$inv" ] || inv="$r/INVENTORY.md"
