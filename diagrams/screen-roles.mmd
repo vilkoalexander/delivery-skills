@@ -1,0 +1,19 @@
+graph TD
+  C[Container *Screen.tsx<br/>navigation, query hooks, screen state<br/>150 lines, no useEffect, one component]
+  V[View *View.tsx, rows, sheets, forms<br/>props in, callbacks out<br/>250 lines, no useEffect, never fetches]
+  P[Primitive components/ui, components/app<br/>animation, timers, native sync<br/>250 lines, knows no domain]
+  B[Builder / reducer lib/*.ts + spec<br/>pure: t, locale, labels, clock as inputs<br/>no React, no i18n singleton, no queries]
+  H[Behaviour hook use*.ts<br/>useEffect, refs, native APIs<br/>100 lines, one behaviour, no fetching]
+  Q[Query hook queries/<br/>query library + service clients]
+  S[Service client services/]
+  C -- renders --> V
+  C -- calls --> B
+  C -- uses --> H
+  C -- reads, mutates --> Q
+  V -- composes --> P
+  V -- imports types from --> B
+  Q -- calls --> S
+  V --x|"lint: a view never fetches"| Q
+  C --x|"lint: a screen never reaches a client"| S
+  P --x|"lint: no domain in a primitive"| Q
+  B --x|"lint: lib never imports UI"| V

@@ -14,7 +14,7 @@ deviate with a stated reason) or **[context]** (depends on the situation).
 
 | Role | Lives in | May use | May not |
 | --- | --- | --- | --- |
-| **Container** (`*Screen.tsx`, `*Page.tsx`) | `features/<f>/screens/` | navigation (typed param lists), query hooks, behaviour hooks, `useState` / `useReducer` for screen-local UI and form state, `useMemo` around builders | `useEffect`, service clients, inline helper components, derivations beyond calling a builder |
+| **Container** (`*Screen.tsx`, `*Page.tsx`) | `features/<f>/screens/` | navigation (typed param lists), query hooks, behaviour hooks, `useState` / `useReducer` for screen-local UI and form state, `useMemo` around builders | `useEffect`, service clients, inline helper components, derivations beyond calling a builder, handlers that own in-flight or error state |
 | **View** (`*View.tsx`, rows, sheets, forms, pickers) | `features/<f>/components/` | props in, semantic callbacks out; theme, translation, locale and settings read hooks; `useState` for interaction state the parent must not know | `useEffect`, service clients, query hooks, any fetching hook. A view never fetches: pickers and forms receive `options` / `status` / `retry` as props |
 | **Primitive** | `components/ui/`, `components/app/` | everything a view may, plus `useEffect` / `useRef` for animation lifecycle, timers with cleanup, native-resource sync | domain data, domain types, query hooks, service clients, anything under `features/` |
 | **Builder / reducer** (`build<Section>.ts`, `<x>FormState.ts`) | `features/<f>/lib/`, `src/lib/` | pure functions over data snapshots plus explicit presentation inputs (`t`, `locale`, domain labels, clock values) | React, React Native, the i18n singleton, `Date.now()`, query objects, navigation, setters, components. Every one has a spec beside it |
@@ -57,14 +57,23 @@ deviate with a stated reason) or **[context]** (depends on the situation).
   a dirty draft) get a pure reducer in `lib/` wired by `useReducer` in the
   container or a thin form hook; controlled fields render from reducer state.
   A field is never in both. The spec covers hydration before and after the
-  first edit, dependent-field clearing, validation, reset, dirty comparison
-  and the payload. No form library unless the project already has one.
+  first edit, dependent-field clearing, validation, dirty comparison and
+  the payload. No form library unless the project already has one.
 - **[hard] Sheets.** Draft initialization and reset are separate from
   visibility. Reopening, or switching the edited entity, starts a fresh
   draft; a background refetch never overwrites a dirty draft. Dirty-dismiss
   confirmation, a dismissal lock while a write is pending, local failure
   display and the exit animation (the sheet primitive stays mounted through
-  it) are preserved.
+  it) are preserved. That session is one shared behaviour hook (a
+  `useSheetSession`), where the reseed effect is legal; a sheet holds its
+  field reducer, the fields and the footer, and no effect.
+- **[hard] Handlers that own state are hooks.** A handler that keeps
+  in-flight, error or refreshing state around a mutation is a feature hook,
+  one per decision, returning the action and its state; pull-to-refresh is
+  one shared hook. The container calls the mutation hook once and hands the
+  mutation to the handler hook; a handler hook never registers its own. A
+  handler that only forwards to a mutation or a setter stays inline. The
+  container is wiring: queries, hooks, builders, view.
 - **[hard] Copy.** Every rendered string comes from the project's locale
   bundle. A builder receives `t`; it never imports the i18n singleton.
 - **[prefer] Comments** document lifecycle invariants, races and native
@@ -127,7 +136,7 @@ shape, then flip to `error`.
 
 | Files | Rules |
 | --- | --- |
-| `src/features/**/*Screen.tsx` | `max-lines` 150 (`skipBlankLines`, `skipComments`); `useEffect` / `useLayoutEffect` banned; `no-restricted-imports` on service clients |
+| `src/features/**/*Screen.tsx` | `max-lines` 150 (`skipBlankLines`, `skipComments`); one component per file (`react/no-multi-comp`, `ignoreStateless: false`); `useEffect` / `useLayoutEffect` banned; `no-restricted-imports` on service clients |
 | `src/features/**/components/**` | `max-lines` 250; the same effect ban; `no-restricted-imports` on service clients, query hooks, feature hooks, and the fetching exports of the shared hooks barrel (`importNames`) |
 | `src/components/{ui,app}/**` | `max-lines` 250; `no-restricted-imports` on service clients, query hooks, anything under `features/` |
 | `src/features/**/lib/**`, `src/lib/**` | `no-restricted-imports` on `react`, `react-native`, the i18n singleton, query hooks, any `components/` |

@@ -11,6 +11,9 @@ before the first line of a new screen, so the shape comes out right the first
 time. It is the authoring side of `react-review`: that rubric judges a
 finished component against the same split, this one produces it.
 
+The split, what each layer may reach and what lint stops, is drawn in
+`diagrams/screen-roles.svg` at the plugin root.
+
 [CHECKLIST.md](CHECKLIST.md) is the contract: the roles, what each may and
 may not import, the contracts a builder and a view keep, the file set a
 screen creates, the platform checklist, and the lint that enforces all of it.

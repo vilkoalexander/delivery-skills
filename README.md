@@ -78,6 +78,8 @@ One cleans up what is already there:
 | --- | --- |
 | `comment-cleanup` | Deletes or shrinks the comments a reader does not need, across a file, a directory or the repo, and proves the diff touched comment lines only. Its `RULES.md` is the comment rule every implementer and reviewer here works to: none by default, one line, and only for a why the code cannot show. |
 
+![Screen roles](diagrams/screen-roles.svg)
+
 ![Review routing](diagrams/review-routing.svg)
 
 ## Making it yours
