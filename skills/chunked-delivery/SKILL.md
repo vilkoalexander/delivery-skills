@@ -124,6 +124,7 @@ Cross:   <one line verdict, or "not run — low risk">
 Rulings: <only decisions that could have gone the other way. Omit if none.>
 
 Read it:  git diff
+Map:      <link>   (only when a map was published)
 Next:     "next" · "fix <thing>" · "redo" · "stop"
 ```
 
@@ -155,12 +156,31 @@ Flow:    POST /orders ─> validate ─> reserve stock (new)
          └─ short ─> 409 + reason (new)
 ```
 
+## The review map
+
+Optional, and only on request. Once a chunk is reported, the human can say
+`map` and get a private page that sorts the chunk's files into read
+carefully, skim and trust, walks them in data-flow order, and lists what
+only they can decide. `references/review-map.md` specifies the page; load it
+when the human asks, not before.
+
+Offer it, never publish it unasked. When the chunk is over roughly twenty
+files or touches more than one layer — backend, shared contracts, UI — add
+`· "map"` to the report's `Next:` line. Under that the diff is the faster
+read, and the human can still ask.
+
+Once a map exists, republish the same page after every fix round so its
+counts and notes stay true, and link it on the report's `Map:` line. A map
+is for the human reader; it never replaces the reviewer dispatch or the diff
+snapshot.
+
 ## Resuming
 
 | Human says | Do |
 | --- | --- |
 | `next` | Start the next chunk at step 1 |
-| `fix <thing>` | Dispatch a fix implementer plus a scoped re-review, re-report the same chunk |
+| `fix <thing>` | Dispatch a fix implementer plus a scoped re-review, re-report the same chunk. If a map exists, republish it before the report |
+| `map` | Build and publish the review map for this chunk, answer with the link, keep waiting |
 | `redo` | Confirm first — there are no commits, so discarding is a real loss. On confirmation, `git apply -R` the chunk snapshot, then re-dispatch with the correction as added context |
 | `stop` | Halt. Report which chunks are complete and which are untouched |
 
@@ -170,6 +190,7 @@ question is not approval.
 ## What never happens without asking
 
 - Starting the next chunk
+- Publishing a review map
 - Committing, staging, pushing, merging, or opening a PR — at any point, for any
   reason
 - Changing the plan. A chunk that proves the plan wrong stops the run and says

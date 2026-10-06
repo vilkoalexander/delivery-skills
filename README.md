@@ -34,6 +34,14 @@ both at high effort. The pipeline dispatches them; you never call them.
 
 ![Chunked delivery loop](diagrams/chunked-delivery.svg)
 
+A chunk of more than about twenty files, or one that crosses backend, shared
+contracts and UI, is too much to read as one diff. On those the report
+offers a review map, and you get it by saying `map`: a private page that
+sorts the files into read carefully, skim and trust, walks them in data-flow
+order with the diff command for each stop, and lists the questions only you
+can answer. It is never published unasked, and it is rebuilt after every fix
+round.
+
 Risk class decides everything else: which model implements and reviews, how
 many fix rounds a chunk gets, and whether a second model family looks at it.
 It comes from what a change touches, not how hard it looks. Schema, auth,

@@ -326,6 +326,13 @@ the after-snapshot is what "redo" means now. Say so plainly when asked to discar
 work: there is no cheap restore point, so discarding is a real loss and gets
 confirmed first.
 
+**Review map.** When the human asks for one (`chunked-delivery` says when and
+what), it is derived from the chunk's snapshots: file rows from the current
+`git diff --numstat`, less what `chunk-$N-before.diff` already held.
+Republish it after each fix round from a fresh numstat, never by editing the
+old counts. The published link goes into the chunk's ledger entry, so a
+resumed run republishes to the same page instead of starting a second one.
+
 ## Cross-model review
 
 The second opinion is a different model family reading the same diff. It attaches
