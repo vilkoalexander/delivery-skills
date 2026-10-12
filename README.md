@@ -88,6 +88,12 @@ One cleans up what is already there:
 | --- | --- |
 | `comment-cleanup` | Deletes or shrinks the comments a reader does not need, across a file, a directory or the repo, and proves the diff touched comment lines only. Its `RULES.md` is the comment rule every implementer and reviewer here works to: none by default, one line, and only for a why the code cannot show. |
 
+One looks after the agent's own memory:
+
+| Skill | Does |
+| --- | --- |
+| `memory-dash` | Opens a local dashboard of Claude Code auto-memory across every project on the machine, audits the current project's memory for duplicates, conflicts, superseded and stale facts, and leaves a numbered list of cleanup actions. Each is applied only when you name it; old and new content print first. `stats` mode is a free scan with no reading. |
+
 ![Screen roles](diagrams/screen-roles.svg)
 
 ![Review routing](diagrams/review-routing.svg)

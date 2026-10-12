@@ -1,0 +1,12 @@
+{"slug": "-Users-me-app-one", "audited": "2026-10-12T00:00:00", "files_read": 5,
+ "duplicates": [{"keep": "db_host_v2.md", "drop": "db_host.md", "confidence": "plausible", "why": "same fact, host changed"}],
+ "conflicts": [{"files": ["db_host.md", "db_host_v2.md"], "fact": "DB host", "a_says": "db.internal", "b_says": "db2.internal", "resolution": "unknown"}],
+ "superseded": [], "stale": [{"file": "db_host_v2.md", "why": "relative date"}], "task_like": [],
+ "quality": {"db_host.md": 3, "db_host_v2.md": 2, "feedback_style.md": 5, "orphan.md": 4, "raw.md": 1},
+ "next_actions": [
+  {"n": 1, "kind": "resolve", "files": ["db_host.md", "db_host_v2.md"], "text": "Which host is live?", "edit": null},
+  {"n": 2, "kind": "reindex", "files": ["orphan.md", "raw.md", "ghost.md"], "text": "Fix MEMORY.md", "edit": null},
+  {"n": 3, "kind": "rewrite", "files": ["raw.md"], "text": "Give raw.md frontmatter", "edit": "---\nname: staging-bucket\ndescription: Staging assets bucket name\ntype: reference\n---\n\nStaging assets live in s3://staging-assets.\n"},
+  {"n": 4, "kind": "merge", "files": ["db_host_v2.md", "db_host.md"], "text": "Merge db host files", "edit": "---\nname: db-host\ndescription: Production database host, port and role\ntype: project\n---\n\nProduction DB is db2.internal:5432, role api_rw.\n"},
+  {"n": 5, "kind": "delete", "files": ["orphan.md"], "text": "Drop orphan", "edit": null}
+ ]}

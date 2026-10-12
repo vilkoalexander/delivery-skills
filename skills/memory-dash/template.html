@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memory Dash</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{color-scheme:dark;--page:#0d0d0d;--surface:#1a1a19;--surface-2:#242423;--line:#2e2e2c;
+--ink:#f0efec;--ink-2:#c3c2b7;--muted:#898781;
+--user:#3987e5;--feedback:#d95926;--project:#199e70;--reference:#c98500;--none:#898781;
+--good:#0ca30c;--warning:#fab219;--serious:#ec835a;--critical:#d03b3b;--accent:#9085e9}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif}
+main{max-width:1280px;margin:0 auto;padding:24px 16px 64px}
+h1{font-size:18px;margin:0 0 4px;font-weight:600}
+h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:32px 0 12px;font-weight:600}
+.sub{color:var(--muted);font-size:12px}
+.row{display:grid;gap:12px}
+.row.c4{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+.row.c3{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+.row.cards{grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;min-width:0}
+.card.current{border-color:var(--accent)}
+.tile .v{font-size:34px;font-weight:600;line-height:1.1}
+.tile .l{color:var(--muted);font-size:12px;margin-top:4px}
+.score .v{font-size:56px}
+.delta{font-size:14px;margin-left:8px;color:var(--muted)}
+.delta.up{color:var(--good)}.delta.down{color:var(--critical)}
+.badge{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:600;color:#0d0d0d;margin-right:4px;white-space:nowrap}
+.badge.user{background:var(--user)}.badge.feedback{background:var(--feedback)}.badge.project{background:var(--project)}.badge.reference{background:var(--reference)}.badge.none{background:var(--none)}
+.flag{display:inline-block;padding:0 6px;border:1px solid var(--line);border-radius:4px;font-size:11px;color:var(--ink-2);margin:1px 3px 1px 0;background:var(--surface-2)}
+.flag.hot{border-color:var(--serious);color:var(--serious)}
+.kind{display:inline-block;width:72px;text-align:center;padding:2px 0;border-radius:4px;font-size:11px;font-weight:600;color:#0d0d0d}
+.kind.resolve{background:var(--critical);color:#fff}.kind.merge{background:var(--warning)}.kind.delete{background:var(--serious)}.kind.rewrite{background:var(--accent)}.kind.reindex{background:var(--good)}
+ol.actions{padding-left:0;list-style:none;margin:0}
+ol.actions li{display:grid;grid-template-columns:28px 80px 1fr;gap:10px;align-items:start;padding:10px 0;border-bottom:1px solid var(--line)}
+ol.actions li:last-child{border-bottom:0}
+ol.actions li.empty{display:block}
+ol.actions .n{color:var(--muted);font-variant-numeric:tabular-nums}
+ol.actions .files{color:var(--muted);font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.bar{display:flex;height:6px;border-radius:3px;overflow:hidden;gap:2px;background:var(--line);margin:8px 0 6px}
+.bar span{display:block;height:100%}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em;cursor:pointer;user-select:none;white-space:nowrap}
+th.sorted::after{content:" ▾";color:var(--accent)}
+td.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;white-space:nowrap}
+td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td.desc{color:var(--ink-2);max-width:520px}
+.wrap{overflow-x:auto}
+.filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+input,select{background:var(--surface-2);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:6px 10px;font:inherit}
+input{min-width:220px}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px}
+.pair .side{background:var(--surface-2);border-radius:8px;padding:10px 12px;font-size:13px;min-width:0}
+.pair .side .f{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--accent);word-break:break-all}
+.why{color:var(--ink-2);font-size:13px;margin:0 0 4px}
+.conf{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.empty{color:var(--muted);font-style:italic}
+canvas{max-height:260px}
+.hint{color:var(--muted);font-size:12px;margin-top:6px}
+@media (max-width:720px){.pair{grid-template-columns:1fr}ol.actions li{grid-template-columns:28px 1fr}.kind{grid-column:2}}
+</style>
+</head>
+<body>
+<main>
+<h1>Memory Dash <span class="sub" id="title-path"></span></h1>
+<div class="sub" id="meta"></div>
+
+<div class="row c4" style="margin-top:16px">
+  <div class="card tile score"><div class="v" id="score">–</div><div class="l" id="score-label">score</div></div>
+  <div class="card tile"><div class="v" id="t-projects">–</div><div class="l">projects</div></div>
+  <div class="card tile"><div class="v" id="t-files">–</div><div class="l">memory files</div></div>
+  <div class="card tile"><div class="v" id="t-flags">–</div><div class="l">flags, all projects</div></div>
+  <div class="card tile"><div class="v" id="t-read">–</div><div class="l">files read by audit</div></div>
+</div>
+
+<h2>Next actions</h2>
+<div class="card"><ol class="actions" id="actions"></ol><div class="hint">In chat: <code>apply 1,3</code> · <code>apply all</code> · <code>why 2</code> · <code>skip 4</code></div></div>
+
+<h2>Projects</h2>
+<div class="row cards" id="projects"></div>
+
+<h2>Shape</h2>
+<div class="row c3">
+  <div class="card"><div class="sub">Types, all projects</div><canvas id="c-type-all"></canvas></div>
+  <div class="card"><div class="sub">Types, current project</div><canvas id="c-type-cur"></canvas></div>
+  <div class="card"><div class="sub">Files touched per ISO week, current project</div><canvas id="c-week"></canvas></div>
+</div>
+
+<h2>Top links, current project</h2>
+<div class="card"><canvas id="c-links" style="max-height:360px"></canvas><div class="empty" id="links-empty" hidden>No [[links]] yet.</div></div>
+
+<h2>Files, current project</h2>
+<div class="card">
+  <div class="filters"><input id="f-cur" placeholder="filter name, description, flag"></div>
+  <div class="wrap"><table id="t-cur"><thead><tr>
+    <th data-k="name">name</th><th data-k="type">type</th><th data-k="bytes">bytes</th><th data-k="mtime">mtime</th><th>flags</th><th>description</th>
+  </tr></thead><tbody></tbody></table></div>
+</div>
+
+<h2>Conflicts</h2><div class="card" id="s-conflicts"></div>
+<h2>Duplicates</h2><div class="card" id="s-duplicates"></div>
+<h2>Superseded</h2><div class="card" id="s-superseded"></div>
+<h2>Stale</h2><div class="card" id="s-stale"></div>
+<h2>Task-like memories</h2><div class="card" id="s-task"></div>
+
+<h2>All memories</h2>
+<div class="card">
+  <div class="filters">
+    <input id="f-all" placeholder="filter">
+    <select id="f-proj"><option value="">all projects</option></select>
+    <select id="f-type"><option value="">all types</option><option>user</option><option>feedback</option><option>project</option><option>reference</option><option value="none">none</option></select>
+  </div>
+  <div class="wrap"><table id="t-all"><thead><tr>
+    <th data-k="project">project</th><th data-k="name">name</th><th data-k="type">type</th><th data-k="mtime">mtime</th><th>flags</th><th>description</th>
+  </tr></thead><tbody></tbody></table></div>
+</div>
+</main>
+
+<script type="application/json" id="inventory">__INVENTORY__</script>
+<script type="application/json" id="audit">__AUDIT__</script>
+<script type="application/json" id="score-data">__SCORE__</script>
+<script>
+const INV = JSON.parse(document.getElementById('inventory').textContent);
+const AUD = JSON.parse(document.getElementById('audit').textContent);
+const SCORE = JSON.parse(document.getElementById('score-data').textContent);
+const TYPES = ['user','feedback','project','reference','none'];
+const COLOR = {user:'#3987e5',feedback:'#d95926',project:'#199e70',reference:'#c98500',none:'#898781'};
+const HOT = new Set(['no_frontmatter','no_type','bad_type','broken_link','not_indexed','relative_date']);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const cur = INV.projects[INV.current] || null;
+const short = p => p.display.split('/').slice(-2).join('/');
+
+document.getElementById('title-path').textContent = cur ? cur.display : INV.current + ' (not found)';
+document.getElementById('meta').textContent = 'generated ' + INV.generated.replace('T',' ') + (AUD ? ' · audit ' + AUD.audited.replace('T',' ') : ' · stats only, no audit');
+document.getElementById('t-projects').textContent = INV.totals.projects;
+document.getElementById('t-files').textContent = INV.totals.files;
+document.getElementById('t-flags').textContent = Object.values(INV.totals.flags).reduce((a,b)=>a+b,0);
+document.getElementById('t-read').textContent = AUD ? AUD.files_read + ' / ' + (cur ? cur.files : '?') : '–';
+{
+  const el = document.getElementById('score');
+  el.textContent = SCORE.value;
+  if (SCORE.prev != null) {
+    const d = SCORE.value - SCORE.prev;
+    const s = document.createElement('span');
+    s.className = 'delta ' + (d > 0 ? 'up' : d < 0 ? 'down' : '');
+    s.textContent = (d > 0 ? '+' : '') + d;
+    el.appendChild(s);
+  }
+  document.getElementById('score-label').textContent = SCORE.label;
+}
+
+// Next actions
+{
+  const ol = document.getElementById('actions');
+  const acts = (AUD && AUD.next_actions) || [];
+  if (!acts.length) ol.innerHTML = '<li class="empty">' + (AUD ? 'Nothing to do.' : 'Run the audit to get actions.') + '</li>';
+  for (const a of acts) {
+    const li = document.createElement('li');
+    li.innerHTML = '<span class="n">' + a.n + '</span><span class="kind ' + esc(a.kind) + '">' + esc(a.kind) + '</span>' +
+      '<div>' + esc(a.text) + '<div class="files">' + a.files.map(esc).join(' · ') + '</div></div>';
+    ol.appendChild(li);
+  }
+}
+
+// Project cards
+{
+  const box = document.getElementById('projects');
+  const slugs = Object.keys(INV.projects).sort((a,b) => (b===INV.current) - (a===INV.current) || INV.projects[b].files - INV.projects[a].files);
+  for (const slug of slugs) {
+    const p = INV.projects[slug];
+    const flags = p.memories.reduce((n,m)=>n+m.flags.length,0);
+    const bar = TYPES.filter(t=>p.by_type[t]).map(t => '<span style="flex:' + p.by_type[t] + ';background:' + COLOR[t] + '"></span>').join('');
+    const d = document.createElement('div');
+    d.className = 'card' + (slug===INV.current ? ' current' : '');
+    d.innerHTML = '<div style="font-weight:600;word-break:break-all">' + esc(short(p)) + '</div><div class="sub">' + esc(p.display) + '</div>' +
+      '<div class="bar">' + bar + '</div>' +
+      '<div class="sub">' + p.files + ' files · ' + flags + ' flags · ' + (p.index_present ? (p.not_indexed.length ? p.not_indexed.length + ' unindexed' : 'index ok') : 'no MEMORY.md') + '</div>';
+    box.appendChild(d);
+  }
+}
+
+// Charts
+const chartDefaults = { plugins: { legend: { labels: { color: '#c3c2b7', boxWidth: 10, usePointStyle: true } } } };
+function donut(id, byType) {
+  const labels = TYPES.filter(t=>byType[t]);
+  new Chart(document.getElementById(id), { type:'doughnut',
+    data:{ labels, datasets:[{ data: labels.map(t=>byType[t]), backgroundColor: labels.map(t=>COLOR[t]), borderColor:'#1a1a19', borderWidth:2 }] },
+    options:{ ...chartDefaults, cutout:'62%', plugins:{ ...chartDefaults.plugins, legend:{ ...chartDefaults.plugins.legend, position:'right' } } } });
+}
+if (typeof Chart !== 'undefined') {
+  Chart.defaults.color = '#898781'; Chart.defaults.borderColor = '#2e2e2c'; Chart.defaults.font.family = 'inherit';
+  donut('c-type-all', INV.totals.by_type);
+  if (cur) donut('c-type-cur', cur.by_type);
+  if (cur) new Chart(document.getElementById('c-week'), { type:'bar',
+    data:{ labels:Object.keys(cur.by_week).map(w=>w.slice(5)), datasets:[{ data:Object.values(cur.by_week), backgroundColor:'#9085e9', borderRadius:4, barPercentage:0.7 }] },
+    options:{ plugins:{ legend:{ display:false } }, scales:{ y:{ beginAtZero:true, ticks:{ precision:0 } }, x:{ grid:{ display:false } } } } });
+  if (cur && cur.top_links.length) new Chart(document.getElementById('c-links'), { type:'bar',
+    data:{ labels:cur.top_links.map(l=>l[0]), datasets:[{ data:cur.top_links.map(l=>l[1]), backgroundColor:'#3987e5', borderRadius:4, barPercentage:0.6 }] },
+    options:{ indexAxis:'y', plugins:{ legend:{ display:false } }, scales:{ x:{ beginAtZero:true, ticks:{ precision:0 } }, y:{ grid:{ display:false } } } } });
+  else document.getElementById('links-empty').hidden = false;
+}
+
+// Tables
+function flagsHtml(fl) { return fl.map(f => '<span class="flag' + (HOT.has(f.split(':')[0]) ? ' hot' : '') + '">' + esc(f) + '</span>').join(''); }
+function typeBadge(t) { t = t || 'none'; return '<span class="badge ' + esc(t) + '">' + esc(t) + '</span>'; }
+function table(id, rows, cols, filterIds) {
+  const tbl = document.getElementById(id), tbody = tbl.querySelector('tbody');
+  let sortKey = null, dir = 1;
+  const inputs = filterIds.map(i => document.getElementById(i));
+  function render() {
+    const q = (inputs[0].value || '').toLowerCase();
+    const sel = inputs.slice(1).map(i => i.value);
+    let r = rows.filter(x => (!q || x._search.includes(q)) && sel.every((v, i) => !v || x[filterIds[i+1]==='f-proj' ? 'slug' : 'tsel'] === v));
+    if (sortKey) r = r.slice().sort((a,b) => (a[sortKey] > b[sortKey] ? 1 : a[sortKey] < b[sortKey] ? -1 : 0) * dir);
+    tbody.innerHTML = r.map(x => '<tr>' + cols.map(c => c(x)).join('') + '</tr>').join('') || '<tr><td colspan="6" class="empty">nothing</td></tr>';
+  }
+  tbl.querySelectorAll('th[data-k]').forEach(th => th.onclick = () => {
+    const k = th.dataset.k; dir = sortKey === k ? -dir : 1; sortKey = k;
+    tbl.querySelectorAll('th').forEach(t => t.classList.remove('sorted')); th.classList.add('sorted'); render();
+  });
+  inputs.forEach(i => i.oninput = render);
+  render();
+}
+if (cur) {
+  const rows = cur.memories.map(m => ({ ...m, _search: [m.name, m.description, m.flags.join(' ')].join(' ').toLowerCase() }));
+  table('t-cur', rows, [
+    m => '<td class="mono">' + esc(m.file) + '<div class="sub">' + esc(m.name) + '</div></td>',
+    m => '<td>' + typeBadge(m.type) + '</td>',
+    m => '<td class="num">' + m.bytes + '</td>',
+    m => '<td class="mono">' + esc(m.mtime) + '</td>',
+    m => '<td>' + flagsHtml(m.flags) + '</td>',
+    m => '<td class="desc">' + esc(m.description) + '</td>' ], ['f-cur']);
+}
+{
+  const sel = document.getElementById('f-proj');
+  const rows = [];
+  for (const [slug, p] of Object.entries(INV.projects)) {
+    sel.insertAdjacentHTML('beforeend', '<option value="' + esc(slug) + '">' + esc(short(p)) + '</option>');
+    for (const m of p.memories) rows.push({ ...m, slug, project: short(p), tsel: m.type || 'none', _search: [short(p), m.name, m.description, m.flags.join(' ')].join(' ').toLowerCase() });
+  }
+  table('t-all', rows, [
+    m => '<td class="mono">' + esc(m.project) + '</td>',
+    m => '<td class="mono">' + esc(m.file) + '</td>',
+    m => '<td>' + typeBadge(m.type) + '</td>',
+    m => '<td class="mono">' + esc(m.mtime) + '</td>',
+    m => '<td>' + flagsHtml(m.flags) + '</td>',
+    m => '<td class="desc">' + esc(m.description) + '</td>' ], ['f-all', 'f-proj', 'f-type']);
+}
+
+// Audit sections
+const descOf = f => { const m = cur && cur.memories.find(x => x.file === f); return m ? m.description : ''; };
+function side(f, extra) { return '<div class="side"><div class="f">' + esc(f) + '</div><div class="sub">' + esc(descOf(f)) + '</div>' + (extra ? '<div style="margin-top:6px">' + esc(extra) + '</div>' : '') + '</div>'; }
+function section(id, items, render, emptyText) {
+  const el = document.getElementById(id);
+  if (!AUD) { el.innerHTML = '<div class="empty">Run the audit.</div>'; return; }
+  if (!items || !items.length) { el.innerHTML = '<div class="empty">' + emptyText + '</div>'; return; }
+  el.innerHTML = items.map(render).join('');
+}
+section('s-conflicts', AUD && AUD.conflicts, c =>
+  '<p class="why"><b>' + esc(c.fact) + '</b> · resolution: ' + esc(c.resolution) + '</p><div class="pair">' + side(c.files[0], c.a_says) + side(c.files[1], c.b_says) + '</div>', 'No conflicts.');
+section('s-duplicates', AUD && AUD.duplicates, d =>
+  '<p class="why"><span class="conf">' + esc(d.confidence) + '</span> · ' + esc(d.why) + '</p><div class="pair">' + side(d.keep, 'keep') + side(d.drop, 'drop') + '</div>', 'No duplicates.');
+section('s-superseded', AUD && AUD.superseded, s =>
+  '<p class="why">' + esc(s.why) + '</p><div class="pair">' + side(s.newer, 'newer') + side(s.older, 'older') + '</div>', 'Nothing superseded.');
+section('s-stale', AUD && AUD.stale, s => '<p class="why"><span class="f" style="color:var(--accent)">' + esc(s.file) + '</span> — ' + esc(s.why) + '</p>', 'Nothing stale.');
+section('s-task', AUD && AUD.task_like, s => '<p class="why"><span class="f" style="color:var(--accent)">' + esc(s.file) + '</span> — ' + esc(s.why) + '</p>', 'Every memory reads as a fact.');
+</script>
+</body>
+</html>
