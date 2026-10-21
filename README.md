@@ -88,6 +88,12 @@ One cleans up what is already there:
 | --- | --- |
 | `comment-cleanup` | Deletes or shrinks the comments a reader does not need, across a file, a directory or the repo, and proves the diff touched comment lines only. Its `RULES.md` is the comment rule every implementer and reviewer here works to: none by default, one line, and only for a why the code cannot show. |
 
+One audits whether the others can stop reinvention:
+
+| Skill | Does |
+| --- | --- |
+| `reuse-guardrails` | Thirteen checks on whether a project stops agents re-implementing what the shared layer has, duplicating across tasks, or adding a wrapper or a dependency for one caller: inventory in the implementer's prompt, a Reuse block in its report, jscpd and hand-roll bans in lint, a reuse scan in the gate, a reinvention rule in every rubric. Audits, reports, implements the ids you name. Its `reuse-scan.sh` runs inside the static gate on every chunk. |
+
 One looks after the agent's own memory:
 
 | Skill | Does |
@@ -109,6 +115,10 @@ points and the script variables are in [`templates/`](templates/README.md).
 enforces and which it lacks. For each gap, `STATIC-SETUP.md` in the
 delivery-pipeline skill has the strict setup. Anything lint enforces never
 reaches a reviewer.
+
+`bash skills/reuse-guardrails/scripts/audit.sh <your-repo>` prints which of
+the thirteen reuse guardrails your project has and which it lacks, each with
+a recipe in that skill's `CHECKLIST.md`.
 
 `bash scripts/token-budget.sh` shows what each dispatch loads, so you can
 see what an edit to a skill costs every task.

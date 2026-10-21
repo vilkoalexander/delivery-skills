@@ -14,7 +14,7 @@
 # failure. Both prefer package.json scripts and fall back to the tools.
 #
 #   RISK_HIGH / RISK_MEDIUM are not read here; see risk.sh.
-#   STATIC_SKIP   space-separated steps to skip: typecheck lint format test prisma
+#   STATIC_SKIP   space-separated steps to skip: typecheck lint format test prisma reuse
 #   STATIC_TEST   override the related-tests command (takes file paths)
 set -uo pipefail
 
@@ -100,6 +100,8 @@ coverage() {
   if [ -f .husky/pre-commit ] || [ -f .pre-commit-config.yaml ] || [ -f lefthook.yml ]; then row "pre-commit hook" "on"; else row "pre-commit hook" "none"; absent+=("pre-commit"); fi
   has_dep lint-staged && row "lint-staged" "installed"
   any_file .gitleaks.toml .secretlintrc* >/dev/null && row "secret scan" "on" || { row "secret scan (gitleaks)" "absent"; absent+=("gitleaks"); }
+  has_dep jscpd && row "duplicate detection (jscpd)" "installed" || row "duplicate detection (jscpd)" "absent — reuse-guardrails B1"
+  row "reuse guardrails" "bash $(dirname "$0")/../../reuse-guardrails/scripts/audit.sh"
   if any_file .github/workflows/*.yml .gitlab-ci.yml >/dev/null; then
     grep -lsE 'lint|tsc|typecheck' .github/workflows/*.yml .gitlab-ci.yml 2>/dev/null | head -1 | xargs -I{} echo "  ci runs lint/typecheck                       {}"
   else row "ci" "none found"; fi
@@ -174,6 +176,13 @@ check() {
     fi
   fi
   rm -f "$log"
+  # Reuse flags ride along to the reviewer and the chunk report; they never
+  # fail the gate (REUSE_STRICT=1 on the scan itself does, when wanted).
+  local scan; scan="$(dirname "$0")/../../reuse-guardrails/scripts/reuse-scan.sh"
+  if ! skip reuse && [ -f "$scan" ] && [ ${#existing[@]} -gt 0 ]; then
+    printf '== reuse scan\n'
+    bash "$scan" "${existing[@]}" | sed 's/^/   /'
+  fi
   [ "$failed" -eq 0 ] && echo "static gate: clean" || { echo "static gate: FAILED — send the output above to the implementer; no reviewer yet"; exit 1; }
 }
 

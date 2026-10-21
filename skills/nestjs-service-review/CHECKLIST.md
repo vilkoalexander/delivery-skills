@@ -201,6 +201,12 @@ Every new backend unit needs a spec — services **and** controllers.
 
 ## 8. Structure & consistency
 
+- **[hard] Reinvention** — re-implements a helper, mapper, pagination
+  builder, error shape or date / money function the shared package or a
+  sibling module already exports. **Run `scripts/inventory.sh` before
+  judging this.** Name the replacement by its real export and path, not a
+  guess; a `searched: … none found` line in the implementer's Reuse block
+  answers it only when the inventory agrees.
 - **[hard] Module boundaries** — a service reaches other modules through their
   exported service, not by importing another module's Prisma queries.
 - **[prefer] Barrel exports** — each folder has an `index.ts`; imports use it,

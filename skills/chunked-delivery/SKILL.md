@@ -55,7 +55,8 @@ flags. Trunk exposure is then one small chunk the human reads hardest, not a
 slice of every chunk.
 
 Before any dispatch, run `static-gate.sh coverage` per `delivery-pipeline`
-and present the chunk list — name, risk, one line each — with any proposed
+and `reuse-guardrails`' `scripts/audit.sh`, fold their `ABSENT:` and `MISS:`
+lists into the same optional tooling chunk, and present the chunk list — name, risk, one line each — with any proposed
 tooling chunk first, marked as optional. Then **wait for approval**. This is the only plan-level gate; after it, approval is
 per chunk.
 
@@ -73,9 +74,11 @@ For each approved chunk, in order:
    on the changed paths per `delivery-pipeline` — typecheck, lint, format,
    related tests, and the revert check when tests changed. A failure goes
    back to the implementer with the tool output as fix round zero; nothing
-   else happens until it is clean. On a **low-risk chunk stop here** — no
-   reviewer, no fix rounds; the human reads the proof and the diff at the
-   gate and the whole-tree review at the end covers it. Otherwise dispatch
+   else happens until it is clean. The gate's last step is the reuse scan;
+   its flags never fail the gate, they ride along to the reviewer and into
+   the report's `Reuse:` line. On a **low-risk chunk stop here** — no
+   reviewer, no fix rounds; the human reads the proof, the reuse flags and
+   the diff at the gate and the whole-tree review at the end covers it. Otherwise dispatch
    the task reviewer against the snapshot — with the line that sends it to
    the project's rubric routing, if the project has one. Do not read the
    snapshot yourself.
@@ -120,6 +123,9 @@ Fixed:   <"static: clean" or "static: <n> type/lint/test failures, fixed";
           then one line per finding the review caught and the implementer
           fixed, or "not reviewed — low risk">
 Parked:  <one line per finding left standing, each with its reason>
+Reuse:   <"clean", or one line per reuse-scan flag the Reuse block did not
+          answer and per "new shared" / "new dependency" line it did —
+          what was added and why the inventory had nothing>
 Cross:   <one line verdict, or "not run — low risk">
 Rulings: <only decisions that could have gone the other way. Omit if none.>
 

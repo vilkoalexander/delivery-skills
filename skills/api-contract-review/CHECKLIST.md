@@ -179,6 +179,11 @@ the generic shape is schema → DTO (server validation + docs) → inferred type
   either way.
 - **[prefer] A shared util is used by 2+ consumers.** A single-consumer helper
   belongs in that app.
+- **[hard] Reinvention** — a new schema, type or util that re-implements one
+  the package already exports under another name, or a helper the chain
+  (`z.infer`, the DTO class, the Prisma enum) already derives. **Run
+  `scripts/inventory.sh` before judging this**, and name the existing
+  export, not a guess.
 - **[hard] Nothing user-facing is hardcoded in English here** — copy belongs
   to the client's i18n layer or the server's messages, not a shared package.
 

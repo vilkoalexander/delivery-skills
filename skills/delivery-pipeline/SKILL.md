@@ -157,6 +157,9 @@ Build the block once, at controller start, from what the project already states:
 - Never run git commit, git add, git push, or open a PR. Work stays uncommitted.
 - Names describe behaviour — never a sprint, quarter, wave or ticket number.
 - Follow the patterns already in the files being changed, not a better idea.
+- A new util, hook, component or service helper only when the shared-layer inventory shows none; the report names the search.
+- No new abstraction — interface, generic, base class, wrapper, factory — with fewer than two callers in this diff.
+- No new runtime dependency unless the plan task names it.
 - A test that still passes with the change reverted is not a test. Assert the
   behaviour the change adds, or leave the test out.
 - Comments: none by default; rename, extract or type it first. One line, and
@@ -189,7 +192,18 @@ in:
 - exercised: <the output itself, pasted — a log line, a response body, a
   CLI result — of the changed path running>   (medium and high risk)
 - not verified: <one line per thing you did not run or see, or "nothing">
+
+## Reuse
+- reused: <export> from <path>        (one line each, or "nothing")
+- searched: <what you looked for> — none found   (one per new helper)
+- new shared: <path> — <why nothing above fit>   (or "nothing")
+- new dependency: <name> — <plan task that named it>   (or "nothing")
 ```
+
+The Reuse block is the search the Global Constraints demand, written down.
+A `new shared` line with no `searched` line above it goes back; a report
+without the block goes back for the block. The controller carries `new
+shared` and `new dependency` lines into the chunk report's `Reuse:` line.
 
 A test written but not run is not proof; it goes under `not verified`. A
 sentence about what was checked is not proof either: `exercised` holds
@@ -241,6 +255,15 @@ the tree, and names any test that still passed. Each one is a finding
 before a reviewer reads it, and it is the check behind the Global
 Constraints line about tests that survive reversion.
 
+`check` ends by running `reuse-guardrails`' `scripts/reuse-scan.sh` over the
+same paths: new files in a shared layer, new exports that already exist
+elsewhere or carry a textbook helper's name, dependencies added, hand-roll
+patterns in the added lines, and duplicate blocks when the project has
+`jscpd`. Its flags do not fail the gate; they go to the reviewer with the
+snapshot, and on a low-risk chunk straight into the chunk report's `Reuse:`
+line, since no reviewer will see that chunk. A flag the implementer's Reuse
+block already answers is not a finding.
+
 ## Implementer dispatch
 
 Add one line to SDD's implementer prompt body:
@@ -254,6 +277,16 @@ Lint catches the wrong shape after the file exists; an authoring skill
 picker) puts the shape in context before generation, so the static gate and
 the reviewer see fewer round trips. As with review, never inline the skill's
 rules into the dispatch prompt: they drift within two edits.
+
+**Every implementer dispatch carries an `## Inventory` section.** Once per
+chunk, run the inventory script of each rubric the chunk's paths route to
+(`react-review`, `nestjs-service-review`, `api-contract-review`, … via
+`review-routing`'s table) and paste the output, capped as the script caps
+it, under that heading in each implementer prompt for the chunk. When the
+plan task already names the helper to use, the task text names it by export
+and path as well. The inventory is what the Global Constraints' "shows none"
+refers to; an implementer that never saw it cannot be held to the search.
+`reuse-guardrails` audits whether a project's own pipeline copy does this.
 
 ## Reviewer dispatch
 
@@ -282,6 +315,11 @@ you do it, record why.
 alongside the snapshot and the Global Constraints, and answers spec before
 quality: does the tree do what the plan said, then is the code sound. Chunk
 reviewers do not get the criteria; one chunk cannot meet a spec on its own.
+When the project has `jscpd`, its console report over the whole branch goes
+into the same dispatch under `## Duplicates`, with the line "every duplicate
+block here is a finding unless both copies predate the branch". A fresh
+implementer per task never saw the previous task's helper; this is the one
+check that spans tasks.
 
 **Scoped re-reviews get none of this.** No rubric line, no `review-routing`:
 the re-reviewer receives the findings list and the fix diff, per SDD's

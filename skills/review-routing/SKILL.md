@@ -79,6 +79,14 @@ primitives and ceilings that belong to this codebase, not to the framework.
   set `REVIEW_FILES` for the NestJS one so its spec check covers only the
   files under review. Script output is a set of flags to judge, never a
   verdict.
+- **Run the reuse scan once over the whole diff.** `bash
+  ${CLAUDE_PLUGIN_ROOT}/skills/reuse-guardrails/scripts/reuse-scan.sh` with
+  the changed paths (or `REUSE_DIFF_RANGE=base..head`). When the dispatch
+  already carries its output from the static gate, read that instead. Every
+  flag is a finding unless the implementer's `## Reuse` block answers it by
+  name; a `searched: … none found` line is an answer only when the inventory
+  agrees. Rank a reinvention above a style finding: it is the one the human
+  would otherwise catch by hand.
 - **Cross-file risk is in scope when you can name it.** A changed service
   method signature, a renamed shared type, an altered delete action — check the
   call sites, and name both the risk and the check in your report. Opening
