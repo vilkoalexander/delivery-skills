@@ -169,6 +169,8 @@ Build the block once, at controller start, from what the project already states:
   comes from, a domain term, or what null means. Never restate the code,
   describe the change, or name a ticket, PR, date or link. Leave an existing
   comment alone unless the change makes it false.
+- A chunk is sized by its closer-look files: ~300 lines, ≤8 files, ≤20 files
+  total; a reviewer that sees more reports the overrun as a finding.
 - <project invariants, one line each, each stated as a rule a reviewer can check>
 ```
 

@@ -39,9 +39,41 @@ that ships its own `delivery-pipeline` overrides the global one.
 
 ## Plan shape
 
-Plans for this skill group their tasks into **chunks**. One chunk is one thing a
-human can read in a sitting and judge as a whole — a slice that stands on its
-own, not an arbitrary task count. Typically one to three plan tasks.
+Plans for this skill group their tasks into **chunks**. A chunk is sized the
+way a reviewer sizes a pull request they are willing to read today: by how
+much needs a close read, not by how much a feature needs to be whole.
+
+### Classify before you cut
+
+Before proposing any chunk, list every file the plan will touch and sort each
+one into two piles:
+
+- **Closer look** — anything a reviewer must reason about: schema and
+  migrations, shared contracts and public types, services and handlers,
+  hooks, builders and view-model logic, components with branches, anything
+  that touches money, auth or tenancy.
+- **Glance** — anything a reviewer confirms exists and moves on: specs and
+  fixtures, locale bundles, prop plumbing and barrel exports, generated
+  files, docs, e2e flows, deletions whose callers are gone.
+
+Glance files ride along with the chunk they belong to and are never a
+reason to split. Closer-look files are the only thing that sets the size.
+
+### Size limits
+
+A chunk holds at most about **300 closer-look lines** across at most
+**8 closer-look files**, and stays under **20 files in total**. These are
+ceilings, not targets; a chunk that fits in a sitting is the goal.
+
+A vertical slice that exceeds the ceiling is split, in this order:
+1. the data and contract cut (schema, migration, shared types, endpoint,
+   its tests) — verifiable with a request;
+2. the screen cut that consumes it — verifiable with a tap.
+Each half still ends in something the human can exercise. "It only demos as
+a whole" is not a reason to exceed the ceiling: a chunk nobody can review
+demos nothing.
+
+### Risk and order
 
 Each chunk carries a risk class, assigned by the rules in `delivery-pipeline`
 (its `scripts/risk.sh` suggests one from the paths, and from the hunks too
@@ -54,11 +86,19 @@ its own chunk, as late as the plan allows, behind a flag when the project has
 flags. Trunk exposure is then one small chunk the human reads hardest, not a
 slice of every chunk.
 
+### Present the cut
+
 Before any dispatch, run `static-gate.sh coverage` per `delivery-pipeline`
-and `reuse-guardrails`' `scripts/audit.sh`, fold their `ABSENT:` and `MISS:`
-lists into the same optional tooling chunk, and present the chunk list — name, risk, one line each — with any proposed
-tooling chunk first, marked as optional. Then **wait for approval**. This is the only plan-level gate; after it, approval is
-per chunk.
+and `reuse-guardrails`' `scripts/audit.sh`, and fold their `ABSENT:` and
+`MISS:` lists into one optional tooling chunk, listed first and marked as
+optional. Then present the chunk list and **wait for approval**. For
+every chunk give its name, its risk class, one line of what it does, and
+its size as `closer-look N files / ~M lines, total F files`, with the
+closer-look files named. A list without those numbers is not ready to
+approve. This is the only plan-level gate; after it, approval is per chunk.
+
+If a chunk grows past the ceiling while being built, stop at the boundary,
+say by how much and why, and offer a split before continuing.
 
 ## The loop
 
