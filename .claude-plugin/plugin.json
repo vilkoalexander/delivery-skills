@@ -1,9 +1,26 @@
 {
   "name": "delivery-skills",
-  "version": "0.9.0",
-  "description": "Subagent-driven delivery with human review at every chunk, a static gate before every reviewer, single-file review rubrics for React, Angular, NestJS, Prisma, shared API contracts, tests and backend observability, a screen-authoring checklist read before React UI is generated, a comment cleanup that leaves only the comments a reader needs, a reuse-guardrails audit that checks and installs what stops agents re-implementing existing code, and a memory dashboard that audits Claude Code auto-memory",
-  "author": { "name": "Alexander Vilko", "url": "https://github.com/vilkoalexander" },
+  "version": "0.10.0",
+  "description": "Subagent-driven delivery with a human at every chunk: grill the plan, build one chunk, static gate, read-only review and verify seats, hooks that refuse git writes during a run. Single-file review rubrics for React, Angular, NestJS, Prisma, shared API contracts, tests and backend observability, a screen-authoring checklist, a comment cleanup, a reuse-guardrails audit and a memory dashboard for Claude Code auto-memory",
+  "author": {
+    "name": "Alexander Vilko",
+    "url": "https://github.com/vilkoalexander"
+  },
   "repository": "https://github.com/vilkoalexander/delivery-skills",
   "license": "MIT",
-  "keywords": ["claude-code", "skills", "code-review", "subagents", "react", "react-native", "angular", "nestjs", "prisma", "testing", "observability", "memory"]
+  "keywords": [
+    "claude-code",
+    "skills",
+    "code-review",
+    "subagents",
+    "react",
+    "react-native",
+    "angular",
+    "nestjs",
+    "prisma",
+    "testing",
+    "observability",
+    "memory",
+    "hooks"
+  ]
 }
