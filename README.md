@@ -1,8 +1,8 @@
 # delivery-skills
 
-Claude Code skills for shipping code with subagents without losing control of
-it. The agents plan with you, build in small chunks, and stop after each one
-so you can read the diff. Nothing is ever committed on your behalf.
+Claude Code skills for building with subagents while a human stays in
+charge. Agents plan with you, build one small chunk at a time, prove each
+chunk works, and stop so you can read the diff. Nothing is committed for you.
 
 ## Install
 
@@ -11,136 +11,100 @@ so you can read the diff. Nothing is ever committed on your behalf.
 /plugin install delivery-skills@vilkoalexander
 ```
 
-Skills appear as `delivery-skills:<name>`. Two agents come with them,
-`delivery-skills:reviewer` (read-only) and `delivery-skills:oneway-implementer`,
-both at high effort. The pipeline dispatches them; you never call them.
+Skills show up as `delivery-skills:<name>`. Three agents come along:
+`reviewer` and `verifier` (read-only) and `oneway-implementer`. The pipeline
+dispatches them; you never call them.
 
-## What a run looks like
+## A run
 
-1. You approve a plan split into chunks. Each chunk is something you can read
-   in one sitting and carries a risk class: low, medium or high.
-2. For each chunk, subagents implement it. An implementer creating a new
-   screen reads the authoring checklist for it first. The toolchain runs
-   next: typecheck, lint, related tests, and a check that new tests fail when
-   the change is reverted. Anything that fails goes straight back to the
-   implementer.
-3. A reviewer reads the diff against the rubrics for the files it touches.
-   Low-risk chunks skip this; you read those yourself.
-4. You get a short report: which files are high, medium or low risk, what
-   changed, what the implementer ran and saw, what was fixed, what was left.
-5. The run stops. You say `next`, `fix <thing>`, `redo` or `stop`.
-6. After the last chunk, one review reads the whole tree against the plan's
-   acceptance criteria, then a second model family reads it too.
+1. **Grill the plan.** Every decision the planner made without you comes
+   back as a numbered question with a recommended answer. Facts the agent
+   can look up, it looks up. Your answers go into the plan file.
+2. **Approve the cut.** The plan is split into chunks you can read in one
+   sitting. Each has a risk class (low, medium, high) and one request or tap
+   that proves it works.
+3. **Build a chunk.** One implementer per task. Then the toolchain:
+   typecheck, lint, related tests, and a check that new tests fail when the
+   change is reverted. Failures go back to the implementer.
+4. **Review and verify.** A reviewer reads the diff against the rubric for
+   each file. A verifier runs the chunk and re-runs every claim in the
+   implementer's proof; a claim it cannot reproduce fails. Low-risk chunks
+   skip both; you read those yourself.
+5. **Read the report.** Which files need a close read, what changed, what
+   ran, what was verified, what was fixed, what was left.
+6. **Say** `next`, `fix <thing>`, `redo` or `stop`. On a big chunk, `map`
+   gives a page that walks the files in reading order.
+7. **After the last chunk**, the verifier runs every acceptance criterion
+   over the whole tree, a reviewer reads the tree against them, then a
+   second model family reads it too.
 
 ![Chunked delivery loop](diagrams/chunked-delivery.svg)
 
-A chunk of more than about twenty files, or one that crosses backend, shared
-contracts and UI, is too much to read as one diff. On those the report
-offers a review map, and you get it by saying `map`: a private page that
-sorts the files into read carefully, skim and trust, walks them in data-flow
-order with the diff command for each stop, and lists the questions only you
-can answer. It is never published unasked, and it is rebuilt after every fix
-round.
+Risk class comes from what a change touches, not how hard it looks.
 
-Risk class decides everything else: which model implements and reviews, how
-many fix rounds a chunk gets, and whether a second model family looks at it.
-It comes from what a change touches, not how hard it looks. Schema, auth,
-money and shared contracts are high. Feature-local UI is low.
+| Class | Touches | Implementer | Review | Verify | Fix rounds | Second model |
+| --- | --- | --- | --- | --- | --- | --- |
+| low | feature-local UI, tests, docs | Haiku | none | none | 0 | no |
+| medium | services, shared helpers, data fetching | Haiku or Sonnet | Sonnet | Sonnet | 3 | no |
+| high | schema, auth, money, shared contracts | Opus | Opus | Sonnet | 5 | yes |
 
 ![Roles and models](diagrams/roles-and-models.svg)
 
-## The skills
-
-Three run the delivery:
+## Skills
 
 | Skill | Does |
 | --- | --- |
-| `delivery-pipeline` | The settings: model per role, risk classes, the static gate, what every implementer report must prove, and how review works with nothing committed. |
-| `chunked-delivery` | The loop above. Runs one chunk, reports, stops. |
-| `review-routing` | Maps changed files to the rubrics below and merges their findings into one ranked list. |
+| `delivery-pipeline` | Settings: model per role, risk classes, the static gate, what a report must prove. |
+| `chunked-delivery` | The loop above. |
+| `review-routing` | Maps changed files to the rubrics below; merges findings into one list. |
+| `react-review` | Reviews one React or React Native component. |
+| `angular-review` | Reviews one Angular component, directive or pipe. |
+| `nestjs-service-review` | Reviews one NestJS service, controller, guard or module. |
+| `prisma-schema-review` | Reviews a Prisma model or migration. |
+| `api-contract-review` | Reviews a change to a shared schema, DTO or type package. |
+| `test-review` | Reviews a test file: can it fail? |
+| `observability-review` | Reviews a backend file: can it be debugged in production? |
+| `react-screen-authoring` | Read before a new screen is written. Container, view and builder split. |
+| `comment-cleanup` | Removes comments a reader does not need. Proves only comment lines changed. |
+| `reuse-guardrails` | Audits whether the project stops agents rewriting what already exists. Installs the checks you name. |
+| `memory-dash` | Dashboard and audit of Claude Code auto-memory across projects. |
 
-Seven review one kind of file:
-
-| Skill | Reviews |
-| --- | --- |
-| `react-review` | A React or React Native component |
-| `angular-review` | An Angular component, directive or pipe |
-| `nestjs-service-review` | A NestJS service, controller, guard, interceptor, pipe or module |
-| `prisma-schema-review` | A Prisma model file or migration |
-| `api-contract-review` | A change to a shared schema, DTO or type package |
-| `test-review` | A test file, judged on whether it can fail |
-| `observability-review` | A backend file, judged on whether it can be debugged in production |
-
-Each rubric is a checklist with rules tagged by confidence, a list of things
-it must not report, and two scripts: one that scans a file for mechanical
-smells, one that lists what already exists in the repo so nothing gets
-reinvented. Reports are short. Zero findings is a valid outcome.
-
-One runs before generation instead of after:
-
-| Skill | Does |
-| --- | --- |
-| `react-screen-authoring` | Read before a new screen, sheet, form or picker is written. The container / view / builder split, the contracts a builder and a view keep, the platform checklist, and the lint that enforces the split. Shares `react-review`'s inventory script; `react-review` judges the result against the same table. |
-
-One cleans up what is already there:
-
-| Skill | Does |
-| --- | --- |
-| `comment-cleanup` | Deletes or shrinks the comments a reader does not need, across a file, a directory or the repo, and proves the diff touched comment lines only. Its `RULES.md` is the comment rule every implementer and reviewer here works to: none by default, one line, and only for a why the code cannot show. |
-
-One audits whether the others can stop reinvention:
-
-| Skill | Does |
-| --- | --- |
-| `reuse-guardrails` | Thirteen checks on whether a project stops agents re-implementing what the shared layer has, duplicating across tasks, or adding a wrapper or a dependency for one caller: inventory in the implementer's prompt, a Reuse block in its report, jscpd and hand-roll bans in lint, a reuse scan in the gate, a reinvention rule in every rubric. Audits, reports, implements the ids you name. Its `reuse-scan.sh` runs inside the static gate on every chunk. |
-
-One looks after the agent's own memory:
-
-| Skill | Does |
-| --- | --- |
-| `memory-dash` | Opens a local dashboard of Claude Code auto-memory across every project on the machine, audits the current project's memory for duplicates, conflicts, superseded and stale facts, and leaves a numbered list of cleanup actions. Each is applied only when you name it; old and new content print first. `stats` mode is a free scan with no reading. |
+Each review rubric is a checklist, a list of things it must not report, and
+two scripts: one scans a file for mechanical smells, one lists what the repo
+already has. Zero findings is a valid result.
 
 ![Screen roles](diagrams/screen-roles.svg)
 
 ![Review routing](diagrams/review-routing.svg)
 
-## Making it yours
+## Your project
 
-The rubrics know the framework. They do not know your codebase. Tell them
-with one file per rubric at `docs/review/<rubric>.md`: the reference
-implementations, the shared primitives, the decisions already taken. Starting
-points and the script variables are in [`templates/`](templates/README.md).
+- Tell the rubrics about your codebase: one file per rubric at
+  `docs/review/<rubric>.md`. Starting points in [`templates/`](templates/README.md).
+- `bash scripts/static-gate.sh coverage` lists which analyzers you enforce
+  and which you lack. `STATIC-SETUP.md` in delivery-pipeline has the strict
+  setup for each gap. What lint enforces never reaches a reviewer.
+- `bash skills/reuse-guardrails/scripts/audit.sh <repo>` lists which of the
+  thirteen reuse guardrails you have.
+- `bash scripts/token-budget.sh` shows what each dispatch loads.
+- Set `TYPESAFE_API_KEY` and `risk.sh` classifies from the diff content, not
+  only from paths. Classes are only ever raised.
 
-`bash scripts/static-gate.sh coverage` prints which analyzers your project
-enforces and which it lacks. For each gap, `STATIC-SETUP.md` in the
-delivery-pipeline skill has the strict setup. Anything lint enforces never
-reaches a reviewer.
+## Hooks
 
-`bash skills/reuse-guardrails/scripts/audit.sh <your-repo>` prints which of
-the thirteen reuse guardrails your project has and which it lacks, each with
-a recipe in that skill's `CHECKLIST.md`.
+The plugin installs one hook. It wakes when a run starts (`run.sh start`, done
+at preflight) and sleeps at handoff (`run.sh stop`). While awake it refuses,
+with the reason printed:
 
-`bash scripts/token-budget.sh` shows what each dispatch loads, so you can
-see what an edit to a skill costs every task.
+- any git write from the session or a subagent: commit, add, push, merge,
+  stash, reset --hard, checkout --, gh pr create. `git add -N` and
+  `git apply -R` stay allowed; the snapshots need them.
+- the controller reading a chunk snapshot.
+- an implementer stopping without the Proof block it was asked for.
 
-Set `TYPESAFE_API_KEY` and `scripts/risk.sh` stops guessing at the escalators
-it cannot see from paths. Each changed file's diff goes to
-[TypeSafe's Jev model](https://docs.typesafe.ai) as six yes/no questions —
-signature changed, caller sees a change, production data path, deletes data,
-auth or money, additive only — and the class is raised in code from the
-probabilities, never lowered. Borderline files are listed as `unsure:` for
-you to settle at plan approval. Without the key the controller reads the
-diff for the escalators itself, as before.
-
-## Why it is built this way
-
-- The human reads the working tree, not a commit log. Agents never run
-  `git commit`.
-- Machines check first. A diff that fails tsc or lint never costs a review.
-- Proof over prose. An implementer report ends with what ran, what it shows,
-  and what was not verified.
-- Every dispatch loads only what it acts on. The controller never reads a
-  diff.
+Reviewer and verifier seats are refused writes always. Outside a run the hook
+does nothing, so other plugins that commit keep working. Tests:
+`bash hooks/guard.test.sh`.
 
 ## License
 

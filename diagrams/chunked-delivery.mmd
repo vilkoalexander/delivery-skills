@@ -1,26 +1,21 @@
 graph TD
-  P[Approved plan<br/>tasks grouped into chunks] --> A{Human approves<br/>chunk list?}
-  A -- no --> P
-  A -- yes --> S1[Snapshot before<br/>chunk-N-before.diff]
-  S1 --> I[Dispatch implementers<br/>one per task, model by risk]
-  I --> S2[Snapshot after<br/>chunk-N.diff]
-  S2 --> SG{Static gate<br/>tsc · lint · tests · revert check}
-  SG -- fails, round zero --> I
-  SG -- clean --> L{Low risk?}
-  L -- yes, no review --> REP
-  L -- no --> R[Task reviewer<br/>routes diff to rubrics<br/>+ observability pass on backend]
-  R --> F{Findings?}
-  F -- yes, max 3 rounds<br/>5 on high risk --> X[Fix implementer +<br/>scoped re-review]
-  X --> F
-  F -- clean --> C{High risk?}
-  C -- yes --> M[Cross-model review<br/>second model family]
-  C -- no --> REP
-  M --> REP[Chunk report<br/>proof + changes, under 20 lines]
-  REP --> W{Human says}
+  P[Plan written] --> G[Grill the plan<br/>numbered questions with recommended answers<br/>answers go into the plan file]
+  G --> A{Approve the cut?<br/>name, risk, size, exercise line}
+  A -- no --> G
+  A -- yes, run.sh start<br/>hooks guard the run --> S1[Snapshot before the chunk]
+  S1 --> I[Implementers, one per task<br/>model by risk, report ends with Proof]
+  I --> SG{Static gate<br/>tsc, lint, tests, revert check}
+  SG -- fails --> I
+  SG -- clean, low risk --> REP
+  SG -- clean --> R[Review against rubrics<br/>fix rounds, cap 3 or 5]
+  R --> V[Verify seat<br/>runs the exercise line and criteria<br/>re-runs every Proof claim]
+  V -- FAIL --> R
+  V -- pass, high risk --> M[Cross-model review]
+  M --> REP
+  V -- pass --> REP[Chunk report<br/>Files, Changed, Proof, Verified, Fixed, Parked]
+  REP --> W{Human says<br/>next / fix / redo / stop}
   W -- next --> S1
-  W -- fix thing --> X
-  W -- redo --> U[git apply -R snapshot<br/>re-dispatch]
-  U --> S2
+  W -- last chunk --> T[Verify every acceptance criterion]
+  T --> TR[Whole-tree review, then cross-model]
+  TR --> H[Hand off, run.sh stop<br/>working tree, nothing committed]
   W -- stop --> H
-  W -- last chunk approved --> T[Whole-tree review<br/>spec then code +<br/>cross-model, once]
-  T --> H[Hand off:<br/>working tree, nothing committed]
