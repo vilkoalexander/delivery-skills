@@ -1,0 +1,28 @@
+{
+  "description": "Delivery-run guard: no git writes while a run is active, reviewer seats read-only, the controller never reads a chunk snapshot, implementer reports end with their Proof block",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/guard.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/guard.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
