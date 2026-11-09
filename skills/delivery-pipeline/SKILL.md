@@ -22,12 +22,12 @@ inherits the session's most expensive. Pick the cheapest that can hold the role.
 
 | Role | Model | Dispatch as | Why |
 | --- | --- | --- | --- |
-| Controller | Opus 5.5 | the session itself | Holds plan and chunk summaries; Fable 5.1 only on long runs (below) |
-| Implementer — mechanical | Haiku 4.5 | `model: haiku` | One or two files against a specified plan |
+| Controller | Opus 5.5 | the session itself | Holds plan and chunk summaries; Fable 5.2 only on long runs (below) |
+| Implementer — mechanical | Haiku 5.5 | `model: haiku` | One or two files against a specified plan |
 | Implementer — one-way doors | Opus 5.5 | `subagent_type: delivery-skills:oneway-implementer`, `model: opus` | Schema, auth, money, migrations, public contracts |
 | Task reviewer — default | Sonnet 5.5 | `subagent_type: delivery-skills:reviewer`, `model: sonnet` | Reads a diff against rubrics; needs judgement, not the top tier |
 | Task reviewer — high risk | Opus 5.5 | `subagent_type: delivery-skills:reviewer`, `model: opus` | Anything on the one-way-door list above |
-| Scoped re-review | Haiku 4.5 | `model: haiku` | Small fix diff, findings already written |
+| Scoped re-review | Haiku 5.5 | `model: haiku` | Small fix diff, findings already written |
 | Verifier | Sonnet 5.5 | `subagent_type: delivery-skills:verifier`, `model: sonnet` | Runs the criteria and pastes what it saw; medium and high chunks, then the whole tree |
 | Final whole-branch review | Opus 5.5 | `subagent_type: delivery-skills:reviewer`, `model: opus` | SDD mandates the most capable available |
 
@@ -45,12 +45,11 @@ Tag each plan task with its risk class (next section); the tag picks the model.
 Substitutions, in order:
 
 - **Long runs** — over six chunks, or context expected to outgrow what Opus
-  holds: controller on Fable 5.1 (1M context, thinking always on). Shorter runs
-  stay on Opus 5.5: same coding, about 60% cheaper.
-- **Opus 5.5 defaults to `medium` effort**; Sonnet 5.5 and Fable 5.1 default to
-  `high`; Haiku 4.5 takes no effort setting. Effort comes from the agent
-  definition, not the Agent call, which is why the reviewer and one-way-door
-  seats have one.
+  holds: controller on Fable 5.2 (1M context, thinking always on). Shorter runs
+  stay on Opus 5.5: same coding, half the price.
+- **Opus 5.5 and Haiku 5.5 default to `medium` effort**; Sonnet 5.5 and Fable 5.2
+  default to `high`. Effort comes from the agent definition, not the Agent
+  call, which is why the reviewer and one-way-door seats have one.
 - **Cost pressure** — lower a role's *effort* before its model: on the Claude 5
   family a cheaper model at high effort is usually worse than the same model at
   lower effort. Implementers and re-reviews run fine at low or medium;
@@ -116,8 +115,8 @@ What each class buys:
 
 | Class | Implementer | Chunk review | Verify | Fix rounds | Cross-model |
 | --- | --- | --- | --- | --- | --- |
-| low | Haiku 4.5 | none — the human reads the diff at the gate, and the whole-tree review at the end covers it | none | 0 | no |
-| medium | Haiku 4.5; Sonnet 5.5 when the task touches more than two files | Sonnet 5.5 | Sonnet 5.5 | up to 3 | no |
+| low | Haiku 5.5 | none — the human reads the diff at the gate, and the whole-tree review at the end covers it | none | 0 | no |
+| medium | Haiku 5.5; Sonnet 5.5 when the task touches more than two files | Sonnet 5.5 | Sonnet 5.5 | up to 3 | no |
 | high | Opus 5.5 | Opus 5.5 | Sonnet 5.5 | up to 5 | yes |
 
 ## Project constraints
