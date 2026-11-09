@@ -55,7 +55,7 @@ Risk class comes from what a change touches, not how hard it looks.
 | Skill | Does |
 | --- | --- |
 | `delivery-pipeline` | Settings: model per role, risk classes, the static gate, what a report must prove. |
-| `chunked-delivery` | The loop above. |
+| `chunked-delivery` | The loop above, an optional long-run mode that stops only when it must, and a per-chunk run log. |
 | `review-routing` | Maps changed files to the rubrics below; merges findings into one list. |
 | `react-review` | Reviews one React or React Native component. |
 | `angular-review` | Reviews one Angular component, directive or pipe. |

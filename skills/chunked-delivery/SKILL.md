@@ -121,8 +121,9 @@ name, a risk class, one line of what it does, its size as
 `closer-look N files / ~M lines, total F files` with the closer-look files
 named, and an `exercise:` line: the one request or tap that proves it works,
 which the verify seat will run. A list without those numbers and that line is
-not ready to approve. Grilling exit and cut approval are the only plan-level
-gates; after them, approval is per chunk.
+not ready to approve. End the list with `Approve: "go" · "long" (see Long-run
+mode)`. Grilling exit and cut approval are the only plan-level gates; after
+them, approval is per chunk.
 
 If a chunk grows past the ceiling while being built, stop at the boundary,
 say by how much and why, and offer a split before continuing.
@@ -163,6 +164,56 @@ For each approved chunk, in order:
    on, not a fix queue.
 7. **Stop and report** in the format below.
 8. **Wait.** Do not start the next chunk, do not prepare it, do not read ahead.
+
+## Long-run mode
+
+One long task, in this checkout, with the human away. It starts only when the
+human answers the cut with `long`; any other approval keeps the per-chunk gate.
+Every step of the loop still runs; only steps 7 and 8 change.
+
+After step 6, the run **stops and reports as a normal chunk** when any of these
+is true. `next` then continues in long-run mode.
+
+- The chunk is high risk.
+- A finding was parked, or a `FAIL` line survived the fix-round cap.
+- The static gate is still failing after three rounds.
+- The chunk grew past the size ceiling, or it proved the plan wrong.
+
+Otherwise, append the chunk's entry to `$WORKSPACE/long-run-report.md` and start
+the next chunk. A low-risk chunk has no verify of its own: add its `exercise:`
+line to the list the whole-tree verify must run.
+
+```
+## Chunk N/M — <name>   [risk]   <files> files, <added>/<removed> lines
+Changed:  <one or two lines of what it now does>
+Criteria: <one line per acceptance criterion: pass with what the verifier saw,
+          or "whole-tree verify" on a low-risk chunk>
+Needs you: <each "needs human" tap and "not verified" item, or "nothing">
+Rulings:  <decisions that could have gone the other way, or "none">
+Diff:     diff -u <$WORKSPACE>/chunk-N-before.diff <$WORKSPACE>/chunk-N.diff
+```
+
+Snapshots are cumulative, so the `Diff:` command is the way to see one chunk
+alone. After the last chunk, run `After the last chunk` as written; the `Final`
+report links the file on a `Report:` line and its `Next:` is `"ok"` ·
+`"fix N <thing>"` · `"stop"`. A chunk cannot be undone alone once later chunks
+sit on it, so a rejected chunk is a `fix`.
+
+## The run log
+
+When the human's decision on a chunk lands, append one line, so later runs can
+be compared and replayed:
+
+```
+bash scripts/run-log.sh add plan=<path> chunk=N risk=<low|medium|high> \
+  mode=<gated|long> implementer=<model> reviewer=<model|none> fix_rounds=N \
+  findings=N verify=<pass|fail|none> decision=<accepted|edited|rejected>
+```
+
+`decision` is `accepted` when approved as shown, `edited` when any `fix` came
+first, `rejected` on `redo`. In long-run mode, log every chunk at the final
+`ok`, `edited` for any chunk that took a `fix`. A chunk the run stopped short of
+gets no line. A logging error is one line in the report and never stops the run.
 
 ## The chunk report
 
@@ -260,7 +311,7 @@ question is not approval.
 
 ## What never happens without asking
 
-- Starting the next chunk
+- Starting the next chunk, outside long-run mode
 - Publishing a review map
 - Committing, staging, pushing, merging, or opening a PR, at any point, for
   any reason; while the run marker exists the plugin hook refuses these

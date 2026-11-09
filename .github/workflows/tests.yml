@@ -12,4 +12,5 @@ jobs:
         with:
           node-version: 22
       - run: bash hooks/guard.test.sh
+      - run: bash skills/chunked-delivery/scripts/run-log.test.sh
       - run: bash skills/delivery-pipeline/scripts/risk-content.test.sh
