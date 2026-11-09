@@ -358,9 +358,11 @@ read-only.
 
 **Recovery.** SDD's ledger recovers from commit SHAs, which no longer exist.
 Snapshot before a chunk as well as after — `chunk-$N-before.diff` and
-`chunk-$N.diff`. Those two files are the run's only undo, and `git apply -R` on
-the after-snapshot is "redo". When asked to discard work, say there is no cheap
-restore point and get it confirmed first.
+`chunk-$N.diff`. Snapshots are cumulative, and fix rounds land after them, so
+"redo" is `bash scripts/redo.sh "$WORKSPACE/chunk-$N-before.diff"` from
+`chunked-delivery`, which returns the tree to that snapshot and saves what it
+discards. When asked to discard work, say there is no cheap restore point and
+get it confirmed first.
 
 **Review map.** When the human asks for one (`chunked-delivery` says when and
 what), derive it from the snapshots: file rows from the current

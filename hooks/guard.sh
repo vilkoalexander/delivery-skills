@@ -55,9 +55,9 @@ check_bash() {
         add*)
           has_flag "$sub" '-N|--intent-to-add' || deny "$(run_reason "git add is not run during a run; only git add -N, which records paths for the snapshot")" ;;
         reset*)
-          has_flag "$sub" '--hard' && deny "$(run_reason "git reset --hard discards the uncommitted work; redo uses git apply -R on the chunk snapshot")" ;;
+          has_flag "$sub" '--hard' && deny "$(run_reason "git reset --hard discards the uncommitted work; redo uses scripts/redo.sh")" ;;
         checkout*)
-          has_flag "$sub" '--' && deny "$(run_reason "git checkout -- discards the uncommitted work; redo uses git apply -R on the chunk snapshot")" ;;
+          has_flag "$sub" '--' && deny "$(run_reason "git checkout -- discards the uncommitted work; redo uses scripts/redo.sh")" ;;
       esac
       case "$seg" in
         *gh\ pr\ create*|*gh\ pr\ merge*) deny "$(run_reason "no PR is opened or merged during a run")" ;;

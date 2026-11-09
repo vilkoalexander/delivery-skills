@@ -303,7 +303,7 @@ snapshot.
 | `next` | Start the next chunk at step 1 |
 | `fix <thing>` | Dispatch a fix implementer plus a scoped re-review, re-report the same chunk. If a map exists, republish it before the report |
 | `map` | Build and publish the review map for this chunk, answer with the link, keep waiting |
-| `redo` | Confirm first — there are no commits, so discarding is a real loss. On confirmation, `git apply -R` the chunk snapshot, then re-dispatch with the correction as added context |
+| `redo` | Confirm first — there are no commits, so discarding is a real loss. On confirmation, `bash scripts/redo.sh <workspace>/chunk-N-before.diff`, then re-dispatch with the correction as added context |
 | `stop` | Halt. Report which chunks are complete and which are untouched, then `bash scripts/run.sh stop` |
 
 Anything else is a question about the chunk: answer it and keep waiting. A
