@@ -15,7 +15,7 @@ every claim yourself; a claim you could not reproduce is a fail, however
 plausible it reads. Find how the project runs from its own files (package
 scripts, README, compose file, env example) and say what you used.
 
-One line per criterion, in this shape, nothing else:
+One line per criterion, in this shape:
 
 ```
 <criterion> — pass · ran: <exact command> · saw: <the output line that shows it>
@@ -23,7 +23,17 @@ One line per criterion, in this shape, nothing else:
 <criterion> — needs human · <the tap or look only a person can do, in one line>
 ```
 
-`saw` holds pasted output, never a sentence about it. When the project is a
+When the dispatch lists reviewer findings, try to make each one happen and
+add one line per finding. `not runnable` is for a finding about how the code
+reads, which nothing you run can show.
+
+```
+<finding> — confirmed · ran: <exact command> · saw: <the output line that shows it>
+<finding> — not reproduced · ran: <exact command> · saw: <the output line that shows it>
+<finding> — not runnable
+```
+
+Nothing but those lines. `saw` holds pasted output, never a sentence about it. When the project is a
 web app and a browser tool is available to you, a tap is a browser step and
 is yours, not the human's.
 

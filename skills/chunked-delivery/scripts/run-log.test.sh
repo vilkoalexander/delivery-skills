@@ -66,6 +66,13 @@ if bash "$script" add plan=a chunk=1 risk=low >/dev/null 2>&1; then nok "missing
 if bash "$script" add "${valid[@]}" risk=low >/dev/null 2>&1; then nok "repeated key" "exited 0"; else ok "repeated key"; fi
 eq "rejected entries write nothing" "$(lines)" 2
 
+with static=2 >/dev/null && bash "$script" add "${valid[@]}" static=1 human_found=1 >/dev/null
+eq "optional counts are numbers" "$(last '.human_found | type')" number
+reject "bad optional" human_found=some "human_found must be"
+stats=$(bash "$script" stats)
+eq "stats sums what each gate caught" "$(awk '$1 == "medium" { print $2, $3, $4, $5 }' <<<"$stats")" "4 3 12 1"
+eq "stats on an empty log exits 0" "$(DELIVERY_LOG="$tmp/none.jsonl" bash "$script" stats >/dev/null; echo $?)" 0
+
 if bash "$script" nonsense >/dev/null 2>&1; then nok "unknown command" "exited 0"; else ok "unknown command"; fi
 
 echo
