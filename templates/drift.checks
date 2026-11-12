@@ -1,0 +1,14 @@
+# Goes to docs/review/drift.checks. One check per line:
+#
+#   name :: when :: command :: generated
+#
+# when       regex of changed paths that trigger it; empty runs it every chunk
+# command    run from the repo root; a non-zero exit is drift
+# generated  optional paths the command rewrites; drift is any change to them
+#
+# Delete the lines your project has no use for and fix the paths.
+
+prisma-migrations :: \.prisma$|/migrations/ :: npx prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --exit-code
+api-client :: ^apps/api/src/.*\.(dto|controller)\.ts$ :: npm run -s generate:api-client :: packages/api-client/src/generated
+expo-native-deps :: ^apps/mobile/package\.json$ :: cd apps/mobile && npx expo install --check
+workspace-versions :: package\.json$ :: npx syncpack list-mismatches

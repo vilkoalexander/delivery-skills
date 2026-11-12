@@ -15,3 +15,5 @@ jobs:
       - run: bash skills/chunked-delivery/scripts/run-log.test.sh
       - run: bash skills/chunked-delivery/scripts/redo.test.sh
       - run: bash skills/delivery-pipeline/scripts/risk-content.test.sh
+      - run: bash skills/test-review/scripts/test-lock.test.sh
+      - run: bash skills/delivery-pipeline/scripts/drift.test.sh

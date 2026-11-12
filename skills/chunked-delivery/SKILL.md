@@ -119,8 +119,9 @@ lists into one optional tooling chunk, listed first and marked optional.
 Then present the chunk list and **wait for approval**. Each chunk gets a
 name, a risk class, one line of what it does, its size as
 `closer-look N files / ~M lines, total F files` with the closer-look files
-named, and an `exercise:` line: the one request or tap that proves it works,
-which the verify seat will run. A list without those numbers and that line is
+named, a `criteria:` line naming the plan acceptance criteria it completes,
+and an `exercise:` line: the one request or tap that proves it works, which
+the verify seat will run. A list without those numbers and those two lines is
 not ready to approve. End the list with `Approve: "go" · "long" (see Long-run
 mode)`. Grilling exit and cut approval are the only plan-level gates; after
 them, approval is per chunk.
@@ -139,8 +140,8 @@ For each approved chunk, in order:
    uncommitted and unstaged; each report ends with the Proof block from
    `delivery-pipeline` or goes back for it.
 3. **Snapshot the result** to `chunk-N.diff`, then **run the static gate**
-   on the changed paths per `delivery-pipeline`: typecheck, lint, format,
-   related tests, and the revert check when tests changed. A failure goes
+   on the changed paths per `delivery-pipeline`: the test lock, drift checks,
+   typecheck, lint, format, related tests, and the revert check when tests changed. A failure goes
    back to the implementer with the tool output as fix round zero; nothing
    else happens until it is clean. The gate ends with the reuse scan, whose
    flags never fail the gate but ride along to the reviewer and the report's
@@ -153,11 +154,13 @@ For each approved chunk, in order:
 4. **Run fix rounds to clean.** Findings go back to the implementer, then a
    scoped re-review that gets the findings and the fix diff, nothing else.
    Say in one line that rounds are running. The counter trips at **three**
-   on a medium-risk chunk and **five** on a high-risk one; the human reads
+   on a medium-risk chunk and **five** on a high-risk one, and the last round
+   goes one model up per `delivery-pipeline`; the human reads
    the chunk next anyway, so a parked finding costs them a minute. Park what remains and say so in the report.
 5. **Verify** on a medium- or high-risk chunk: dispatch the verify seat per
    `delivery-pipeline` with the chunk's `exercise:` line, the acceptance
-   criteria it completes and the implementer's Proof block. A `FAIL` is one
+   criteria it completes, the implementer's Proof block and every parked
+   finding. A `FAIL` is one
    more fix round under the same cap, then the failed lines are re-run.
 6. **Cross-model review** if the chunk is high-risk; `delivery-pipeline` has
    the invocation and adjudication rules. Its findings are claims you rule
@@ -207,8 +210,15 @@ be compared and replayed:
 ```
 bash scripts/run-log.sh add plan=<path> chunk=N risk=<low|medium|high> \
   mode=<gated|long> implementer=<model> reviewer=<model|none> fix_rounds=N \
-  findings=N verify=<pass|fail|none> decision=<accepted|edited|rejected>
+  findings=N verify=<pass|fail|none> decision=<accepted|edited|rejected> \
+  static=N human_found=N
 ```
+
+`static` counts what the static gate sent back, `findings` what review found,
+`human_found` the defects the human's `fix` named that both had passed.
+`bash scripts/run-log.sh stats` totals the three per risk class: a gate that
+catches nothing over many chunks is a gate to drop, and a `human_found` that
+keeps rising is a rubric to sharpen.
 
 `decision` is `accepted` when approved as shown, `edited` when any `fix` came
 first, `rejected` on `redo`. In long-run mode, log every chunk at the final
@@ -246,7 +256,8 @@ Verified: <one line per criterion and claim from the verify seat — pass with
 Fixed:   <"static: clean" or "static: <n> type/lint/test failures, fixed";
           then one line per finding the review caught and the implementer
           fixed, or "not reviewed — low risk">
-Parked:  <one line per finding left standing, each with its reason>
+Parked:  <one line per finding left standing, each with its reason and the
+          verifier's confirmed / not reproduced / not runnable>
 Reuse:   <"clean", or one line per reuse-scan flag the Reuse block did not
           answer and per "new shared" / "new dependency" line it did —
           what was added and why the inventory had nothing>
@@ -301,7 +312,7 @@ snapshot.
 | Human says | Do |
 | --- | --- |
 | `next` | Start the next chunk at step 1 |
-| `fix <thing>` | Dispatch a fix implementer plus a scoped re-review, re-report the same chunk. If a map exists, republish it before the report |
+| `fix <thing>` | Dispatch a fix implementer plus a scoped re-review, re-report the same chunk. If a map exists, republish it before the report. When the thing is a defect in a reviewed file, count it for `human_found` and offer one line for that rubric's `docs/review/<rubric>.md`, worded as a rule a reviewer can check; write it only on a yes |
 | `map` | Build and publish the review map for this chunk, answer with the link, keep waiting |
 | `redo` | Confirm first — there are no commits, so discarding is a real loss. On confirmation, `bash scripts/redo.sh <workspace>/chunk-N-before.diff`, then re-dispatch with the correction as added context |
 | `stop` | Halt. Report which chunks are complete and which are untouched, then `bash scripts/run.sh stop` |

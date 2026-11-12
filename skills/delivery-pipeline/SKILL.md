@@ -119,6 +119,10 @@ What each class buys:
 | medium | Haiku 5.5; Sonnet 5.5 when the task touches more than two files | Sonnet 5.5 | Sonnet 5.5 | up to 3 | no |
 | high | Opus 5.5 | Opus 5.5 | Sonnet 5.5 | up to 5 | yes |
 
+The last fix round under a cap goes to the next model up from the one that
+wrote the chunk (Haiku to Sonnet, Sonnet to Opus): a model that missed a
+finding twice rarely lands it on the third try.
+
 ## Project constraints
 
 Every task reviewer needs the project's non-negotiables. SDD passes them through
@@ -143,6 +147,8 @@ Build the block once, at controller start, from:
 - No new runtime dependency unless the plan task names it.
 - A test that still passes with the change reverted is not a test. Assert the
   behaviour the change adds, or leave the test out.
+- A test that existed before the run is not edited, skipped or deleted to make
+  a change pass, unless the plan task names that test file.
 - Comments: none by default; rename, extract or type it first. One line, and
   only for why this and not the obvious alternative, an outside constraint, a
   warning about what breaks if edited, or a workaround with its removal
@@ -211,6 +217,12 @@ the failed lines are re-verified. A claim the verifier could not reproduce is a
 `FAIL` on the Proof block itself, and the report says so. `needs human` lines go
 to the report's `Verified:` line, the first thing the human does with the diff.
 
+The same dispatch carries every finding still open when the fix rounds ended,
+quoted from the reviewer. The verifier tries to make each one happen and
+answers `confirmed`, `not reproduced` or `not runnable` per finding; that
+verdict rides on the finding's `Parked:` line, so the human knows which parked
+findings were seen to fail and which are a reviewer's reading of the code.
+
 The whole tree gets the same seat once more, over every plan acceptance
 criterion, before the whole-tree reviewer is dispatched; its lines go into that
 dispatch and feed the final report's `Spec:` line. A criterion nobody ran is
@@ -252,6 +264,20 @@ here too: it reverses the non-test hunks, runs the changed tests, restores the
 tree, and names any test that still passed. Each is a finding before a
 reviewer reads it.
 
+`check` starts with `test-review`'s `scripts/test-lock.sh`: for every test file
+that existed at `HEAD` it fails on a deleted file, a removed or rewritten
+assertion, a removed test, or an added skip, only or todo. Added tests and new
+test files pass. When a plan task names an existing test file as changing, set
+`TEST_LOCK_ALLOW` to a regex of those paths for that chunk's gate; the gate
+lists them as allowed and the chunk report's `Rulings:` line names them.
+
+Next comes `scripts/drift.sh check`, when the project has
+`docs/review/drift.checks`: each line there names two copies of one fact and
+the command that fails when they disagree (schema and migrations, the API and
+its generated client, native dependencies and the SDK). Only checks whose
+`when` regex matches a changed path run. `coverage` lists the pairs the
+project has and does not check as `drift:<name>` in the `ABSENT:` list.
+
 `check` ends with `reuse-guardrails`' `scripts/reuse-scan.sh` over the same
 paths: new files in a shared layer, new exports that already exist elsewhere or
 carry a textbook helper's name, dependencies added, hand-roll patterns in the
@@ -262,11 +288,18 @@ Reuse block already answers is not a finding.
 
 ## Implementer dispatch
 
-Add one line to SDD's implementer prompt body:
+Add two lines to SDD's implementer prompt body:
 
 > If this project has a skill for authoring the kind of file this task
 > creates, invoke it before writing the first line. Otherwise follow the
 > patterns in the sibling files and say so in one line.
+>
+> If an existing test or the task text looks wrong, or the task cannot be done
+> as written, stop with status BLOCKED and say what you found. Do not edit the
+> test, and do not build around the task. No change is a valid result.
+
+A BLOCKED report is a ruling for the controller or a question for the human at
+the gate, never a reason to re-dispatch the same prompt.
 
 An authoring skill (such as `react-screen-authoring` for a new React screen,
 sheet, form or picker) puts the shape in context before generation. Never

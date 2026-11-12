@@ -29,6 +29,7 @@ will skim both.
 | `test-review.md` | `docs/review/test-review.md` |
 | `observability-review.md` | `docs/review/observability-review.md` |
 | `react-screen-authoring.md` | `docs/review/react-screen-authoring.md` |
+| `drift.checks` | `docs/review/drift.checks` — not a rubric layer: the drift checks the static gate runs |
 
 ## Script variables
 

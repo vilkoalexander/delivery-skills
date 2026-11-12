@@ -251,10 +251,69 @@ Secrets: `gitleaks` as a pre-commit hook (`gitleaks protect --staged`) and in
 CI (`gitleaks detect`). Nothing in a review rubric can see a key that was
 already pushed.
 
+## shape
+
+Budgets for code that works and is still too much: tangled branches, deep
+nesting, long parameter lists, styling written in place. A budget at `error`
+turns "this is hard to read" from a review opinion into a failed gate.
+
+```js
+{ files: ['**/*.{ts,tsx}'], rules: {
+  complexity: ['error', 10],
+  'max-depth': ['error', 3],
+  'max-params': ['error', 4],
+} },
+```
+
+Optional, when the project wants a nesting-aware measure as well:
+`eslint-plugin-sonarjs` with `'sonarjs/cognitive-complexity': ['error', 15]`.
+
+React Native, with `eslint-plugin-react-native`:
+
+```js
+{ files: ['**/*.tsx'], rules: {
+  'react-native/no-inline-styles': 'error',
+  'react-native/no-color-literals': 'error',
+  'react-native/no-unused-styles': 'error',
+} },
+```
+
+The numbers are starting points. On an existing codebase, record today's
+violations as the baseline (ESLint's bulk suppressions, or the limit set to
+the current worst file) so only new code is held to the budget, then lower
+it. File and function length budgets and the duplicate threshold are
+`reuse-guardrails`' recipes; do not repeat them here.
+
+## drift
+
+Two copies of one fact, and a command that fails when they disagree. Declare
+each in `docs/review/drift.checks`; `scripts/drift.sh` runs them in the static
+gate. One line per check, `name :: when :: command :: generated`; start from
+`templates/drift.checks` in this plugin. Take each tool's flags from its
+current documentation.
+
+| Coverage names | The two copies | Check |
+| --- | --- | --- |
+| `prisma-migrations` | schema and migrations | `prisma migrate diff … --exit-code` |
+| `generated-api-client` | backend API and the client's types | the generator as the command, its output directory as `generated` |
+| `expo-native-deps` | native dependency versions and the Expo SDK | `npx expo install --check` |
+| `locale-keys` | keys per locale, keys used in code | a key-set diff script in the project |
+| `env-keys` | variables the code reads and `.env.example` | a script that greps the reads and diffs the keys |
+| `workspace-versions` | one dependency, several workspaces | `npx syncpack list-mismatches` |
+
+A check with a `generated` column never leaves the tree changed: drift.sh
+regenerates, compares, and puts the old output back. The fix is to run the
+command and keep the result.
+
+Hand-mirrored shapes (a DTO and a type written twice) have no check until one
+of them is generated from the other or both are inferred from one schema;
+that is a plan decision, not a tooling chunk.
+
 ## What no tool covers
 
 The coverage report's ABSENT list will shrink to this: tenant scoping,
 index leading columns, money types, ledger immutability, whether a catch
 logs, whether a test asserts the mock, whether a component reinvents a
-shared primitive. Those are the rubrics' job by design; the recipes above
+shared primitive, whether a model or abstraction is more than the feature
+needs. Those are the rubrics' job by design; the recipes above
 are so a reviewer never spends attention on anything else.
