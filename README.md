@@ -59,13 +59,15 @@ is a script, and a model is asked only what is left.
 | `<rubric>/scripts/scan.sh` | Mechanical smells in one file | Before a reviewer reads it |
 | `<rubric>/scripts/inventory.sh` | What the repo already has to reuse | Before an implementer writes |
 | `chunked-delivery/scripts/redo.sh` | Returns the tree to before a chunk, keeps what it discards | On `redo` |
+| `hooks/emit.sh` | Nothing: records every tool call, agent start and stop, and refusal of a run, in the background | On every tool call during a run |
+| `chunked-delivery/scripts/mark.sh` | Which chunk and step the run is on, the one fact nothing else can observe | At each step of the loop |
 | `chunked-delivery/scripts/run-log.sh` | One line per chunk; `stats` totals what each gate caught | At each decision |
 | `comment-cleanup/scripts/verify.sh` | A cleanup changed comment lines only | After a comment cleanup |
 
 Paths are under `skills/`. Outside a run the hook does nothing, so other
 plugins that commit keep working. The scripts with logic worth breaking have
-tests, run in CI: `guard`, `test-lock`, `drift`, `run-log`, `redo`,
-`risk-content`.
+tests, run in CI: `guard`, `emit`, `event`, `test-lock`, `drift`, `run-log`,
+`redo`, `risk-content`, `factory-floor`.
 
 No script decides whether the design is right or the code will age well. That
 is the reviewer's first pass and then yours, which is why chunks are small.
@@ -95,6 +97,7 @@ goes to the next model up.
 | `comment-cleanup` | Removes comments a reader does not need. |
 | `reuse-guardrails` | Audits whether the project stops agents rewriting what already exists. |
 | `memory-dash` | Dashboard and audit of Claude Code auto-memory across projects. |
+| `factory-floor` | Local page that shows a run live: stations, gate steps, agents, tokens, refusals. |
 
 Three agents come along: `reviewer` and `verifier` (read-only) and
 `oneway-implementer`. The pipeline dispatches them. More diagrams in
@@ -114,6 +117,8 @@ Three agents come along: `reviewer` and `verifier` (read-only) and
   thirteen reuse guardrails you have.
 - `bash skills/chunked-delivery/scripts/run-log.sh stats` shows what the
   static gate, review and you each caught, per risk class.
+- `node skills/factory-floor/scripts/serve.ts --open` shows runs live on
+  a local page. It reads event files and transcripts; nothing leaves the machine.
 - `bash scripts/token-budget.sh` shows what each dispatch loads.
 - Set `TYPESAFE_API_KEY` and `risk.sh` classifies from the diff content, not
   only from paths. Classes are only ever raised.
