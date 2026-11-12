@@ -24,7 +24,8 @@ marker="$run_dir/$(printf '%s' "$root" | hash)"
 
 run_active() { [ -f "$marker" ]; }
 is_reviewer() { case "$agent" in reviewer|*:reviewer|verifier|*:verifier) return 0 ;; esac; return 1; }
-deny() { printf '%s\n' "$1" >&2; exit 2; }
+log_refusal() { [ -f "$marker" ] || return 0; printf '%s' "$input" | EMIT_REFUSAL="$1" bash "$(dirname "$0")/emit.sh" >/dev/null 2>&1 || true; }
+deny() { log_refusal "$1"; printf '%s\n' "$1" >&2; exit 2; }
 run_reason() {
   printf 'delivery run active on %s: %s. The human commits after handoff; to end the run: bash <chunked-delivery>/scripts/run.sh stop' "$root" "$1"
 }

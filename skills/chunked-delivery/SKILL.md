@@ -36,6 +36,14 @@ Read `delivery-pipeline` first. A project's own copy wins over the global one.
   read-only and hold an implementer report that lacks its Proof block. A
   refusal is the rule working, not an obstacle to route around. The marker
   survives a crash: `run.sh status` shows it, `run.sh stop` clears it.
+- From here the hooks and scripts record what happens to the run's event
+  file, which the `factory-floor` page shows live. The one thing they cannot
+  observe is where the plan stands, so say it at every step of the loop, as
+  the step starts:
+  `bash scripts/mark.sh phase=<implement|gate|review|fix|verify|cross|report> chunk=N of=M`,
+  adding `name=<chunk name> risk=<class> plan=<path>` on a chunk's first call
+  and `round=N` on a fix round; `phase=final` alone after the last chunk.
+  Never write the event file by hand, and never report progress any other way.
 
 ## Grill the plan
 
