@@ -1,6 +1,6 @@
 {
   "name": "delivery-skills",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Subagent-driven delivery with a human at every chunk: grill the plan, build one chunk, static gate, read-only review and verify seats, hooks that refuse git writes during a run. Single-file review rubrics for React, Angular, NestJS, Prisma, shared API contracts, tests and backend observability, a screen-authoring checklist, a comment cleanup, a reuse-guardrails audit and a memory dashboard for Claude Code auto-memory",
   "author": {
     "name": "Alexander Vilko",
