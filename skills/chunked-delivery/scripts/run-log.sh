@@ -60,3 +60,4 @@ line=$(jq -cn "${args[@]}" \
 
 mkdir -p "$(dirname "$log")"
 printf '%s\n' "$line" >> "$log"
+bash "$(dirname "$0")/event.sh" log chunk_logged "entry:=$line" || true

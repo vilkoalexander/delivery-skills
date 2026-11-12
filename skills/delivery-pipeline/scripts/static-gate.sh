@@ -29,6 +29,7 @@ has_script() { node -e 'const s=require(process.argv[1]+"/package.json").scripts
 has_dep()    { node -e 'const p=require(process.argv[1]+"/package.json"),d={...p.dependencies,...p.devDependencies};process.exit(d[process.argv[2]]?0:1)' "$root" "$1" 2>/dev/null; }
 skip()       { [[ " ${STATIC_SKIP:-} " == *" $1 "* ]]; }
 any_file()   { local f; for f in "$@"; do [ -e "$f" ] && { echo "$f"; return 0; }; done; return 1; }
+emit()       { [ -f "$here/../../chunked-delivery/scripts/event.sh" ] && bash "$here/../../chunked-delivery/scripts/event.sh" gate "$@" || true; }
 uniq_words() { tr ' ' '\n' | awk 'NF && !seen[$0]++' | tr '\n' ' '; }
 
 # ---------------------------------------------------------------- coverage
@@ -163,10 +164,13 @@ check() {
     [[ "$p" =~ \.(spec|test)\.[cm]?[jt]sx?$ ]] && tests+=("$p")
   done
   local failed=0 log; log=$(mktemp)
+  emit gate_start paths:=${#paths[@]}
   step() { # name, command...
-    local name="$1"; shift
+    local name="$1" t0=$SECONDS; shift
     printf '== %s: %s\n' "$name" "$*"
-    if "$@" > "$log" 2>&1; then echo "   ok"; else echo "   FAIL"; tail -40 "$log" | sed 's/^/   /'; failed=1; fi
+    emit gate_step_start step="$name"
+    if "$@" > "$log" 2>&1; then echo "   ok"; emit gate_step step="$name" ok:=true s:=$((SECONDS - t0))
+    else echo "   FAIL"; tail -40 "$log" | sed 's/^/   /'; failed=1; emit gate_step step="$name" ok:=false s:=$((SECONDS - t0)); fi
   }
 
   local lock="$here/../../test-review/scripts/test-lock.sh"
@@ -174,8 +178,8 @@ check() {
   if ! skip drift && [ -f "${DRIFT_FILE:-docs/review/drift.checks}" ]; then step drift bash "$here/drift.sh" check "${paths[@]}"; fi
   if [ ${#existing[@]} -eq 0 ]; then
     rm -f "$log"
-    [ "$failed" -eq 0 ] && { echo "static gate: none of the paths exist on disk — nothing else to check"; exit 0; }
-    echo "static gate: FAILED — send the output above to the implementer; no reviewer yet"; exit 1
+    [ "$failed" -eq 0 ] && { emit gate_end ok:=true; echo "static gate: none of the paths exist on disk — nothing else to check"; exit 0; }
+    emit gate_end ok:=false; echo "static gate: FAILED — send the output above to the implementer; no reviewer yet"; exit 1
   fi
   if ! skip typecheck && [ ${#ts[@]} -gt 0 ] && [ -f tsconfig.json ]; then
     if has_script typecheck; then step typecheck npm run -s typecheck; else step typecheck npx --no-install tsc --noEmit -p tsconfig.json; fi
@@ -203,9 +207,11 @@ check() {
   local scan="$here/../../reuse-guardrails/scripts/reuse-scan.sh"
   if ! skip reuse && [ -f "$scan" ] && [ ${#existing[@]} -gt 0 ]; then
     printf '== reuse scan\n'
+    emit gate_step_start step=reuse
     bash "$scan" "${existing[@]}" | sed 's/^/   /'
+    emit gate_step step=reuse ok:=true s:=0
   fi
-  [ "$failed" -eq 0 ] && echo "static gate: clean" || { echo "static gate: FAILED — send the output above to the implementer; no reviewer yet"; exit 1; }
+  [ "$failed" -eq 0 ] && { emit gate_end ok:=true; echo "static gate: clean"; } || { emit gate_end ok:=false; echo "static gate: FAILED — send the output above to the implementer; no reviewer yet"; exit 1; }
 }
 
 case "$mode" in
