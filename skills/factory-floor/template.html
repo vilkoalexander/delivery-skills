@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Factory floor</title>
+<style>
+:root {
+  --bg: #0f1113; --panel: #171a1d; --line: #262b30; --text: #e6e8ea; --dim: #8b949e;
+  --run: #4da3ff; --ok: #3fb97a; --bad: #f0605d; --wait: #e8b23a; --skip: #4a5158;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: light) {
+  :root { --bg: #f5f6f7; --panel: #fff; --line: #dfe3e7; --text: #1b1f23; --dim: #66707a;
+    --run: #0b6bd3; --ok: #1a8a52; --bad: #c9302c; --wait: #a66f00; --skip: #b5bcc3; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 -apple-system, "Segoe UI", system-ui, sans-serif; }
+.app { display: grid; grid-template-columns: 250px 1fr; min-height: 100vh; }
+aside { border-right: 1px solid var(--line); padding: 14px 10px; }
+main { padding: 18px 22px 40px; min-width: 0; }
+h1 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin: 0 6px 10px; font-weight: 600; }
+h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin: 26px 0 8px; font-weight: 600; }
+.run { display: block; width: 100%; text-align: left; background: none; border: 1px solid transparent; color: inherit;
+  padding: 8px 9px; border-radius: 8px; cursor: pointer; font: inherit; margin-bottom: 2px; }
+.run:hover { background: var(--panel); }
+.run.sel { background: var(--panel); border-color: var(--line); }
+.run .top { display: flex; gap: 7px; align-items: center; font-weight: 600; }
+.run .top span:nth-child(2) { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.run .sub { color: var(--dim); font-size: 12px; margin-left: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--skip); flex: none; }
+.dot.running { background: var(--run); animation: pulse 1.4s infinite; }
+.dot.waiting { background: var(--wait); }
+.dot.stale { background: var(--bad); }
+@keyframes pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .dot.running, .st.running .ico { animation: none; } }
+.head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+.head .title { font-size: 20px; font-weight: 650; }
+.head .plan { color: var(--dim); font-family: var(--mono); font-size: 13px; }
+.pill { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; padding: 2px 8px; border-radius: 99px;
+  border: 1px solid currentColor; }
+.pill.running { color: var(--run); } .pill.waiting { color: var(--wait); } .pill.stale { color: var(--bad); } .pill.ended { color: var(--dim); }
+.pill.low { color: var(--ok); } .pill.medium { color: var(--wait); } .pill.high { color: var(--bad); }
+.time { margin-left: auto; font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--dim); }
+.chunkline { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 16px; }
+.chunkline b { font-weight: 650; }
+.chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 10px; }
+.chip { font: 12px var(--mono); padding: 2px 9px; border-radius: 6px; border: 1px solid var(--line); background: none; color: var(--dim); cursor: pointer; }
+.chip.sel { color: var(--text); border-color: var(--text); }
+.stations { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+.st { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 11px; min-height: 76px; border-top: 3px solid var(--skip); }
+.st .nm { font-weight: 600; display: flex; justify-content: space-between; gap: 6px; }
+.st .dt { color: var(--dim); font-size: 12px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.st .ico { font-family: var(--mono); }
+.st.running { border-top-color: var(--run); } .st.running .ico { color: var(--run); animation: pulse 1.4s infinite; }
+.st.done { border-top-color: var(--ok); } .st.done .ico { color: var(--ok); }
+.st.failed { border-top-color: var(--bad); } .st.failed .ico { color: var(--bad); }
+.st.waiting { border-top-color: var(--wait); } .st.waiting .ico { color: var(--wait); }
+.st.skipped { opacity: .45; }
+.st.declared { outline: 1px dashed var(--dim); outline-offset: 2px; }
+.gate { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; }
+.gs { font-family: var(--mono); padding: 2px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); }
+.gs.ok { color: var(--ok); } .gs.bad { color: var(--bad); border-color: var(--bad); } .gs.live { color: var(--run); }
+table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+th, td { padding: 7px 11px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+th { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+td.n, th.n { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.dim td { color: var(--dim); }
+tr.sum td { font-weight: 650; }
+.doing { font-family: var(--mono); font-size: 12px; color: var(--dim); overflow-wrap: anywhere; }
+.doing b { color: var(--run); font-weight: 600; }
+.bar { height: 5px; width: 110px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 4px; margin-left: auto; }
+.bar i { display: block; height: 100%; background: var(--run); }
+.bar i.hot { background: var(--wait); } .bar i.full { background: var(--bad); }
+.feedhead { display: flex; align-items: baseline; gap: 14px; }
+.feedhead label { color: var(--dim); font-size: 12px; margin-top: 26px; }
+.feed { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 6px 0; font: 12.5px/1.5 var(--mono); max-height: 460px; overflow: auto; }
+.fe { display: grid; grid-template-columns: 74px 110px 1fr; gap: 10px; padding: 1px 12px; }
+.fe .t, .fe .w { color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fe .x { overflow-wrap: anywhere; }
+.fe.k-refusal { background: color-mix(in srgb, var(--bad) 14%, transparent); } .fe.k-refusal .x { color: var(--bad); font-weight: 600; }
+.fe.k-fail .x { color: var(--bad); } .fe.k-tool .x { color: var(--dim); } .fe.k-mark .x { color: var(--run); }
+.fe.k-turn .x, .fe.k-notify .x { color: var(--wait); }
+.note { color: var(--dim); font-size: 12px; margin-top: 6px; }
+.empty { color: var(--dim); padding: 60px 0; text-align: center; }
+#lost { display: none; position: fixed; top: 0; left: 0; right: 0; background: var(--bad); color: #fff; text-align: center; padding: 4px; font-size: 12px; z-index: 5; }
+@media (max-width: 900px) { .app { grid-template-columns: 1fr; } aside { border-right: 0; border-bottom: 1px solid var(--line); }
+  .stations { grid-template-columns: repeat(2, 1fr); } .time { margin-left: 0; } }
+</style>
+</head>
+<body>
+<div id="lost">Server not answering. Retrying.</div>
+<div class="app">
+  <aside><h1>Runs</h1><div id="runs"></div></aside>
+  <main id="main"><div class="empty">No run picked.</div></main>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let picked = decodeURIComponent(location.hash.slice(1)) || null;
+let run = null, skew = 0, chunkPick = null, showTools = localStorage.getItem('ff-tools') === '1';
+
+const clock = s => { s = Math.max(0, Math.floor(s || 0)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
+const num = n => n >= 1e6 ? (n / 1e6).toFixed(n >= 1e7 ? 1 : 2) + 'M' : n >= 1e4 ? Math.round(n / 1e3) + 'k' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n || 0);
+const hm = t => t ? new Date(t * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false}) : '';
+const day = t => { if (!t) return ''; const d = new Date(t * 1000), n = new Date();
+  return d.toDateString() === n.toDateString() ? hm(t).slice(0, 5) : d.toLocaleDateString([], {month: 'short', day: 'numeric'}); };
+const now = () => Date.now() / 1000 + skew;
+const model = m => (m || '?').replace(/^claude-/, '');
+const ICON = {running: '●', done: '✓', failed: '✗', waiting: '◆', skipped: '–', idle: '·'};
+
+function chunkLabel(c) { return c.final ? 'Final, whole tree' : c.n == null ? 'Before the first chunk' : 'Chunk ' + c.n + (c.of ? ' of ' + c.of : ''); }
+
+function renderRuns(rows) {
+  if (!picked && rows.length) pick(rows[0].run);
+  $('runs').innerHTML = rows.length ? rows.map(r => {
+    const where = r.no_events ? 'no events recorded' : r.final ? 'final' : r.chunk != null ? 'chunk ' + r.chunk + (r.of ? '/' + r.of : '') : 'no chunk yet';
+    return `<button class="run ${r.run === picked ? 'sel' : ''}" data-run="${esc(r.run)}">
+      <div class="top"><span class="dot ${r.state}"></span><span>${esc(r.name)}</span><span class="sub" style="margin:0">${day(r.started)}</span></div>
+      <div class="sub">${esc(r.plan || 'no plan named')}</div>
+      <div class="sub">${r.state} · ${where}</div></button>`; }).join('')
+    : '<div class="note" style="margin:0 6px">No runs yet. One appears when a delivery run starts.</div>';
+}
+
+function pick(id) { picked = id; chunkPick = null; history.replaceState(null, '', '#' + encodeURIComponent(id)); poll(); loadRuns(); }
+$('runs').addEventListener('click', e => { const b = e.target.closest('[data-run]'); if (b) pick(b.dataset.run); });
+
+function tokenCells(t) { return `<td class="n">${num(t.in)}</td><td class="n">${num(t.out)}</td><td class="n">${num(t.cw)}</td><td class="n">${num(t.cr)}</td>`; }
+function ctxCell(a) {
+  if (!a.ctx) return '<td class="n">no data</td>';
+  const p = Math.round(a.fill * 100);
+  return `<td class="n">${num(a.ctx)} · ${p}%<div class="bar"><i class="${p >= 85 ? 'full' : p >= 60 ? 'hot' : ''}" style="width:${Math.min(100, p)}%"></i></div></td>`;
+}
+function seatTag(a) { return a.station !== 'other' && !a.seat.startsWith(a.station.slice(0, 5)) ? ` <span class="doing">· ${esc(a.station)}</span>` : ''; }
+function doing(a) {
+  if (!a.current) return a.running ? '<span class="doing">thinking</span>' : '';
+  return `<span class="doing"><b>${esc(a.current.tool)}</b> ${esc(a.current.what)} <span data-since="${a.current.since}"></span></span>`;
+}
+
+function render() {
+  if (!run) return;
+  const r = run, chunks = r.chunks.filter(c => !c.empty);
+  const cur = chunks[chunks.length - 1];
+  const c = chunks.find(x => x.index === chunkPick) || cur;
+  const live = r.state === 'running' || r.state === 'waiting' || r.state === 'stale';
+  const agents = r.agents.filter(a => a.running || a.chunk === c.index).sort((a, b) => (b.running - a.running) || (a.start - b.start));
+  const g = c.gate;
+  const ctl = r.controller;
+  const feed = r.feed.filter(f => showTools || f.kind !== 'tool').slice(-120).reverse();
+  $('main').innerHTML = `
+    <div class="head"><span class="title">${esc(r.name)}</span><span class="plan">${esc(r.plan || 'no plan named')}</span>
+      <span class="pill ${r.state}">${r.state}</span>${r.branch ? `<span class="plan">${esc(r.branch)}</span>` : ''}
+      <span class="time">run <span ${live ? `data-from="${r.started}"` : ''}>${clock((r.ended || r.last || r.started) - r.started)}</span></span></div>
+    <div class="chunkline"><b>${chunkLabel(c)}</b>${c.name ? `<span>${esc(c.name)}</span>` : ''}
+      ${c.risk ? `<span class="pill ${c.risk}">${c.risk}</span>` : ''}
+      <span class="time"><span ${c.end ? '' : `data-from="${c.start}"`}>${clock((c.end || r.last) - c.start)}</span></span></div>
+    ${chunks.length > 1 ? `<div class="chips">${chunks.map(x => `<button class="chip ${x === c ? 'sel' : ''}" data-chunk="${x.index}">${x.final ? 'final' : x.n == null ? 'pre' : x.n}</button>`).join('')}</div>` : ''}
+    <div class="stations">${c.stations.map(s => `<div class="st ${s.status} ${s.declared && c === cur && live ? 'declared' : ''}">
+      <div class="nm"><span>${s.name === 'you' ? 'waiting for you' : s.name === 'gate' ? 'static gate' : s.name === 'cross' ? 'cross-model' : s.name}</span><span class="ico">${ICON[s.status]}</span></div>
+      <div class="dt">${esc(s.detail)}</div></div>`).join('')}</div>
+    ${g ? `<div class="gate"><span class="note" style="margin:0">gate steps</span>${g.steps.map(s =>
+      `<span class="gs ${s.ok === true ? 'ok' : s.ok === false ? 'bad' : 'live'}">${esc(s.step)} ${s.ok === true ? '✓' : s.ok === false ? '✗' : '●'}${s.s ? ' ' + s.s + 's' : ''}</span>`).join('')}
+      ${g.failed_runs ? `<span class="note" style="margin:0">${g.failed_runs} earlier run${g.failed_runs > 1 ? 's' : ''} failed</span>` : ''}</div>` : ''}
+
+    <h2>Agents</h2>
+    <table><tr><th>Seat</th><th>Model</th><th>Doing</th><th class="n">Time</th><th class="n">Calls</th><th class="n">Context</th></tr>
+      <tr class="${ctl.running ? '' : 'dim'}"><td><b>controller</b></td><td>${esc(model(ctl.model))}</td><td>${doing(ctl)}</td>
+        <td class="n"></td><td class="n">${ctl.calls}</td>${ctxCell(ctl)}</tr>
+      ${agents.map(a => `<tr class="${a.running ? '' : 'dim'}"><td><b>${esc(a.seat)}</b>${seatTag(a)}${a.desc ? `<div class="doing">${esc(a.desc)}</div>` : ''}</td>
+        <td>${esc(model(a.model))}</td><td>${a.running ? doing(a) : 'stopped'}</td>
+        <td class="n"><span ${a.running ? `data-from="${a.start}"` : ''}>${clock((a.end || r.last) - a.start)}</span></td>
+        <td class="n">${a.calls}</td>${ctxCell(a)}</tr>`).join('')}
+    </table>
+    <div class="note">Context is the last request's input plus cache. Window size is not recorded anywhere, so it is assumed: 200k, or 1M once a session passes 200k.</div>
+
+    <h2>Tokens</h2>
+    <table><tr><th>${esc(chunkLabel(c))}</th><th class="n">Input</th><th class="n">Output</th><th class="n">Cache write</th><th class="n">Cache read</th></tr>
+      <tr><td>controller</td>${tokenCells(c.controller_tokens)}</tr>
+      ${r.agents.filter(a => a.chunk === c.index).map(a => `<tr><td>${esc(a.seat)}${seatTag(a)} <span class="doing">${esc(model(a.model))}${a.desc ? ' · ' + esc(a.desc) : ''}</span></td>${tokenCells(a.tokens)}</tr>`).join('')}
+      <tr class="sum"><td>chunk total</td>${tokenCells(c.tokens)}</tr>
+      <tr class="sum"><td>run total</td>${tokenCells(r.tokens)}</tr>
+    </table>
+
+    <div class="feedhead"><h2>Feed</h2><label><input type="checkbox" id="tools" ${showTools ? 'checked' : ''}> every tool call</label></div>
+    <div class="feed">${feed.length ? feed.map(f => `<div class="fe k-${esc(f.kind)}"><span class="t">${hm(f.ts)}</span><span class="w">${esc(f.who)}</span><span class="x">${esc(f.text)}</span></div>`).join('')
+      : '<div class="fe"><span></span><span></span><span class="x">nothing yet</span></div>'}</div>`;
+  tick();
+}
+
+$('main').addEventListener('click', e => { const b = e.target.closest('[data-chunk]'); if (b) { chunkPick = +b.dataset.chunk; render(); } });
+$('main').addEventListener('change', e => { if (e.target.id === 'tools') { showTools = e.target.checked; localStorage.setItem('ff-tools', showTools ? '1' : '0'); render(); } });
+
+function tick() {
+  const t = now();
+  document.querySelectorAll('[data-from]').forEach(el => { el.textContent = clock(t - +el.dataset.from); });
+  document.querySelectorAll('[data-since]').forEach(el => { el.textContent = clock(t - +el.dataset.since); });
+}
+
+async function get(url) { const res = await fetch(url, {cache: 'no-store'}); if (!res.ok) throw new Error(res.status); return res.json(); }
+let selecting = false;
+document.addEventListener('selectionchange', () => { selecting = !document.getSelection().isCollapsed; });
+async function poll() {
+  if (!picked) return;
+  try {
+    const data = await get('/api/run?id=' + encodeURIComponent(picked));
+    skew = data.now - Date.now() / 1000; run = data; $('lost').style.display = 'none';
+    if (!selecting) render();
+  } catch (e) { if (String(e.message) === '404') { run = null; $('main').innerHTML = '<div class="empty">This run has no events.</div>'; } else $('lost').style.display = 'block'; }
+}
+async function loadRuns() { try { renderRuns(await get('/api/runs')); $('lost').style.display = 'none'; } catch (e) { $('lost').style.display = 'block'; } }
+
+loadRuns(); poll();
+setInterval(poll, 1000); setInterval(loadRuns, 3000); setInterval(tick, 1000);
+</script>
+</body>
+</html>

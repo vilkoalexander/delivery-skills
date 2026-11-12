@@ -17,3 +17,6 @@ jobs:
       - run: bash skills/delivery-pipeline/scripts/risk-content.test.sh
       - run: bash skills/test-review/scripts/test-lock.test.sh
       - run: bash skills/delivery-pipeline/scripts/drift.test.sh
+      - run: bash hooks/emit.test.sh
+      - run: bash skills/chunked-delivery/scripts/event.test.sh
+      - run: node --test skills/factory-floor/tests/factory-floor.test.ts
