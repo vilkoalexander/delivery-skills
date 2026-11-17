@@ -1,20 +1,25 @@
 graph LR
   H[Human<br/>approves chunks, reads diffs,<br/>decides what becomes a commit]
-  C[Controller<br/>Opus 5.5, Fable 5.2 on long runs<br/>holds plan + chunk summaries]
-  IM[Implementer, mechanical<br/>Haiku 5.5]
-  IO[Implementer, one-way doors<br/>Opus 5.5<br/>schema, auth, money, contracts]
-  RV[Task reviewer<br/>Sonnet 5.5, Opus 5.5 if high risk<br/>uses review-routing]
+  C[Controller<br/>Opus 5.5, Fable 5.2 over six chunks<br/>holds plan + chunk summaries]
+  IM[Implementer, low or medium risk<br/>Haiku 5.5, Sonnet 5.5 over two files]
+  IO[Implementer, high risk<br/>Opus 5.5<br/>schema, auth, money, contracts]
+  RV[Task reviewer, medium and high risk<br/>Sonnet 5.5, Opus 5.5 if high risk<br/>uses review-routing, read-only]
   RR[Scoped re-review<br/>Haiku 5.5]
+  VF[Verifier, medium and high risk<br/>Sonnet 5.5, read-only<br/>runs the change]
   FW[Whole-tree review<br/>Opus 5.5]
   XM[Cross-model review<br/>Codex, different model family]
   H -- plan + next --> C
   C -- task by risk class --> IM
   C -- task by risk class --> IO
-  IM & IO -- uncommitted diff --> RV
+  IM -- diff, gate passed --> RV
+  IO --> RV
   RV -- findings --> IM
-  RV -- clean --> RR
-  RR -- clean, high risk --> XM
-  XM -- claims to adjudicate --> C
+  IM -- fix diff --> RR
+  RV & RR -- fix rounds end --> VF
+  VF -- FAIL --> IM
+  VF -- done, high risk --> XM
+  XM -- claims for a ruling --> C
+  C -- after last chunk --> VF
   C -- after last chunk --> FW
   FW --> XM
   C -- chunk report --> H

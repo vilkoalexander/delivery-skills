@@ -36,6 +36,10 @@ Two rows claim `*.pipe.ts`: an Angular pipe carries `@Pipe`, a NestJS pipe
 implements `PipeTransform`. Open the first twenty lines and route on the
 decorator.
 
+When `docs/review/delivery.json` has a `stack`, it settles "under a NestJS
+app", "under an Angular app" and the like: a row for a framework the stack
+does not list is not routed.
+
 No row matched (scripts, config, docs, plain `.ts` utilities) means no domain
 rubric applies. Review those on general quality alone, say so in one line, and
 do not stretch a rubric to reach them.

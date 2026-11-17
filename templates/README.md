@@ -30,6 +30,23 @@ will skim both.
 | `observability-review.md` | `docs/review/observability-review.md` |
 | `react-screen-authoring.md` | `docs/review/react-screen-authoring.md` |
 | `drift.checks` | `docs/review/drift.checks` — not a rubric layer: the drift checks the static gate runs |
+| `delivery.json` | `docs/review/delivery.json` — not a rubric layer: the stack, the command each static step runs per workspace, and the project's patterns. `static-gate.sh init` drafts it |
+
+## delivery.json
+
+| Key | Read by | Meaning |
+| --- | --- | --- |
+| `stack` | `review-routing` | frameworks in the repo; a rubric for one not listed is not routed |
+| `writing` | `chunked-delivery` | `ste100` (default): reports, findings, questions, comments and documents of a run are ASD-STE100 Simplified Technical English. `free` sets it off |
+| `workspaces.<dir>.<step>` | `static-gate.sh check` | the command for `typecheck`, `lint`, `format`, `test` or any step you name, run in `<dir>`. A string runs whenever the workspace changed; `{ "run", "files" }` runs only when a changed path matches `files`; `false` says the workspace has none. `{files}` becomes the changed paths that still exist, relative to `<dir>`. A changed path belongs to the longest `<dir>` that contains it; `.` is the root |
+| `risk.high`, `risk.medium` | `risk.sh` | patterns for paths that are always that class |
+| `secrets.allow` | `secret-scan.sh` | patterns over `path:line:text` for added lines that are not credentials |
+| `deps.allow`, `deps.minAgeDays`, `deps.minVersionDays` | `dep-vet.sh` | package names never vetted (private scopes); youngest package and version an agent may fetch (30, 7) |
+| `shared` | `reuse-scan.sh` | patterns for shared-layer directories |
+
+Patterns are POSIX ERE. An environment variable of the matching name
+(`RISK_HIGH`, `SECRET_ALLOW`, `DEP_VET_ALLOW`, `REUSE_SHARED`) overrides the
+file for one call.
 
 ## Script variables
 
@@ -46,7 +63,7 @@ The rubric scripts take project-specific names from the environment:
 | `REVIEW_FILES` | nestjs | space-separated files under review; limits the missing-spec check to them |
 | `LOG_CALL`, `SECRETS` | observability | regex for the project's log call; extra field names that must never be logged |
 | `TEST_CMD` | test `revert-check.sh` | command that runs the test files passed to it, when detection from `package.json` is wrong |
-| `STATIC_SKIP`, `STATIC_TEST` | `static-gate.sh` | steps to skip (`typecheck lint format test prisma`); override for the related-tests command |
+| `STATIC_SKIP` | `static-gate.sh` | steps to skip for one call: `test-lock`, `drift`, `secrets`, `reuse`, or any step name from `delivery.json` |
 
 ## The other way: fork the rubric into the project
 

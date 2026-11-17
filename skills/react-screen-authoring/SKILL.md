@@ -1,6 +1,6 @@
 ---
 name: react-screen-authoring
-description: Read BEFORE generating a new screen, page, sheet, form or picker in a React or React Native app. Triggers on "add a screen", "new screen", "build the X page", "add a sheet / form / picker". Puts the container / view / builder split and the platform checklist in context before generation, because lint only catches the wrong shape after the file exists.
+description: Use before writing a new screen, page, sheet, form or picker in a React or React Native app, when asked to "add a screen", "new screen", "build the X page" or "add a sheet / form / picker".
 ---
 
 # React Screen Authoring

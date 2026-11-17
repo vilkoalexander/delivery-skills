@@ -4,7 +4,7 @@
 #
 #   bash audit.sh [root]          default: the git root of the cwd
 #
-# Ids that live in delivery-pipeline, chunked-delivery, review-routing or a
+# Ids that live in chunked-delivery (or a project's delivery-pipeline copy), review-routing or a
 # *-review rubric pass by inheritance when the project ships no copy of that
 # skill: the plugin's own file is then the one in force. When the project
 # has a copy, the copy is what is read.
@@ -33,8 +33,12 @@ in_force() { # skill-dir-name
 }
 owner() { case "$1" in "$plugin"/*) echo "plugin";; *) echo "project";; esac; }
 
-pipeline=$(in_force delivery-pipeline)
 chunked=$(in_force chunked-delivery)
+pipeline=$(in_force delivery-pipeline); [ -f "$pipeline" ] || pipeline=$chunked
+# A skill is its SKILL.md and the references next to it.
+whole() { local out; out=$(mktemp); cat "$1" "$(dirname "$1")"/references/*.md > "$out" 2>/dev/null; echo "$out"; }
+pipeline_text=$(whole "$pipeline"); chunked_text=$(whole "$chunked")
+trap 'rm -f "$pipeline_text" "$chunked_text"' EXIT
 routing=$(in_force review-routing)
 
 echo "Reuse guardrails — $root"
@@ -42,14 +46,14 @@ echo "  delivery-pipeline: $(owner "$pipeline") · chunked-delivery: $(owner "$c
 echo
 echo "## A — before the code exists"
 
-if grep -q 'inventory shows none' "$pipeline" && grep -q 'fewer than two callers' "$pipeline" && grep -q 'runtime dependency' "$pipeline"; then
+if grep -q 'inventory shows none' "$pipeline_text" && grep -q 'fewer than two callers' "$pipeline_text" && grep -q 'runtime dependency' "$pipeline_text"; then
   row A1 PASS "reuse lines in Global Constraints ($(owner "$pipeline"))"
 else row A1 MISS "Global Constraints lack the three reuse lines ($(owner "$pipeline") $pipeline)"; fi
 
-if grep -q '## Inventory' "$pipeline"; then row A2 PASS "inventory in implementer dispatch ($(owner "$pipeline"))"
+if grep -q '## Inventory' "$pipeline_text"; then row A2 PASS "inventory in implementer dispatch ($(owner "$pipeline"))"
 else row A2 MISS "implementer dispatch carries no ## Inventory ($(owner "$pipeline") $pipeline)"; fi
 
-if grep -q '## Reuse' "$pipeline"; then row A3 PASS "## Reuse block in implementer report ($(owner "$pipeline"))"
+if grep -q '## Reuse' "$pipeline_text"; then row A3 PASS "## Reuse block in implementer report ($(owner "$pipeline"))"
 else row A3 MISS "implementer report format has no ## Reuse block ($(owner "$pipeline") $pipeline)"; fi
 
 layers=$(ls docs/review/*.md 2>/dev/null)
@@ -87,8 +91,8 @@ else
   else row B3 MISS "no max-lines in any eslint config"; fi
 fi
 
-if grep -q 'reuse-scan' "$pipeline" && grep -q 'reuse-scan' "$chunked"; then row B4 PASS "reuse-scan in the gate ($(owner "$pipeline") pipeline, $(owner "$chunked") chunked-delivery)"
-else row B4 MISS "reuse-scan missing from $(grep -q 'reuse-scan' "$pipeline" || echo "$pipeline ")$(grep -q 'reuse-scan' "$chunked" || echo "$chunked")"; fi
+if grep -q 'reuse-scan' "$pipeline_text" && grep -q 'reuse-scan' "$chunked_text"; then row B4 PASS "reuse-scan in the gate ($(owner "$pipeline") pipeline, $(owner "$chunked") chunked-delivery)"
+else row B4 MISS "reuse-scan missing from $(grep -q 'reuse-scan' "$pipeline_text" || echo "$pipeline ")$(grep -q 'reuse-scan' "$chunked_text" || echo "$chunked")"; fi
 
 if [ -f .claude/settings.json ] && node -e '
   const h=(require(process.argv[1]).hooks||{}).PostToolUse||[];
@@ -114,8 +118,8 @@ fi
 if grep -q 'reuse-scan' "$routing"; then row C2 PASS "reuse-scan in review-routing ($(owner "$routing"))"
 else row C2 MISS "review-routing never runs reuse-scan ($(owner "$routing") $routing)"; fi
 
-if grep -q 'jscpd' "$pipeline" && has_dep jscpd; then row C3 PASS "jscpd in the whole-tree review"
-elif grep -q 'jscpd' "$pipeline"; then row C3 MISS "pipeline names jscpd but B1 fails — install it first"
+if grep -q 'jscpd' "$pipeline_text" && has_dep jscpd; then row C3 PASS "jscpd in the whole-tree review"
+elif grep -q 'jscpd' "$pipeline_text"; then row C3 MISS "pipeline names jscpd but B1 fails — install it first"
 else row C3 MISS "whole-tree review never sees a duplicate report ($(owner "$pipeline") $pipeline)"; fi
 
 if [ -n "$layers" ] && grep -qi 'caught by hand' $layers 2>/dev/null; then

@@ -28,7 +28,7 @@ MISS into a PASS. Implement only the ids the human names.
 | C3 | Branch-wide duplicate check in the whole-tree review | after | grep |
 | C4 | A hand-caught finding becomes a rule | after | manual |
 
-A project that ships none of `delivery-pipeline`, `chunked-delivery`,
+A project that ships none of `chunked-delivery`, `delivery-pipeline`,
 `review-routing` or a `*-review` rubric of its own inherits this plugin's,
 and the ids that live in those files pass by inheritance. A project that
 copies one of them owns it, and the audit reads the copy.
@@ -46,8 +46,8 @@ a reviewer can check:
 - No new runtime dependency unless the plan task names it.
 ```
 
-**Audit.** The project's `delivery-pipeline` skill, or the plugin's when
-there is none, contains all three phrases `inventory shows none`, `fewer than
+**Audit.** The project's `delivery-pipeline` or `chunked-delivery` skill, or
+the plugin's `chunked-delivery` with its `references/` when there is none, contains all three phrases `inventory shows none`, `fewer than
 two callers` and `runtime dependency`.
 
 **Absent.** Reviewers grade reinvention on taste. Two reviewers, two verdicts.
@@ -64,14 +64,14 @@ rubric the chunk's paths route to (`react-review`, `nestjs-service-review`,
 implementer dispatch for that chunk. When the plan already names the helper
 to use, the task text names it by export and path.
 
-**Audit.** The `delivery-pipeline` in force says `## Inventory` in its
+**Audit.** The skill in force (as in A1) says `## Inventory` in its
 implementer dispatch section.
 
 **Absent.** The implementer writes `useDebounce` next to the project's
 `useDebouncedValue`. The reviewer catches it one seat later, or does not.
 
 **Recipe.** The "Implementer dispatch" section of this plugin's
-`delivery-pipeline` has the paragraph; a project copy adds the same paragraph
+`chunked-delivery` has the paragraph; a project copy adds the same paragraph
 and, when the project keeps its shared code somewhere the rubric scripts do
 not look, the extra roots to pass (`inventory.sh <dir>`).
 
@@ -90,14 +90,14 @@ not look, the extra roots to pass (`inventory.sh <dir>`).
 A report without it goes back for the block, the same as a report without
 Proof. A `new shared` line with no `searched` line above it goes back too.
 
-**Audit.** The `delivery-pipeline` in force contains `## Reuse` in its
+**Audit.** The skill in force (as in A1) contains `## Reuse` in its
 implementer report format.
 
 **Absent.** The search never happens; the helper gets written first and
 justified never.
 
 **Recipe.** The "Implementer proof" section of this plugin's
-`delivery-pipeline` carries the block; a project copy appends the same block
+`chunked-delivery` carries the block; a project copy appends the same block
 to its implementer report format.
 
 ### A4 Project layer names the shared primitives
@@ -229,7 +229,7 @@ with today, then hold it there.
 changed paths as part of the static gate, on every risk class, and its
 output reaches the reviewer and the chunk report's `Reuse:` line.
 
-**Audit.** The `delivery-pipeline` and `chunked-delivery` in force name
+**Audit.** The skill in force (as in A1) and `chunked-delivery` name
 `reuse-scan`.
 
 **Absent.** Low-risk chunks skip the reviewer, so a new `utils/format.ts` in
@@ -323,7 +323,7 @@ whole branch and its console report is in the reviewer's dispatch. A fresh
 implementer per task never sees the previous task's helper; this is the one
 check that spans tasks.
 
-**Audit.** The `delivery-pipeline` in force names `jscpd` in its final or
+**Audit.** The skill in force (as in A1) names `jscpd` in its final or
 whole-tree review text, and B1 passes.
 
 **Absent.** Two tasks, two copies of the same mapper, one green review each.
