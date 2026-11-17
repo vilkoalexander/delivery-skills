@@ -156,6 +156,26 @@ has "web: no typecheck guessed"        0 '^undefined$' q 'workspaces|apps/web|ty
 has "init states the writing default"   0 "\"writing\": \"ste100\"" cat docs/review/delivery.json
 has "init never overwrites"            2 "exists; edit it" bash "$gate" init
 
+echo "# init, a Java repository"
+jvm="$tmp/jvm"; mkdir -p "$jvm/core/crm" "$jvm/core/model" "$jvm/web" "$jvm/tools" && git -C "$jvm" init -q && cd "$jvm"
+printf "include 'crm'\ninclude 'model'\n" > core/settings.gradle
+printf "plugins { id 'checkstyle' }\ndependencies { implementation 'org.springframework.boot:spring-boot-starter-data-jpa' }\n" > core/build.gradle
+touch core/crm/build.gradle core/model/build.gradle core/gradlew
+echo '<project><artifactId>tools</artifactId></project>' > tools/pom.xml
+echo '{"dependencies":{"@angular/core":"19"}}' > web/package.json
+has "init writes the file"             0 "a guess from your build files" bash "$gate" init
+has "the draft validates"              0 "" node "$cfg" check
+has "stack names spring and jpa"       0 '^\["angular","spring","jpa"\]$' q stack
+has "one workspace per build root"     0 '^\[".","core","tools"\]$' node -e 'console.log(JSON.stringify(Object.keys(JSON.parse(require("fs").readFileSync("docs/review/delivery.json","utf8")).workspaces).sort()))'
+has "gradle: compile through the wrapper" 0 '^./gradlew -q compileJava compileTestJava$' q 'workspaces|core|typecheck|run'
+has "gradle: tests"                    0 '^./gradlew test$' q 'workspaces|core|test|run'
+has "gradle: checkstyle when configured" 0 'checkstyleMain' q 'workspaces|core|lint|run'
+has "gradle: no formatter, so none"    0 '^false$' q 'workspaces|core|format'
+has "maven: no wrapper, plain mvn"     0 '^mvn -q test$' q 'workspaces|tools|test|run'
+has "maven: no checkstyle, so none"    0 '^false$' q 'workspaces|tools|lint'
+has "a java path plans its workspace"  0 "RUN.core.typecheck../gradlew -q compileJava compileTestJava" node "$cfg" plan core/crm/src/main/java/A.java
+has "a migration runs the tests only"  0 "^RUN.core.test../gradlew test$" node "$cfg" plan core/app/src/main/resources/db/migration/V2__x.sql
+
 echo
 echo "$pass passed, $fail failed"
 [ "$fail" = 0 ]

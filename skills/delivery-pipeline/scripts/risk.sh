@@ -52,15 +52,15 @@ fi
 # class :: rule :: pattern (ERE over the path). The first line that matches wins.
 rules=(
   # high — one-way doors
-  'high :: schema or migration :: \.prisma$|(^|/)migrations/|\.sql$'
+  'high :: schema or migration :: \.prisma$|(^|/)migrations?/|\.sql$|Entity\.java$'
   'high :: shared contract package :: (^|/)(libs|packages)/(shared|contracts|api-types|api-contract)(/|$)'
-  'high :: auth, guard, session :: (^|/)(auth|guards|strategies|session)(/|\.)|\.(guard|strategy)\.ts$|(jwt|passport|oauth)'
+  'high :: auth, guard, session :: (^|/)(auth|guards|strategies|session|security|acl)(/|\.)|\.(guard|strategy)\.ts$|(jwt|passport|oauth)|(Security|Auth[a-z]*|Jwt|Token|Permission)[A-Za-z]*\.java$'
   'high :: money path :: (payment|billing|ledger|invoice|checkout|wallet|stripe|subscription)'
   'high :: env or secrets :: (^|/)\.env(\.|$)|(secret|credential)'
   'high :: CI, deploy, infra :: (^|/)\.github/workflows/|(^|/)(Dockerfile|docker-compose[^/]*|helm|terraform|k8s|deploy|infra)(/|\.|$)'
 
   # low — local, visible, cheap
-  'low :: tests :: \.(spec|test)\.[cm]?[jt]sx?$|(^|/)(__tests__|test|tests|e2e|cypress|playwright)/'
+  'low :: tests :: \.(spec|test)\.[cm]?[jt]sx?$|(^|/)(__tests__|test|tests|e2e|cypress|playwright|testFixtures|integrationTest)/|(Test|Tests|IT)\.java$'
   'low :: docs :: \.(md|mdx|txt)$|(^|/)docs/'
   'low :: styling or assets :: \.(css|scss|sass|less|styl)$|(^|/)(styles|theme|assets|public|static|fonts|images)/'
   'low :: copy, i18n :: (^|/)(i18n|locales|translations)/'
@@ -69,8 +69,10 @@ rules=(
 
   # medium — shared behaviour, reversible
   'medium :: NestJS unit :: \.(service|controller|module|resolver|interceptor|filter|pipe|middleware)\.ts$'
+  'medium :: Spring unit :: (Controller|Service|ServiceImpl|Repository|Specification|Configuration|Config|Listener|Handler|Filter|Aspect)\.java$'
+  'medium :: runtime configuration :: (^|/)application[^/]*\.(yml|yaml|properties)$'
   'medium :: shared primitive, hook or util :: (^|/)(components/ui|hooks|lib|utils|shared|common|store|state|api|services)(/|$)'
-  'medium :: dependency change :: (^|/)package\.json$|(^|/)(pnpm-lock\.yaml|package-lock\.json|yarn\.lock)$'
+  'medium :: dependency change :: (^|/)package\.json$|(^|/)(pnpm-lock\.yaml|package-lock\.json|yarn\.lock)$|(^|/)(build|settings)\.gradle(\.kts)?$|(^|/)(pom\.xml|gradle\.properties|libs\.versions\.toml)$'
 
   'low :: leaf component :: \.(tsx|jsx|vue|svelte)$|\.component\.ts$|\.html$'
 )

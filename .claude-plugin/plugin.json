@@ -1,7 +1,7 @@
 {
   "name": "delivery-skills",
   "version": "0.13.0",
-  "description": "Subagent-driven delivery with a human at every chunk: grill the plan, build one chunk, static gate, read-only review and verify seats, hooks that refuse git writes during a run. Single-file review rubrics for React, Angular, NestJS, Prisma, shared API contracts, tests and backend observability, a screen-authoring checklist, a comment cleanup, a reuse-guardrails audit and a memory dashboard for Claude Code auto-memory",
+  "description": "Subagent-driven delivery with a human at every chunk: grill the plan, build one chunk, static gate, read-only review and verify seats, hooks that refuse git writes during a run. Single-file review rubrics for React, Angular, NestJS, Prisma, Java Spring Boot, JPA and Flyway migrations, shared API contracts, tests and backend observability, a screen-authoring checklist, a comment cleanup, a reuse-guardrails audit and a memory dashboard for Claude Code auto-memory",
   "author": {
     "name": "Alexander Vilko",
     "url": "https://github.com/vilkoalexander"
@@ -18,6 +18,10 @@
     "angular",
     "nestjs",
     "prisma",
+    "java",
+    "spring-boot",
+    "jpa",
+    "flyway",
     "testing",
     "observability",
     "memory",

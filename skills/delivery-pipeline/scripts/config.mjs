@@ -167,7 +167,62 @@ export function plan(config, paths) {
   return rows;
 }
 
-// A first draft of the config, guessed from the lockfile, the package.json files and the config files beside them.
+const isInsideAnother = (dir, dirs) => dirs.some(other => other !== dir && isInside(dir, other));
+
+// The workspaces and stack of the Gradle and Maven builds: one workspace per outermost build root.
+function draftJvm(base, tracked) {
+  const list = (...patterns) => tracked(...patterns).split('\n').filter(Boolean);
+  const dirsOf = paths => [...new Set(paths.map(path => normalizeDir(dirname(path))))];
+  const read = path => {
+    try {
+      return readFileSync(join(base, path), 'utf8');
+    } catch {
+      return '';
+    }
+  };
+
+  const gradleFiles = list('build.gradle', 'build.gradle.kts', '*/build.gradle', '*/build.gradle.kts');
+  const settings = list('settings.gradle', 'settings.gradle.kts', '*/settings.gradle', '*/settings.gradle.kts');
+  const poms = list('pom.xml', '*/pom.xml');
+  const gradleDirs = dirsOf(settings.length ? settings : gradleFiles);
+  const pomDirs = dirsOf(poms);
+  const roots = [
+    ...gradleDirs.filter(dir => !isInsideAnother(dir, gradleDirs)).map(dir => ({ dir, tool: 'gradle' })),
+    ...pomDirs.filter(dir => !isInsideAnother(dir, pomDirs)).map(dir => ({ dir, tool: 'maven' })),
+  ];
+
+  const workspaces = {};
+  let buildText = '';
+  for (const { dir, tool } of roots) {
+    const buildFiles = [...gradleFiles, ...poms].filter(path => isInside(path, dir));
+    const text = buildFiles.map(read).join('\n') + read(join(dir, 'gradle.properties'));
+    buildText += text;
+    const wrapper = tool === 'gradle' ? 'gradlew' : 'mvnw';
+    const command = existsSync(join(base, dir, wrapper)) ? `./${wrapper}` : tool === 'gradle' ? 'gradle' : 'mvn';
+    const sources = '\\.(java|kt)$';
+    const anythingBuilt = '\\.(java|kt|sql|ya?ml|properties|gradle|kts|xml)$';
+    const gradle = tool === 'gradle';
+
+    workspaces[dir] = {
+      typecheck: { run: gradle ? `${command} -q compileJava compileTestJava` : `${command} -q test-compile`, files: sources },
+      lint: /checkstyle/i.test(text)
+        ? { run: gradle ? `${command} -q checkstyleMain checkstyleTest` : `${command} -q checkstyle:check`, files: sources }
+        : false,
+      format: /spotless/i.test(text)
+        ? { run: gradle ? `${command} -q spotlessCheck` : `${command} -q spotless:check`, files: sources }
+        : false,
+      test: { run: gradle ? `${command} test` : `${command} -q test`, files: anythingBuilt },
+    };
+  }
+
+  const stack = [];
+  if (/spring-boot|org\.springframework/.test(buildText)) stack.push('spring');
+  if (/data-jpa|hibernate|jakarta\.persistence/.test(buildText)) stack.push('jpa');
+  return { workspaces, stack };
+}
+
+// A first draft of the config, guessed from the lockfile, the package.json files, the Gradle and Maven
+// builds, and the config files beside them.
 function draft() {
   const base = root();
   const readJson = path => {
@@ -235,6 +290,10 @@ function draft() {
 
     if (dir === '.' || Object.keys(steps).length) workspaces[dir] = steps;
   }
+  const jvm = draftJvm(base, tracked);
+  for (const [dir, steps] of Object.entries(jvm.workspaces)) {
+    workspaces[dir] = { ...workspaces[dir], ...steps };
+  }
   workspaces['.'] ||= {};
 
   const stackMarkers = {
@@ -246,7 +305,7 @@ function draft() {
     react: 'react',
     prisma: '@prisma/client',
   };
-  const stack = Object.keys(stackMarkers).filter(name => allDependencies[stackMarkers[name]]);
+  const stack = [...Object.keys(stackMarkers).filter(name => allDependencies[stackMarkers[name]]), ...jvm.stack];
   return { stack, writing: DEFAULTS.writing, workspaces };
 }
 
@@ -264,7 +323,7 @@ function writeDraft() {
   if (existsSync(path)) invalid(`${path} exists; edit it`);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(draft(), null, 2) + '\n');
-  console.log(`wrote ${relative(process.cwd(), path)} — every command in it is a guess from package.json. Read it, fix it, commit it.`);
+  console.log(`wrote ${relative(process.cwd(), path)} — every command in it is a guess from your build files. Read it, fix it, commit it.`);
   console.log('A step the gate should never run for a workspace is `false`; a missing step is reported as skipped on every run.');
 }
 
