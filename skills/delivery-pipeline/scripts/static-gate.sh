@@ -6,18 +6,20 @@
 #   bash static-gate.sh coverage [root]     once per run — what is enforced
 #   bash static-gate.sh check <path>...     per chunk — does the change pass
 #   git diff --name-only | bash static-gate.sh check
+#   bash static-gate.sh init                once per project — draft docs/review/delivery.json
 #
 # `coverage` prints a table of checks and their status (error / warn / absent
 # / none) and ends with an ABSENT: list for the Global Constraints block.
-# `check` runs the project's own typecheck, lint, format and test commands
-# over the changed paths and exits non-zero with each tool's output on
-# failure. Both prefer package.json scripts and fall back to the tools.
+# `check` runs the commands docs/review/delivery.json names for the workspace
+# each changed path is in (see config.mjs) and exits non-zero with each tool's
+# output on failure. It detects nothing: without that file it refuses, and a
+# step with no command is printed as skipped, never counted as passing.
 #
 #   RISK_HIGH / RISK_MEDIUM are not read here; see risk.sh.
-#   STATIC_SKIP   space-separated steps to skip: typecheck lint format test-lock drift test prisma reuse
-#   DRIFT_FILE    the project's drift checks (default docs/review/drift.checks); see drift.sh
+#   STATIC_SKIP   space-separated steps to skip for this call: test-lock drift secrets reuse, or any step name from the config
+#   SECRET_ALLOW  regex over `path:line:text` for added lines secret-scan.sh must not count
+#   DRIFT_FILE   the project's drift checks (default docs/review/drift.checks); see drift.sh
 #   TEST_LOCK_ALLOW  regex of existing test paths a plan task names as changing
-#   STATIC_TEST   override the related-tests command (takes file paths)
 set -uo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -153,55 +155,39 @@ check() {
   local paths=("$@")
   if [ ${#paths[@]} -eq 0 ]; then while IFS= read -r l; do [ -n "$l" ] && paths+=("$l"); done; fi
   [ ${#paths[@]} -eq 0 ] && { echo "check: no paths" >&2; exit 2; }
+  node "$here/config.mjs" check || exit 2
   local existing=(); for p in "${paths[@]}"; do [ -f "$p" ] && existing+=("$p"); done
-  local ts=() lint=() prisma=() tests=()
-  for p in ${existing[@]+"${existing[@]}"}; do
-    case "$p" in
-      *.ts|*.tsx|*.mts|*.cts) ts+=("$p"); lint+=("$p");;
-      *.js|*.jsx|*.mjs|*.cjs|*.vue|*.svelte) lint+=("$p");;
-      *.prisma) prisma+=("$p");;
-    esac
-    [[ "$p" =~ \.(spec|test)\.[cm]?[jt]sx?$ ]] && tests+=("$p")
-  done
-  local failed=0 log; log=$(mktemp)
+  local failed=0 log ran=() skipped=(); log=$(mktemp)
   emit gate_start paths:=${#paths[@]}
   step() { # name, command...
     local name="$1" t0=$SECONDS; shift
-    printf '== %s: %s\n' "$name" "$*"
+    printf '== %s: %s\n' "$name" "${show:-$*}"
     emit gate_step_start step="$name"
+    ran+=("$name")
     if "$@" > "$log" 2>&1; then echo "   ok"; emit gate_step step="$name" ok:=true s:=$((SECONDS - t0))
     else echo "   FAIL"; tail -40 "$log" | sed 's/^/   /'; failed=1; emit gate_step step="$name" ok:=false s:=$((SECONDS - t0)); fi
   }
+  miss() { skipped+=("$1"); printf -- '-- %s: skipped — %s\n' "$1" "$2"; }
+  in_dir() { (cd "$1" && bash -c "$2") < /dev/null; }
 
   local lock="$here/../../test-review/scripts/test-lock.sh"
-  if ! skip test-lock && [ -f "$lock" ]; then step test-lock bash "$lock" "${paths[@]}"; fi
-  if ! skip drift && [ -f "${DRIFT_FILE:-docs/review/drift.checks}" ]; then step drift bash "$here/drift.sh" check "${paths[@]}"; fi
-  if [ ${#existing[@]} -eq 0 ]; then
-    rm -f "$log"
-    [ "$failed" -eq 0 ] && { emit gate_end ok:=true; echo "static gate: none of the paths exist on disk — nothing else to check"; exit 0; }
-    emit gate_end ok:=false; echo "static gate: FAILED — send the output above to the implementer; no reviewer yet"; exit 1
-  fi
-  if ! skip typecheck && [ ${#ts[@]} -gt 0 ] && [ -f tsconfig.json ]; then
-    if has_script typecheck; then step typecheck npm run -s typecheck; else step typecheck npx --no-install tsc --noEmit -p tsconfig.json; fi
-  fi
-  if ! skip lint && [ ${#lint[@]} -gt 0 ] && any_file eslint.config.* .eslintrc* >/dev/null; then
-    step lint npx --no-install eslint --max-warnings=0 "${lint[@]}"
-  fi
-  if ! skip format && [ ${#existing[@]} -gt 0 ] && any_file .prettierrc* prettier.config.* >/dev/null; then
-    step format npx --no-install prettier --check "${existing[@]}"
-  fi
-  if ! skip prisma && [ ${#prisma[@]} -gt 0 ]; then
-    step prisma npx --no-install prisma validate
-  fi
-  if ! skip test && [ ${#existing[@]} -gt 0 ]; then
-    if [ -n "${STATIC_TEST:-}" ]; then step test $STATIC_TEST "${existing[@]}"
-    elif has_dep vitest; then step test npx --no-install vitest related --run "${existing[@]}"
-    elif has_dep jest;  then step test npx --no-install jest --findRelatedTests "${existing[@]}"
-    elif [ ${#tests[@]} -gt 0 ]; then step test node --test "${tests[@]}"
-    elif has_script test; then step test npm test -s
-    fi
-  fi
+  if skip test-lock; then miss test-lock STATIC_SKIP; elif [ -f "$lock" ]; then step test-lock bash "$lock" "${paths[@]}"; fi
+  if skip drift; then miss drift STATIC_SKIP; elif [ -f "${DRIFT_FILE:-docs/review/drift.checks}" ]; then step drift bash "$here/drift.sh" check "${paths[@]}"; fi
+  if skip secrets; then miss secrets STATIC_SKIP; elif [ ${#existing[@]} -gt 0 ]; then step secrets bash "$here/secret-scan.sh" "${existing[@]}"; fi
+
+  # The project's own steps, as docs/review/delivery.json names them.
+  local kinds=() dirs=() names=() texts=() kind dir name text i label show
+  while IFS=$'\t' read -r kind dir name text; do kinds+=("$kind"); dirs+=("$dir"); names+=("$name"); texts+=("$text"); done < <(node "$here/config.mjs" plan "${paths[@]}")
+  for i in ${kinds[@]+"${!kinds[@]}"}; do
+    kind=${kinds[$i]} dir=${dirs[$i]} name=${names[$i]} text=${texts[$i]}
+    label=$name; [ "$dir" = . ] || [ "$dir" = - ] || label="$name:$dir"
+    case "$kind" in
+      RUN) if skip "$name"; then miss "$label" STATIC_SKIP; else show="$text" step "$label" in_dir "$dir" "$text"; fi ;;
+      SKIP) miss "$label" "$text" ;;
+    esac
+  done
   rm -f "$log"
+
   # Reuse flags ride along to the reviewer and the chunk report; they never
   # fail the gate (REUSE_STRICT=1 on the scan itself does, when wanted).
   local scan="$here/../../reuse-guardrails/scripts/reuse-scan.sh"
@@ -211,11 +197,13 @@ check() {
     bash "$scan" "${existing[@]}" | sed 's/^/   /'
     emit gate_step step=reuse ok:=true s:=0
   fi
-  [ "$failed" -eq 0 ] && { emit gate_end ok:=true; echo "static gate: clean"; } || { emit gate_end ok:=false; echo "static gate: FAILED — send the output above to the implementer; no reviewer yet"; exit 1; }
+  local summary="ran: ${ran[*]:-nothing}"; [ ${#skipped[@]} -gt 0 ] && summary="$summary; skipped: ${skipped[*]}"
+  [ "$failed" -eq 0 ] && { emit gate_end ok:=true; echo "static gate: clean — $summary"; } || { emit gate_end ok:=false; echo "static gate: FAILED — $summary. Send the output above to the implementer; no reviewer yet"; exit 1; }
 }
 
 case "$mode" in
   coverage) coverage "$@";;
   check)    check "$@";;
-  *) echo "unknown mode: $mode (coverage | check)" >&2; exit 2;;
+  init)     cd "$root" && node "$here/config.mjs" init;;
+  *) echo "unknown mode: $mode (coverage | check | init)" >&2; exit 2;;
 esac

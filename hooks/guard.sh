@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Plugin hook for PreToolUse (Bash, Read) and SubagentStop. Turns four rules of
+# Plugin hook for PreToolUse (Bash, Read) and SubagentStop. Turns five rules of
 # the delivery run from prose into refusals:
 #   - while a run is active (scripts/run.sh start), nobody runs a git write
 #   - a reviewer or verifier agent never writes, run or no run
 #   - while a run is active, the controller never reads a chunk snapshot
 #   - an implementer whose dispatch asked for a Proof block ends with one
+#   - while a run is active, nobody installs or runs a package the registry
+#     does not know, one published days ago, or one reported as malware
 # Exit 2 refuses; stderr is the reason the model sees. Anything unexpected
 # exits 0 so a hook bug never blocks work.
 set -uo pipefail
@@ -40,6 +42,59 @@ git_sub() { # prints the git subcommand and its args, or nothing
 }
 has_flag() { printf '%s' "$1" | grep -qE -- "(^|[[:space:]])($2)([[:space:]]|$)"; }
 
+# Prints what an install or run-from-registry command would fetch: one spec per
+# line, or "--diff" for a bare install, which takes its list from package.json.
+fetch_specs() {
+  local first=$1 seg=$2 words=() w sub="" mode="" i=1 pkg="" bin
+  read -r -a words <<<"$seg"
+  case "$first" in
+    npx|bunx|pnpx) mode=exec ;;
+    npm|pnpm|yarn|bun)
+      while [ $i -lt ${#words[@]} ]; do
+        w=${words[$i]}; i=$((i + 1))
+        case "$w" in --filter|-F|--prefix|-C|--dir|--cwd) i=$((i + 1)) ;; -*) ;; *) sub=$w; break ;; esac
+      done
+      case "$first:$sub" in
+        npm:install|npm:i|npm:add|pnpm:add|pnpm:install|pnpm:i|yarn:add|bun:add|bun:install|bun:i) mode=install ;;
+        yarn:|yarn:install) mode=install ;;
+        pnpm:dlx|yarn:dlx|bun:x) mode=exec ;;
+        *) return 0 ;;
+      esac ;;
+    *) return 0 ;;
+  esac
+  local found=0
+  while [ $i -lt ${#words[@]} ]; do
+    w=${words[$i]}; i=$((i + 1))
+    case "$w" in
+      --no-install) [ "$mode" = exec ] && return 0 ;;
+      -p|--package) [ "$mode" = exec ] && { pkg=${words[$i]:-}; i=$((i + 1)); } ;;
+      --package=*) [ "$mode" = exec ] && pkg=${w#--package=} ;;
+      --filter|-F|--registry|--prefix|-C|--dir|--cwd|--workspace|--tag|--otp) i=$((i + 1)) ;;
+      -w) [ "$first" = npm ] && i=$((i + 1)) ;;
+      --) [ "$mode" = exec ] && break ;;
+      -*) ;;
+      *)
+        found=1
+        if [ "$mode" = exec ]; then [ -n "$pkg" ] || pkg=$w; break; fi
+        printf '%s\n' "$w" ;;
+    esac
+  done
+  if [ "$mode" = install ]; then [ "$found" = 0 ] && echo "--diff"; return 0; fi
+  [ -n "$pkg" ] || return 0
+  pkg=${pkg#[\"\']}; pkg=${pkg%[\"\']}
+  bin=${pkg##*/}; bin=${bin%%@*}
+  [ -e "$cwd/node_modules/.bin/$bin" ] || [ -e "$root/node_modules/.bin/$bin" ] || printf '%s\n' "$pkg"
+}
+
+check_fetch() {
+  local specs=() s out
+  while IFS= read -r s; do [ -n "$s" ] && specs+=("$s"); done < <(fetch_specs "$1" "$2")
+  [ ${#specs[@]} -gt 0 ] || return 0
+  out=$(cd "${cwd:-$root}" 2>/dev/null && bash "$(dirname "$0")/../skills/delivery-pipeline/scripts/dep-vet.sh" "${specs[@]}" 2>/dev/null)
+  [ $? = 1 ] || return 0
+  deny "$(run_reason "this package is not fetched by an agent — $(printf '%s' "$out" | grep '^BLOCK ' | sed 's/^BLOCK //' | tr '\n' ';' | sed 's/;$//; s/;/; /g'). Report it and stop; the human installs it, or names it in DEP_VET_ALLOW")"
+}
+
 check_bash() {
   local cmd seg sub first
   cmd=$(j .tool_input.command)
@@ -63,6 +118,7 @@ check_bash() {
       case "$seg" in
         *gh\ pr\ create*|*gh\ pr\ merge*) deny "$(run_reason "no PR is opened or merged during a run")" ;;
       esac
+      is_reviewer || check_fetch "$first" "$seg"
       if [ -z "$agent_id" ]; then
         case "$first" in
           cat|head|tail|less|more|sed|awk|bat|nl)

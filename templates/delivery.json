@@ -1,0 +1,24 @@
+{
+  "stack": ["nestjs", "react", "prisma"],
+  "writing": "ste100",
+  "workspaces": {
+    "apps/api": {
+      "typecheck": { "run": "npx --no-install tsc --noEmit -p tsconfig.json", "files": "\\.[cm]?tsx?$" },
+      "lint": { "run": "npx --no-install eslint --max-warnings=0 --no-warn-ignored {files}", "files": "\\.[cm]?[jt]sx?$" },
+      "format": "npx --no-install prettier --check --ignore-unknown {files}",
+      "test": { "run": "npx --no-install jest --findRelatedTests {files}", "files": "\\.[cm]?[jt]sx?$" },
+      "prisma": { "run": "npx --no-install prisma validate", "files": "\\.prisma$" }
+    },
+    "apps/web": {
+      "typecheck": { "run": "npx --no-install tsc --noEmit -p tsconfig.json", "files": "\\.[cm]?tsx?$" },
+      "lint": { "run": "npx --no-install eslint --max-warnings=0 --no-warn-ignored {files}", "files": "\\.[cm]?[jt]sx?$" },
+      "format": "npx --no-install prettier --check --ignore-unknown {files}",
+      "test": { "run": "npx --no-install vitest related --run {files}", "files": "\\.[cm]?[jt]sx?$" }
+    },
+    ".": { "typecheck": false, "lint": false, "format": "npx --no-install prettier --check --ignore-unknown {files}", "test": false }
+  },
+  "risk": { "high": ["(^|/)reports/export"], "medium": [] },
+  "secrets": { "allow": [] },
+  "deps": { "allow": ["^@your-scope/"], "minAgeDays": 30, "minVersionDays": 7 },
+  "shared": ["(^|/)(libs/ui|src/lib|src/hooks)(/|$)"]
+}
