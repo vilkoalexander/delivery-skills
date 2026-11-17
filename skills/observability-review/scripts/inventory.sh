@@ -5,36 +5,61 @@
 #
 # Usage: scripts/inventory.sh [root]
 # Reporting script: a grep with no match is a normal outcome, not an error.
-set -uo pipefail
 
-LIMIT="${INVENTORY_LIMIT:-40}"
-cap() { awk -v n="$LIMIT" 'NR<=n{print;next} END{if(NR>n) printf "  … +%d more lines (raise INVENTORY_LIMIT=%d to see them)\n", NR-n, n}'; }
-g() { grep -rnE "$1" --include='*.ts' . 2>/dev/null | grep -vE 'node_modules|/dist/|\.spec\.|\.test\.' | sed 's/^/  /' | cap; }
+limit="${INVENTORY_LIMIT:-40}"
+
+cap() {
+  awk -v limit="$limit" '
+    NR <= limit { print; next }
+    END { if (NR > limit) printf "  … +%d more lines (raise INVENTORY_LIMIT=%d to see them)\n", NR - limit, limit }
+  '
+}
 
 root="${1:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
-cd "$root" || exit 1
+if [ ! -d "$root" ]; then
+  echo "root not found: $root" >&2
+  exit 1
+fi
+cd "$root"
 echo "root: $root"
 
-echo; echo "## Logging libraries"
-node -e 'const p=require("./package.json"),d={...p.dependencies,...p.devDependencies};for(const k of Object.keys(d))if(/pino|winston|bunyan|nestjs-cls|opentelemetry|sentry|dd-trace|newrelic|terminus|prom-client|prometheus|datadog/.test(k))console.log("  "+k,d[k])' 2>/dev/null
+# Lines of backend source that match, without vendored, built or test files.
+backend_lines() {
+  grep -rnE "$1" --include='*.ts' . 2>/dev/null | grep -vE 'node_modules|/dist/|\.spec\.|\.test\.'
+}
 
-echo; echo "## Logger setup and injection"
-g 'LoggerModule\.forRoot|WinstonModule|new Logger\(|PinoLogger|@InjectPinoLogger|app\.useLogger|bufferLogs' | head -"$LIMIT"
+# section TITLE REGEX — prints the matching lines under a heading
+section() {
+  echo
+  echo "## $1"
+  backend_lines "$2" | sed 's/^/  /' | cap
+}
 
-echo; echo "## Redaction"
-g 'redact|REDACT|censor' 
+echo
+echo "## Logging libraries"
+node -e '
+  const pkg = require("./package.json");
+  const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+  const relevant = /pino|winston|bunyan|nestjs-cls|opentelemetry|sentry|dd-trace|newrelic|terminus|prom-client|prometheus|datadog/;
+  for (const name of Object.keys(deps)) {
+    if (relevant.test(name)) console.log("  " + name, deps[name]);
+  }
+' 2>/dev/null
 
-echo; echo "## Correlation id"
-g 'ClsModule|ClsService|AsyncLocalStorage|reqId|requestId|correlationId|x-request-id|x-correlation-id|traceId'
+section "Logger setup and injection" \
+  'LoggerModule\.forRoot|WinstonModule|new Logger\(|PinoLogger|@InjectPinoLogger|app\.useLogger|bufferLogs'
+section "Redaction" \
+  'redact|REDACT|censor'
+section "Correlation id" \
+  'ClsModule|ClsService|AsyncLocalStorage|reqId|requestId|correlationId|x-request-id|x-correlation-id|traceId'
+section "Exception filters and interceptors" \
+  '@Catch\(|implements ExceptionFilter|implements NestInterceptor|LoggingInterceptor|useGlobalFilters|useGlobalInterceptors|APP_FILTER|APP_INTERCEPTOR'
+section "Error reporting and tracing" \
+  'Sentry\.init|captureException|NodeSDK|@opentelemetry|tracer\.startActiveSpan|startSpan\(|dd-trace|tracer\.init'
+section "Health and metrics" \
+  'TerminusModule|HealthCheckService|HealthIndicator|@HealthCheck|PrometheusModule|prom-client|new Counter\(|new Histogram\(|makeCounterProvider|makeHistogramProvider'
 
-echo; echo "## Exception filters and interceptors"
-g '@Catch\(|implements ExceptionFilter|implements NestInterceptor|LoggingInterceptor|useGlobalFilters|useGlobalInterceptors|APP_FILTER|APP_INTERCEPTOR'
-
-echo; echo "## Error reporting and tracing"
-g 'Sentry\.init|captureException|NodeSDK|@opentelemetry|tracer\.startActiveSpan|startSpan\(|dd-trace|tracer\.init'
-
-echo; echo "## Health and metrics"
-g 'TerminusModule|HealthCheckService|HealthIndicator|@HealthCheck|PrometheusModule|prom-client|new Counter\(|new Histogram\(|makeCounterProvider|makeHistogramProvider'
-
-echo; echo "## console.* in backend sources (should be zero)"
-grep -rnE 'console\.(log|error|warn|info|debug)\(' --include='*.ts' . 2>/dev/null | grep -vE 'node_modules|/dist/|\.spec\.|\.test\.|scripts/|/cli/' | wc -l | sed 's/^/  count: /'
+echo
+echo "## console.* in backend sources (should be zero)"
+console_calls=$(backend_lines 'console\.(log|error|warn|info|debug)\(' | grep -cvE 'scripts/|/cli/')
+echo "  count: $console_calls"

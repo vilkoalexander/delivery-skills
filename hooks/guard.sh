@@ -10,183 +10,326 @@
 # Exit 2 refuses; stderr is the reason the model sees. Anything unexpected
 # exits 0 so a hook bug never blocks work.
 set -uo pipefail
+here=$(dirname "$0")
 input=$(cat)
-j() { jq -r "$1 // empty" <<<"$input" 2>/dev/null; }
 
-event=$(j .hook_event_name)
-agent=$(j .agent_type)
-agent_id=$(j .agent_id)
-cwd=$(j .cwd)
+field() {
+  jq -r "$1 // empty" <<< "$input" 2>/dev/null
+}
+
+event=$(field .hook_event_name)
+agent=$(field .agent_type)
+agent_id=$(field .agent_id)
+cwd=$(field .cwd)
 
 run_dir="${DELIVERY_RUN_DIR:-$HOME/.claude/delivery-skills/runs}"
-proj="${CLAUDE_PROJECT_DIR:-$cwd}"
-root=$(git -C "$proj" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$proj")
-hash() { if command -v shasum >/dev/null 2>&1; then shasum; else sha1sum; fi | cut -c1-12; }
-marker="$run_dir/$(printf '%s' "$root" | hash)"
+project="${CLAUDE_PROJECT_DIR:-$cwd}"
+root=$(git -C "$project" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$project")
 
-run_active() { [ -f "$marker" ]; }
-is_reviewer() { case "$agent" in reviewer|*:reviewer|verifier|*:verifier) return 0 ;; esac; return 1; }
-log_refusal() { [ -f "$marker" ] || return 0; printf '%s' "$input" | EMIT_REFUSAL="$1" bash "$(dirname "$0")/emit.sh" >/dev/null 2>&1 || true; }
-deny() { log_refusal "$1"; printf '%s\n' "$1" >&2; exit 2; }
-run_reason() {
-  printf 'delivery run active on %s: %s. The human commits after handoff; to end the run: bash <chunked-delivery>/scripts/run.sh stop' "$root" "$1"
+short_hash() {
+  if command -v shasum > /dev/null 2>&1; then shasum; else sha1sum; fi | cut -c1-12
+}
+marker="$run_dir/$(printf '%s' "$root" | short_hash)"
+
+run_active() {
+  [ -f "$marker" ]
 }
 
+is_reviewer() {
+  case "$agent" in
+    reviewer|*:reviewer|verifier|*:verifier) return 0 ;;
+  esac
+  return 1
+}
+
+# The controller is the session itself: a hook call with no agent id.
+is_controller() {
+  [ -z "$agent_id" ]
+}
+
+# ---------------------------------------------------------------- refusing
+record_refusal() {
+  run_active || return 0
+  printf '%s' "$input" | EMIT_REFUSAL="$1" bash "$here/emit.sh" > /dev/null 2>&1 || true
+}
+
+deny() {
+  record_refusal "$1"
+  printf '%s\n' "$1" >&2
+  exit 2
+}
+
+deny_during_run() {
+  deny "delivery run active on $root: $1. The human commits after handoff; to end the run: bash <chunked-delivery>/scripts/run.sh stop"
+}
+
+deny_read_only() {
+  deny "$agent seat is read-only: $1. Report findings in your reply."
+}
+
+deny_snapshot_read() {
+  deny "the controller does not read a chunk snapshot; the reviewer reads it and reports, the controller works from reports and git diff --stat"
+}
+
+# ------------------------------------------------------- reading a command
 # one shell segment per line: split on && || ; | and newlines, drop env prefixes
 segments() {
-  printf '%s\n' "$1" | sed -E 's/\|\||&&|;|\|/\n/g' \
+  printf '%s\n' "$1" \
+    | sed -E 's/\|\||&&|;|\|/\n/g' \
     | sed -E 's/^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*//'
 }
-git_sub() { # prints the git subcommand and its args, or nothing
-  printf '%s' "$1" | sed -nE 's/^[[:space:]]*git[[:space:]]+(((-C|-c)[[:space:]]+[^[:space:]]+|--no-pager)[[:space:]]+)*(.*)$/\4/p'
-}
-has_flag() { printf '%s' "$1" | grep -qE -- "(^|[[:space:]])($2)([[:space:]]|$)"; }
 
+# prints the git subcommand and its args, or nothing
+git_subcommand() {
+  printf '%s' "$1" \
+    | sed -nE 's/^[[:space:]]*git[[:space:]]+(((-C|-c)[[:space:]]+[^[:space:]]+|--no-pager)[[:space:]]+)*(.*)$/\4/p'
+}
+
+# has_flag TEXT FLAGS — FLAGS is an alternation such as '--write|--fix'
+has_flag() {
+  printf '%s' "$1" | grep -qE -- "(^|[[:space:]])($2)([[:space:]]|$)"
+}
+
+matches() {
+  printf '%s' "$1" | grep -qE -- "$2"
+}
+
+# ------------------------------------------------ packages from the registry
 # Prints what an install or run-from-registry command would fetch: one spec per
 # line, or "--diff" for a bare install, which takes its list from package.json.
 fetch_specs() {
-  local first=$1 seg=$2 words=() w sub="" mode="" i=1 pkg="" bin
-  read -r -a words <<<"$seg"
-  case "$first" in
-    npx|bunx|pnpx) mode=exec ;;
+  local tool=$1 segment=$2
+  local words=() index=1 word subcommand="" mode=""
+  read -r -a words <<< "$segment"
+
+  case "$tool" in
+    npx|bunx|pnpx)
+      mode=exec
+      ;;
     npm|pnpm|yarn|bun)
-      while [ $i -lt ${#words[@]} ]; do
-        w=${words[$i]}; i=$((i + 1))
-        case "$w" in --filter|-F|--prefix|-C|--dir|--cwd) i=$((i + 1)) ;; -*) ;; *) sub=$w; break ;; esac
+      # The subcommand is the first word that is neither an option nor an option's value.
+      while [ $index -lt ${#words[@]} ]; do
+        word=${words[$index]}
+        index=$((index + 1))
+        case "$word" in
+          --filter|-F|--prefix|-C|--dir|--cwd) index=$((index + 1)) ;;
+          -*) ;;
+          *)
+            subcommand=$word
+            break
+            ;;
+        esac
       done
-      case "$first:$sub" in
+      case "$tool:$subcommand" in
         npm:install|npm:i|npm:add|pnpm:add|pnpm:install|pnpm:i|yarn:add|bun:add|bun:install|bun:i) mode=install ;;
         yarn:|yarn:install) mode=install ;;
         pnpm:dlx|yarn:dlx|bun:x) mode=exec ;;
         *) return 0 ;;
-      esac ;;
-    *) return 0 ;;
+      esac
+      ;;
+    *)
+      return 0
+      ;;
   esac
-  local found=0
-  while [ $i -lt ${#words[@]} ]; do
-    w=${words[$i]}; i=$((i + 1))
-    case "$w" in
-      --no-install) [ "$mode" = exec ] && return 0 ;;
-      -p|--package) [ "$mode" = exec ] && { pkg=${words[$i]:-}; i=$((i + 1)); } ;;
-      --package=*) [ "$mode" = exec ] && pkg=${w#--package=} ;;
-      --filter|-F|--registry|--prefix|-C|--dir|--cwd|--workspace|--tag|--otp) i=$((i + 1)) ;;
-      -w) [ "$first" = npm ] && i=$((i + 1)) ;;
-      --) [ "$mode" = exec ] && break ;;
+
+  local named_a_package=0 package=""
+  while [ $index -lt ${#words[@]} ]; do
+    word=${words[$index]}
+    index=$((index + 1))
+    case "$word" in
+      --no-install)
+        [ "$mode" = exec ] && return 0
+        ;;
+      -p|--package)
+        if [ "$mode" = exec ]; then
+          package=${words[$index]:-}
+          index=$((index + 1))
+        fi
+        ;;
+      --package=*)
+        [ "$mode" = exec ] && package=${word#--package=}
+        ;;
+      --filter|-F|--registry|--prefix|-C|--dir|--cwd|--workspace|--tag|--otp)
+        index=$((index + 1))
+        ;;
+      -w)
+        [ "$tool" = npm ] && index=$((index + 1))
+        ;;
+      --)
+        [ "$mode" = exec ] && break
+        ;;
       -*) ;;
       *)
-        found=1
-        if [ "$mode" = exec ]; then [ -n "$pkg" ] || pkg=$w; break; fi
-        printf '%s\n' "$w" ;;
+        named_a_package=1
+        if [ "$mode" = exec ]; then
+          [ -n "$package" ] || package=$word
+          break
+        fi
+        printf '%s\n' "$word"
+        ;;
     esac
   done
-  if [ "$mode" = install ]; then [ "$found" = 0 ] && echo "--diff"; return 0; fi
-  [ -n "$pkg" ] || return 0
-  pkg=${pkg#[\"\']}; pkg=${pkg%[\"\']}
-  bin=${pkg##*/}; bin=${bin%%@*}
-  [ -e "$cwd/node_modules/.bin/$bin" ] || [ -e "$root/node_modules/.bin/$bin" ] || printf '%s\n' "$pkg"
+
+  if [ "$mode" = install ]; then
+    [ "$named_a_package" = 0 ] && echo "--diff"
+    return 0
+  fi
+
+  # exec: a binary the project already has installed is not fetched.
+  [ -n "$package" ] || return 0
+  package=${package#[\"\']}
+  package=${package%[\"\']}
+  local binary=${package##*/}
+  binary=${binary%%@*}
+  [ -e "$cwd/node_modules/.bin/$binary" ] || [ -e "$root/node_modules/.bin/$binary" ] || printf '%s\n' "$package"
 }
 
-check_fetch() {
-  local specs=() s out
-  while IFS= read -r s; do [ -n "$s" ] && specs+=("$s"); done < <(fetch_specs "$1" "$2")
+refuse_untrusted_fetch() {
+  local specs=() spec verdict blocked
+  while IFS= read -r spec; do
+    [ -n "$spec" ] && specs+=("$spec")
+  done < <(fetch_specs "$1" "$2")
   [ ${#specs[@]} -gt 0 ] || return 0
-  out=$(cd "${cwd:-$root}" 2>/dev/null && bash "$(dirname "$0")/../skills/delivery-pipeline/scripts/dep-vet.sh" "${specs[@]}" 2>/dev/null)
+
+  verdict=$(cd "${cwd:-$root}" 2>/dev/null && bash "$here/../skills/delivery-pipeline/scripts/dep-vet.sh" "${specs[@]}" 2>/dev/null)
   [ $? = 1 ] || return 0
-  deny "$(run_reason "this package is not fetched by an agent — $(printf '%s' "$out" | grep '^BLOCK ' | sed 's/^BLOCK //' | tr '\n' ';' | sed 's/;$//; s/;/; /g'). Report it and stop; the human installs it, or names it in DEP_VET_ALLOW")"
+
+  blocked=$(printf '%s' "$verdict" | grep '^BLOCK ' | sed 's/^BLOCK //' | tr '\n' ';' | sed 's/;$//; s/;/; /g')
+  deny_during_run "this package is not fetched by an agent — $blocked. Report it and stop; the human installs it, or names it in DEP_VET_ALLOW"
 }
 
+# ---------------------------------------------------------------- the rules
+# While a run is active, nobody runs a git write or opens a PR.
+refuse_git_write() {
+  local git=$1 segment=$2
+  case "$git" in
+    commit*|push*|merge*|rebase*|cherry-pick*|stash*|clean*|restore*)
+      deny_during_run "git ${git%% *} is not run during a run"
+      ;;
+    add*)
+      has_flag "$git" '-N|--intent-to-add' \
+        || deny_during_run "git add is not run during a run; only git add -N, which records paths for the snapshot"
+      ;;
+    reset*)
+      has_flag "$git" '--hard' \
+        && deny_during_run "git reset --hard discards the uncommitted work; redo uses scripts/redo.sh"
+      ;;
+    checkout*)
+      has_flag "$git" '--' \
+        && deny_during_run "git checkout -- discards the uncommitted work; redo uses scripts/redo.sh"
+      ;;
+  esac
+  case "$segment" in
+    *gh\ pr\ create*|*gh\ pr\ merge*) deny_during_run "no PR is opened or merged during a run" ;;
+  esac
+}
+
+# While a run is active, the controller never prints a chunk snapshot.
+refuse_snapshot_print() {
+  local tool=$1 segment=$2
+  case "$tool" in
+    cat|head|tail|less|more|sed|awk|bat|nl)
+      matches "$segment" 'chunk-[0-9]+[^[:space:]]*\.diff' && deny_snapshot_read
+      ;;
+  esac
+}
+
+# A reviewer or verifier never writes, run or no run.
+refuse_reviewer_write() {
+  local tool=$1 git=$2 segment=$3 without_safe_redirects
+
+  without_safe_redirects=$(printf '%s' "$segment" | sed -E 's/[0-9]*>&[0-9]+//g; s/[0-9]*>[[:space:]]*\/dev\/null//g')
+  case "$without_safe_redirects" in
+    *\>*) deny_read_only "no redirect to a file" ;;
+  esac
+
+  case "$tool" in
+    tee|rm|mv|cp|mkdir|touch|chmod|chown|ln|truncate|rmdir|patch)
+      deny_read_only "$tool writes"
+      ;;
+    sed)
+      has_flag "$segment" '-[A-Za-z]*i[A-Za-z]*|-i[^[:space:]]*|--in-place' && deny_read_only "sed -i writes"
+      ;;
+    npm|pnpm|yarn|bun|pip|pip3)
+      matches "$segment" "^[[:space:]]*${tool}[[:space:]]+(install|i|add|ci|uninstall|remove|rm|update|up)([[:space:]]|$)" \
+        && deny_read_only "no installs"
+      ;;
+    npx|prettier|eslint)
+      has_flag "$segment" '--write|--fix' && deny_read_only "no --write or --fix"
+      ;;
+  esac
+
+  case "$git" in
+    apply*|checkout*|restore*|stash*|reset*|clean*|commit*|add*|push*|merge*|rebase*|cherry-pick*|am*)
+      deny_read_only "git ${git%% *} changes the tree"
+      ;;
+  esac
+}
+
+# ---------------------------------------------------------------- the hooks
 check_bash() {
-  local cmd seg sub first
-  cmd=$(j .tool_input.command)
-  [ -n "$cmd" ] || exit 0
-  while IFS= read -r seg; do
-    [ -n "$seg" ] || continue
-    first=$(printf '%s' "$seg" | awk '{print $1}')
-    sub=$(git_sub "$seg")
+  local command segment tool git
+  command=$(field .tool_input.command)
+  [ -n "$command" ] || exit 0
+
+  while IFS= read -r segment; do
+    [ -n "$segment" ] || continue
+    tool=$(printf '%s' "$segment" | awk '{print $1}')
+    git=$(git_subcommand "$segment")
 
     if run_active; then
-      case "$sub" in
-        commit*|push*|merge*|rebase*|cherry-pick*|stash*|clean*|restore*)
-          deny "$(run_reason "git ${sub%% *} is not run during a run")" ;;
-        add*)
-          has_flag "$sub" '-N|--intent-to-add' || deny "$(run_reason "git add is not run during a run; only git add -N, which records paths for the snapshot")" ;;
-        reset*)
-          has_flag "$sub" '--hard' && deny "$(run_reason "git reset --hard discards the uncommitted work; redo uses scripts/redo.sh")" ;;
-        checkout*)
-          has_flag "$sub" '--' && deny "$(run_reason "git checkout -- discards the uncommitted work; redo uses scripts/redo.sh")" ;;
-      esac
-      case "$seg" in
-        *gh\ pr\ create*|*gh\ pr\ merge*) deny "$(run_reason "no PR is opened or merged during a run")" ;;
-      esac
-      is_reviewer || check_fetch "$first" "$seg"
-      if [ -z "$agent_id" ]; then
-        case "$first" in
-          cat|head|tail|less|more|sed|awk|bat|nl)
-            printf '%s' "$seg" | grep -qE 'chunk-[0-9]+[^[:space:]]*\.diff' \
-              && deny "the controller does not read a chunk snapshot; the reviewer reads it and reports, the controller works from reports and git diff --stat" ;;
-        esac
-      fi
+      refuse_git_write "$git" "$segment"
+      is_reviewer || refuse_untrusted_fetch "$tool" "$segment"
+      is_controller && refuse_snapshot_print "$tool" "$segment"
     fi
-
-    if is_reviewer; then
-      local stripped
-      stripped=$(printf '%s' "$seg" | sed -E 's/[0-9]*>&[0-9]+//g; s/[0-9]*>[[:space:]]*\/dev\/null//g')
-      case "$stripped" in *\>*) deny "$agent seat is read-only: no redirect to a file. Report findings in your reply." ;; esac
-      case "$first" in
-        tee|rm|mv|cp|mkdir|touch|chmod|chown|ln|truncate|rmdir|patch)
-          deny "$agent seat is read-only: $first writes. Report findings in your reply." ;;
-        sed)
-          has_flag "$seg" '-[A-Za-z]*i[A-Za-z]*|-i[^[:space:]]*|--in-place' && deny "$agent seat is read-only: sed -i writes. Report findings in your reply." ;;
-        npm|pnpm|yarn|bun|pip|pip3)
-          printf '%s' "$seg" | grep -qE "^[[:space:]]*$first[[:space:]]+(install|i|add|ci|uninstall|remove|rm|update|up)([[:space:]]|$)" \
-            && deny "$agent seat is read-only: no installs. Report findings in your reply." ;;
-        npx|prettier|eslint)
-          has_flag "$seg" '--write|--fix' && deny "$agent seat is read-only: no --write or --fix. Report findings in your reply." ;;
-      esac
-      case "$sub" in
-        apply*|checkout*|restore*|stash*|reset*|clean*|commit*|add*|push*|merge*|rebase*|cherry-pick*|am*)
-          deny "$agent seat is read-only: git ${sub%% *} changes the tree. Report findings in your reply." ;;
-      esac
-    fi
-  done <<<"$(segments "$cmd")"
+    is_reviewer && refuse_reviewer_write "$tool" "$git" "$segment"
+  done <<< "$(segments "$command")"
   exit 0
 }
 
 check_read() {
-  local path base
   run_active || exit 0
-  [ -z "$agent_id" ] || exit 0
-  path=$(j .tool_input.file_path)
-  base=$(basename -- "$path")
-  case "$base" in
-    chunk-[0-9]*.diff) deny "the controller does not read a chunk snapshot; the reviewer reads it and reports, the controller works from reports and git diff --stat" ;;
+  is_controller || exit 0
+  case "$(basename -- "$(field .tool_input.file_path)")" in
+    chunk-[0-9]*.diff) deny_snapshot_read ;;
   esac
   exit 0
 }
 
+# An implementer whose dispatch asked for a ## Proof or ## Reuse block ends with one.
 check_stop() {
-  local t prompt last missing block
-  [ "$(j .stop_hook_active)" = true ] && exit 0
-  t=$(j .agent_transcript_path); t="${t/#\~/$HOME}"
-  [ -n "$t" ] && [ -f "$t" ] || exit 0
-  prompt=$(jq -rn 'first(inputs | select(.type=="user") | .message.content
-      | if type=="string" then . else map(.text? // empty) | join("\n") end)' "$t" 2>/dev/null | head -c 60000)
-  [ -n "$prompt" ] || exit 0
-  last=$(j .last_assistant_message)
-  missing=""
+  [ "$(field .stop_hook_active)" = true ] && exit 0
+
+  local transcript dispatch report block missing=""
+  transcript=$(field .agent_transcript_path)
+  transcript="${transcript/#\~/$HOME}"
+  [ -n "$transcript" ] && [ -f "$transcript" ] || exit 0
+
+  dispatch=$(jq -rn '
+    first(inputs | select(.type == "user") | .message.content
+      | if type == "string" then . else map(.text? // empty) | join("\n") end)
+  ' "$transcript" 2>/dev/null | head -c 60000)
+  [ -n "$dispatch" ] || exit 0
+
+  report=$(field .last_assistant_message)
   for block in "## Proof" "## Reuse"; do
-    case "$prompt" in *"$block"*) case "$last" in *"$block"*) ;; *) missing="$missing $block" ;; esac ;; esac
+    [[ $dispatch == *"$block"* ]] || continue
+    [[ $report == *"$block"* ]] || missing="$missing $block"
   done
   [ -z "$missing" ] && exit 0
+
   deny "Your report is missing:$missing. The dispatch asked for it. Append the block(s) now — ## Proof with ran / shows / exercised / not verified, ## Reuse with reused / searched / new shared / new dependency — and stop. Do not re-implement anything."
 }
 
 case "$event" in
   PreToolUse)
-    case "$(j .tool_name)" in
+    case "$(field .tool_name)" in
       Bash) check_bash ;;
       Read) check_read ;;
-    esac ;;
-  SubagentStop) check_stop ;;
+    esac
+    ;;
+  SubagentStop)
+    check_stop
+    ;;
 esac
 exit 0

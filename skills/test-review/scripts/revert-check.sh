@@ -14,48 +14,86 @@
 # delivery loop already uses for redo.
 set -uo pipefail
 
-diff="${1:-}"
-[ -z "$diff" ] && { echo "usage: revert-check.sh <diff-file | ->" >&2; exit 2; }
-tmp=$(mktemp -d)
-if [ "$diff" = "-" ]; then cat > "$tmp/all.diff"; else cp "$diff" "$tmp/all.diff"; fi
-
-is_test='(\.(spec|test)\.[cm]?[jt]sx?$|(^|/)(__tests__|test|tests|e2e)/)'
-tests=(); src=()
-while IFS= read -r f; do
-  [ -n "$f" ] || continue
-  if [[ "$f" =~ $is_test ]]; then tests+=("$f"); else src+=("$f"); fi
-done < <(grep -E '^\+\+\+ b/' "$tmp/all.diff" | sed 's#^+++ b/##')
-[ ${#tests[@]} -eq 0 ] && { echo "no test files in the diff — nothing to check"; rm -rf "$tmp"; exit 0; }
-[ ${#src[@]} -eq 0 ] && { echo "no non-test files in the diff — nothing to revert"; rm -rf "$tmp"; exit 0; }
-
-# The hunks to reverse: only the non-test paths.
-git diff -- "${src[@]}" > "$tmp/src.diff"
-[ -s "$tmp/src.diff" ] || { echo "non-test paths have no working-tree diff — is the snapshot current?"; rm -rf "$tmp"; exit 2; }
-
-if [ -z "${TEST_CMD:-}" ]; then
-  deps=$(node -e 'const p=require("./package.json");console.log(Object.keys({...p.dependencies,...p.devDependencies}).join(" "))' 2>/dev/null)
-  case " $deps " in
-    *" vitest "*) TEST_CMD="npx vitest run";;
-    *" jest "*)   TEST_CMD="npx jest --runTestsByPath";;
-    *" mocha "*)  TEST_CMD="npx mocha";;
-    *)            TEST_CMD="node --test";;
-  esac
+diff_arg="${1:-}"
+if [ -z "$diff_arg" ]; then
+  echo "usage: revert-check.sh <diff-file | ->" >&2
+  exit 2
 fi
 
-restore() { git apply "$tmp/src.diff" 2>/dev/null || echo "RESTORE FAILED — run: git apply $tmp/src.diff" >&2; }
-git apply -R "$tmp/src.diff" || { echo "could not reverse the source hunks" >&2; rm -rf "$tmp"; exit 2; }
-trap 'restore' EXIT
+work=$(mktemp -d)
+snapshot="$work/all.diff"
+source_diff="$work/src.diff"
+if [ "$diff_arg" = "-" ]; then
+  cat > "$snapshot"
+else
+  cp "$diff_arg" "$snapshot"
+fi
 
-still=()
-for t in "${tests[@]}"; do
-  [ -f "$t" ] || continue                       # test deleted by the diff
-  if $TEST_CMD "$t" > "$tmp/out.txt" 2>&1; then still+=("$t"); fi
+# finish MESSAGE EXIT_CODE — for the ways out before the tree is touched
+finish() {
+  echo "$1"
+  rm -rf "$work"
+  exit "$2"
+}
+
+test_path='(\.(spec|test)\.[cm]?[jt]sx?$|(^|/)(__tests__|test|tests|e2e)/)'
+test_files=()
+source_files=()
+while IFS= read -r path; do
+  [ -n "$path" ] || continue
+  if [[ $path =~ $test_path ]]; then
+    test_files+=("$path")
+  else
+    source_files+=("$path")
+  fi
+done < <(grep -E '^\+\+\+ b/' "$snapshot" | sed 's#^+++ b/##')
+
+[ ${#test_files[@]} -gt 0 ] || finish "no test files in the diff — nothing to check" 0
+[ ${#source_files[@]} -gt 0 ] || finish "no non-test files in the diff — nothing to revert" 0
+
+# The hunks to reverse: only the non-test paths.
+git diff -- "${source_files[@]}" > "$source_diff"
+[ -s "$source_diff" ] || finish "non-test paths have no working-tree diff — is the snapshot current?" 2
+
+detect_test_command() {
+  local dependencies
+  dependencies=$(node -e '
+    const pkg = require("./package.json");
+    console.log(Object.keys({ ...pkg.dependencies, ...pkg.devDependencies }).join(" "));
+  ' 2> /dev/null)
+  case " $dependencies " in
+    *" vitest "*) echo "npx vitest run" ;;
+    *" jest "*)   echo "npx jest --runTestsByPath" ;;
+    *" mocha "*)  echo "npx mocha" ;;
+    *)            echo "node --test" ;;
+  esac
+}
+test_command="${TEST_CMD:-$(detect_test_command)}"
+
+restore_source() {
+  git apply "$source_diff" 2> /dev/null || echo "RESTORE FAILED — run: git apply $source_diff" >&2
+}
+
+if ! git apply -R "$source_diff"; then
+  echo "could not reverse the source hunks" >&2
+  rm -rf "$work"
+  exit 2
+fi
+trap restore_source EXIT
+
+still_passing=()
+for test_file in "${test_files[@]}"; do
+  [ -f "$test_file" ] || continue   # test deleted by the diff
+  # shellcheck disable=SC2086
+  if $test_command "$test_file" > "$work/out.txt" 2>&1; then
+    still_passing+=("$test_file")
+  fi
 done
 
-if [ ${#still[@]} -eq 0 ]; then
-  echo "revert check: every changed test fails without the change (${#tests[@]} file(s))"
+if [ ${#still_passing[@]} -eq 0 ]; then
+  echo "revert check: every changed test fails without the change (${#test_files[@]} file(s))"
   exit 0
 fi
 echo "revert check: these tests still PASS with the change reverted — they do not test it:"
-printf '  %s\n' "${still[@]}"
+printf '  %s\n' "${still_passing[@]}"
 exit 1

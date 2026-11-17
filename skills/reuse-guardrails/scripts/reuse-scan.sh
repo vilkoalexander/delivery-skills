@@ -16,110 +16,259 @@
 #   DEP_VET=off        skip the registry and advisory lookup for changed dependencies
 set -uo pipefail
 
-shared="${REUSE_SHARED:-$(node "$(dirname "$0")/../../delivery-pipeline/scripts/config.mjs" get shared 2>/dev/null)}"
+here=$(cd "$(dirname "$0")" && pwd)
+pipeline="$here/../../delivery-pipeline/scripts"
+
+shared="${REUSE_SHARED:-$(node "$pipeline/config.mjs" get shared 2>/dev/null)}"
 shared="${shared:-(^|/)(utils|lib|helpers|hooks|common|shared|components/ui)(/|$)}"
 range="${REUSE_DIFF_RANGE:-}"
-root=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "reuse-scan: not a git repository" >&2; exit 2; }
+if ! root=$(git rev-parse --show-toplevel 2>/dev/null); then
+  echo "reuse-scan: not a git repository" >&2
+  exit 2
+fi
 cd "$root"
 
+# ------------------------------------------------------------- which paths
 paths=("$@")
-# A harness can hand a pipe that never closes; wait one second for the first line, then fall back to git.
-if [ ${#paths[@]} -eq 0 ] && [ ! -t 0 ] && IFS= read -r -t 1 l; then
-  [ -n "$l" ] && paths+=("$l")
-  while IFS= read -r -t 1 l; do [ -n "$l" ] && paths+=("$l"); done
+
+# A harness can hand a pipe that never closes; wait one second for each line, then fall back to git.
+read_paths_from_stdin() {
+  local line
+  [ -t 0 ] && return 0
+  while IFS= read -r -t 1 line; do
+    [ -n "$line" ] && paths+=("$line")
+  done
+}
+
+changed_paths() {
+  if [ -n "$range" ]; then
+    git diff --name-only "$range"
+  else
+    { git diff --name-only HEAD; git ls-files --others --exclude-standard; } | sort -u
+  fi
+}
+
+[ ${#paths[@]} -gt 0 ] || read_paths_from_stdin
+if [ ${#paths[@]} -eq 0 ]; then
+  while IFS= read -r path; do
+    paths+=("$path")
+  done < <(changed_paths)
 fi
 if [ ${#paths[@]} -eq 0 ]; then
-  if [ -n "$range" ]; then while IFS= read -r l; do paths+=("$l"); done < <(git diff --name-only "$range")
-  else while IFS= read -r l; do paths+=("$l"); done < <({ git diff --name-only HEAD; git ls-files --others --exclude-standard; } | sort -u); fi
+  echo "reuse-scan: nothing changed"
+  echo "REUSE: 0 flags"
+  exit 0
 fi
-[ ${#paths[@]} -eq 0 ] && { echo "reuse-scan: nothing changed"; echo "REUSE: 0 flags"; exit 0; }
 
-src=(); for p in "${paths[@]}"; do case "$p" in *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs) [[ "$p" =~ \.(spec|test)\. ]] || src+=("$p");; esac; done
+sources=()
+manifests=()
+for path in "${paths[@]}"; do
+  case "$path" in
+    *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs)
+      [[ $path =~ \.(spec|test)\. ]] || sources+=("$path")
+      ;;
+  esac
+  [ "$(basename "$path")" = package.json ] && manifests+=("$path")
+done
 
-# Added lines of the diff, as "path:line:text".
-added() {
-  if [ -n "$range" ]; then git diff -U0 "$range" -- "$@"
-  else git diff -U0 HEAD -- "$@"; for f in "$@"; do git ls-files --error-unmatch "$f" >/dev/null 2>&1 || { printf '+++ b/%s\n' "$f"; sed 's/^/+/' "$f"; }; done; fi |
-  awk '/^\+\+\+ b\//{f=substr($0,7);n=0;next} /^@@/{split($3,a,/[,+]/);n=a[2]-1;next} /^\+/{n++;print f":"n":"substr($0,2);next} /^-/{next} {n++}'
+# ------------------------------------------------------------- added lines
+is_tracked() {
+  git ls-files --error-unmatch "$1" > /dev/null 2>&1
 }
 
+# A diff of the paths; an untracked file counts as added whole.
+diff_of() {
+  local file
+  if [ -n "$range" ]; then
+    git diff -U0 "$range" -- "$@"
+    return
+  fi
+  git diff -U0 HEAD -- "$@"
+  for file in "$@"; do
+    is_tracked "$file" && continue
+    printf '+++ b/%s\n' "$file"
+    sed 's/^/+/' "$file"
+  done
+}
+
+# Turns a -U0 diff into "path:line:text", one line per added line.
+number_added_lines() {
+  awk '
+    /^\+\+\+ b\// { file = substr($0, 7); line = 0; next }
+    /^@@/         { split($3, hunk, /[,+]/); line = hunk[2] - 1; next }
+    /^\+/         { line++; print file ":" line ":" substr($0, 2); next }
+    /^-/          { next }
+                  { line++ }
+  '
+}
+
+added=""
+if [ ${#sources[@]} -gt 0 ]; then
+  added=$(diff_of "${sources[@]}" | number_added_lines)
+fi
+
+# ---------------------------------------------------------------- sections
 total=0
-section() { # title, lines
-  [ -n "$2" ] || return 0
-  local n; n=$(printf '%s\n' "$2" | wc -l | tr -d ' ')
-  total=$((total + n))
-  printf '## %s (%s)\n%s\n\n' "$1" "$n" "$2"
+
+# section TITLE LINES — prints the lines under a counted heading; nothing when there are none
+section() {
+  local title=$1 lines=${2%$'\n'} count
+  [ -n "$lines" ] || return 0
+  count=$(printf '%s\n' "$lines" | wc -l | tr -d ' ')
+  total=$((total + count))
+  printf '## %s (%s)\n%s\n\n' "$title" "$count" "$lines"
 }
 
-# 1. New files inside a shared layer.
-new_shared=""
-for p in "${src[@]+"${src[@]}"}"; do
-  if [ -n "$range" ]; then git diff --diff-filter=A --name-only "$range" -- "$p" | grep -q . || continue
-  else git ls-files --error-unmatch "$p" >/dev/null 2>&1 && git diff --diff-filter=A --name-only HEAD -- "$p" | grep -q . || [ -z "$(git ls-files -- "$p")" ] || continue; fi
-  echo "$p" | grep -qE "$shared" && new_shared="$new_shared$p — new file in a shared layer; the ## Reuse block names what was searched"$'\n'
-done
-section "New shared files" "${new_shared%$'\n'}"
-
-# 2. New exports: already exported elsewhere, or named like a textbook helper.
-[ ${#src[@]} -gt 0 ] && adds=$(added "${src[@]}") || adds=""
-exports=$(printf '%s\n' "$adds" | grep -oE '^[^:]+:[0-9]+:[[:space:]]*export[[:space:]]+(default[[:space:]]+)?(async[[:space:]]+)?(function|const|let|class|type|interface|enum)[[:space:]]+[A-Za-z_$][A-Za-z0-9_$]*' | sed -E 's/:[[:space:]]*export.*[[:space:]]([A-Za-z_$][A-Za-z0-9_$]*)$/ \1/')
-textbook='^(debounce|throttle|sleep|delay|wait|retry|clamp|chunk|groupBy|group_by|uniq|unique|uniqBy|flatten|pick|omit|isEmpty|isBlank|capitalize|titleCase|slugify|truncate|deepClone|cloneDeep|deepEqual|isEqual|merge|deepMerge|formatDate|parseDate|toISO|formatMoney|formatCurrency|formatPrice|toCents|fromCents|noop|identity|range|sum|sumBy|sortBy|keyBy|memoize|once|pipe|compose|tryCatch|safeJsonParse|parseJson|assertNever|isDefined|notNull|nonNull|cn|classNames|clsx)$'
-dupes=""; hand=""
-while read -r loc name; do
-  [ -n "$name" ] || continue
-  file=${loc%%:*}
-  # Same name exported from any other tracked file, case-insensitive.
-  hits=$(git grep -ilE "export[[:space:]]+(default[[:space:]]+)?(async[[:space:]]+)?(function|const|let|class|type|interface|enum)[[:space:]]+$name([^A-Za-z0-9_$]|$)" -- ':!*.spec.*' ':!*.test.*' ':!**/__tests__/**' 2>/dev/null | grep -vx "$file" | head -3 | tr '\n' ' ')
-  [ -n "$hits" ] && dupes="$dupes$loc $name — already exported from $hits"$'\n'
-  echo "$name" | grep -qE "$textbook" && hand="$hand$loc $name — a textbook helper; a library or the shared layer usually has it"$'\n'
-done <<< "$exports"
-section "New exports that already exist" "${dupes%$'\n'}"
-section "New exports named like a textbook helper" "${hand%$'\n'}"
-
-# 3. Dependencies added to any package.json in the diff.
-deps=""
-for p in "${paths[@]}"; do
-  [[ "$(basename "$p")" = package.json ]] || continue
-  # Keys present now and absent before, parsed, so formatting never matters.
-  if [ -n "$range" ]; then before=$(git show "${range%%..*}:$p" 2>/dev/null); after=$(git show "${range##*..}:$p" 2>/dev/null)
-  else before=$(git show "HEAD:$p" 2>/dev/null); after=$(cat "$p" 2>/dev/null); fi
-  found=$(BEFORE="$before" AFTER="$after" node -e '
-    const keys = s => { try { const p = JSON.parse(s || "{}"); return new Set(["dependencies","devDependencies","peerDependencies","optionalDependencies"].flatMap(k => Object.keys(p[k] || {}))); } catch { return new Set(); } };
-    const b = keys(process.env.BEFORE), a = keys(process.env.AFTER);
-    console.log([...a].filter(k => !b.has(k)).sort().join("\n"));' 2>/dev/null | grep -v '^$')
-  [ -n "$found" ] && deps="$deps$(printf '%s\n' "$found" | sed "s|^|$p: |; s|$| — new dependency; the plan task that named it goes in the ## Reuse block|")"$'\n'
-done
-section "Dependencies added" "${deps%$'\n'}"
-
-# 3b. What the registry and the advisory database say about added or re-versioned dependencies.
-pkgs=(); for p in "${paths[@]}"; do [[ "$(basename "$p")" = package.json ]] && pkgs+=("$p"); done
-vet="$(dirname "$0")/../../delivery-pipeline/scripts/dep-vet.sh"
-if [ ${#pkgs[@]} -gt 0 ] && [ -f "$vet" ]; then
-  section "Dependency vetting" "$(DEP_VET_RANGE="$range" bash "$vet" --diff "${pkgs[@]}" 2>/dev/null)"
-fi
-
-# 4. Hand-roll patterns in added lines (not exports: the inline kind).
-pat=""
-flag() { # label, ERE over the added text. ENVIRON, not -v: -v unescapes backslashes.
-  local out; out=$(printf '%s\n' "$adds" | RE="$2" LABEL="$1" awk '{t=$0; sub(/^[^:]*:[0-9]+:/,"",t); if (t ~ ENVIRON["RE"]) print $0" — "ENVIRON["LABEL"]}' | cut -c1-200)
-  [ -n "$out" ] && pat="$pat$out"$'\n'
+is_new_file() {
+  local path=$1
+  if [ -n "$range" ]; then
+    git diff --diff-filter=A --name-only "$range" -- "$path" | grep -q .
+    return
+  fi
+  if is_tracked "$path"; then
+    git diff --diff-filter=A --name-only HEAD -- "$path" | grep -q .
+  else
+    [ -z "$(git ls-files -- "$path")" ]
+  fi
 }
-flag "sleep via setTimeout; a shared delay helper or the test clock usually exists" 'new Promise\([^)]*=>[[:space:]]*setTimeout'
-flag "deep clone via JSON; structuredClone or the shared helper" 'JSON\.parse\(JSON\.stringify'
-flag "money formatted with toFixed(2); the money helper" '\.toFixed\(2\)'
-flag "date arithmetic on getTime(); the date helper" 'getTime\(\)[[:space:]]*[-+]|[-+][[:space:]]*[A-Za-z_.]*getTime\(\)'
-flag "uniq via Set spread; the collections helper" '\[\.\.\.new Set\('
-flag "isEmpty via Object.keys().length; the collections helper" 'Object\.keys\([^)]*\)\.length[[:space:]]*===?[[:space:]]*0'
-flag "debounce by hand; the debounce hook or helper" 'clearTimeout\([^)]*\);?[[:space:]]*[A-Za-z_.]*[[:space:]]*=[[:space:]]*setTimeout'
-flag "fetch called directly; the api client" '(^|[^A-Za-z.])fetch\([`"'"'"']'
-section "Hand-roll patterns in added lines" "${pat%$'\n'}"
 
-# 5. Duplicate blocks, when the project has jscpd.
-if [ ${#src[@]} -gt 0 ] && node -e 'const p=require("./package.json"),d={...p.dependencies,...p.devDependencies};process.exit(d.jscpd?0:1)' 2>/dev/null; then
-  out=$(npx --no-install jscpd --silent --reporters console --format typescript,tsx,javascript,jsx "${src[@]}" 2>/dev/null | grep -E 'Clone found|^ *- ' | head -40)
-  section "Duplicate blocks (jscpd)" "$out"
-fi
+new_shared_files() {
+  local path found=""
+  for path in ${sources[@]+"${sources[@]}"}; do
+    is_new_file "$path" || continue
+    grep -qE "$shared" <<< "$path" || continue
+    found+="$path — new file in a shared layer; the ## Reuse block names what was searched"$'\n'
+  done
+  section "New shared files" "$found"
+}
+
+# New exports: already exported elsewhere, or named like a textbook helper.
+new_exports() {
+  local identifier='[A-Za-z_$][A-Za-z0-9_$]*'
+  local export_keywords='export[[:space:]]+(default[[:space:]]+)?(async[[:space:]]+)?(function|const|let|class|type|interface|enum)[[:space:]]+'
+  local textbook='^(debounce|throttle|sleep|delay|wait|retry|clamp|chunk|groupBy|group_by|uniq|unique|uniqBy|flatten|pick|omit|isEmpty|isBlank|capitalize|titleCase|slugify|truncate|deepClone|cloneDeep|deepEqual|isEqual|merge|deepMerge|formatDate|parseDate|toISO|formatMoney|formatCurrency|formatPrice|toCents|fromCents|noop|identity|range|sum|sumBy|sortBy|keyBy|memoize|once|pipe|compose|tryCatch|safeJsonParse|parseJson|assertNever|isDefined|notNull|nonNull|cn|classNames|clsx)$'
+
+  # One "path:line name" per exported declaration in the added lines.
+  local exported
+  exported=$(printf '%s\n' "$added" \
+    | grep -oE "^[^:]+:[0-9]+:[[:space:]]*$export_keywords$identifier" \
+    | sed -E "s/:[[:space:]]*export.*[[:space:]]($identifier)\$/ \\1/")
+
+  local location name file elsewhere duplicates="" textbook_named=""
+  while read -r location name; do
+    [ -n "$name" ] || continue
+    file=${location%%:*}
+
+    # Same name exported from any other tracked file, case-insensitive.
+    elsewhere=$(git grep -ilE "$export_keywords$name([^A-Za-z0-9_$]|$)" -- ':!*.spec.*' ':!*.test.*' ':!**/__tests__/**' 2>/dev/null \
+      | grep -vx "$file" | head -3 | tr '\n' ' ')
+    [ -n "$elsewhere" ] && duplicates+="$location $name — already exported from $elsewhere"$'\n'
+
+    if grep -qE "$textbook" <<< "$name"; then
+      textbook_named+="$location $name — a textbook helper; a library or the shared layer usually has it"$'\n'
+    fi
+  done <<< "$exported"
+
+  section "New exports that already exist" "$duplicates"
+  section "New exports named like a textbook helper" "$textbook_named"
+}
+
+# Dependency names present after the change and absent before. Parsed, so formatting never matters.
+added_dependency_names() {
+  BEFORE=$1 AFTER=$2 node -e '
+    const names = text => {
+      try {
+        const pkg = JSON.parse(text || "{}");
+        const groups = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
+        return new Set(groups.flatMap(group => Object.keys(pkg[group] || {})));
+      } catch {
+        return new Set();
+      }
+    };
+    const before = names(process.env.BEFORE);
+    const after = names(process.env.AFTER);
+    console.log([...after].filter(name => !before.has(name)).sort().join("\n"));
+  ' 2>/dev/null | grep -v '^$'
+}
+
+added_dependencies() {
+  local manifest before after names found=""
+  for manifest in ${manifests[@]+"${manifests[@]}"}; do
+    if [ -n "$range" ]; then
+      before=$(git show "${range%%..*}:$manifest" 2>/dev/null)
+      after=$(git show "${range##*..}:$manifest" 2>/dev/null)
+    else
+      before=$(git show "HEAD:$manifest" 2>/dev/null)
+      after=$(cat "$manifest" 2>/dev/null)
+    fi
+    names=$(added_dependency_names "$before" "$after")
+    [ -n "$names" ] || continue
+    found+=$(printf '%s\n' "$names" \
+      | sed "s|^|$manifest: |; s|$| — new dependency; the plan task that named it goes in the ## Reuse block|")$'\n'
+  done
+  section "Dependencies added" "$found"
+}
+
+# What the registry and the advisory database say about added or re-versioned dependencies.
+dependency_vetting() {
+  local vet="$pipeline/dep-vet.sh"
+  [ ${#manifests[@]} -gt 0 ] && [ -f "$vet" ] || return 0
+  section "Dependency vetting" "$(DEP_VET_RANGE="$range" bash "$vet" --diff "${manifests[@]}" 2>/dev/null)"
+}
+
+# Hand-roll patterns in added lines (not exports: the inline kind).
+hand_roll_patterns() {
+  local found=""
+
+  # flag LABEL REGEX — the regex is matched against the added text only. ENVIRON, not -v: -v unescapes backslashes.
+  flag() {
+    local matched
+    matched=$(printf '%s\n' "$added" | LABEL=$1 REGEX=$2 awk '
+      {
+        text = $0
+        sub(/^[^:]*:[0-9]+:/, "", text)
+        if (text ~ ENVIRON["REGEX"]) print $0 " — " ENVIRON["LABEL"]
+      }' | cut -c1-200)
+    [ -n "$matched" ] && found+="$matched"$'\n'
+  }
+
+  flag "sleep via setTimeout; a shared delay helper or the test clock usually exists" 'new Promise\([^)]*=>[[:space:]]*setTimeout'
+  flag "deep clone via JSON; structuredClone or the shared helper"                    'JSON\.parse\(JSON\.stringify'
+  flag "money formatted with toFixed(2); the money helper"                            '\.toFixed\(2\)'
+  flag "date arithmetic on getTime(); the date helper"                                'getTime\(\)[[:space:]]*[-+]|[-+][[:space:]]*[A-Za-z_.]*getTime\(\)'
+  flag "uniq via Set spread; the collections helper"                                  '\[\.\.\.new Set\('
+  flag "isEmpty via Object.keys().length; the collections helper"                     'Object\.keys\([^)]*\)\.length[[:space:]]*===?[[:space:]]*0'
+  flag "debounce by hand; the debounce hook or helper"                                'clearTimeout\([^)]*\);?[[:space:]]*[A-Za-z_.]*[[:space:]]*=[[:space:]]*setTimeout'
+  flag "fetch called directly; the api client"                                        '(^|[^A-Za-z.])fetch\([`"'"'"']'
+
+  section "Hand-roll patterns in added lines" "$found"
+}
+
+project_has_jscpd() {
+  node -e '
+    const pkg = require("./package.json");
+    const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+    process.exit(deps.jscpd ? 0 : 1);
+  ' 2>/dev/null
+}
+
+duplicate_blocks() {
+  [ ${#sources[@]} -gt 0 ] && project_has_jscpd || return 0
+  local clones
+  clones=$(npx --no-install jscpd --silent --reporters console --format typescript,tsx,javascript,jsx "${sources[@]}" 2>/dev/null \
+    | grep -E 'Clone found|^ *- ' | head -40)
+  section "Duplicate blocks (jscpd)" "$clones"
+}
+
+new_shared_files
+new_exports
+added_dependencies
+dependency_vetting
+hand_roll_patterns
+duplicate_blocks
 
 echo "REUSE: $total flags"
-[ "$total" -gt 0 ] && [ "${REUSE_STRICT:-0}" = 1 ] && exit 1
+if [ "$total" -gt 0 ] && [ "${REUSE_STRICT:-0}" = 1 ]; then
+  exit 1
+fi
 exit 0

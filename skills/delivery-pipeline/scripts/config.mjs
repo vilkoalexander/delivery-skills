@@ -27,126 +27,273 @@ const WRITING = ['ste100', 'free'];
 const DEFAULTS = { writing: 'ste100' };
 const CODE = '\\.[cm]?[jt]sx?$';
 
-const git = (...a) => { try { return execFileSync('git', a, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return ''; } };
+function git(...args) {
+  try {
+    return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {
+    return '';
+  }
+}
+
 export const root = () => git('rev-parse', '--show-toplevel') || process.cwd();
 export const file = () => process.env.DELIVERY_CONFIG || join(root(), 'docs/review/delivery.json');
-export const ere = list => (list || []).map(p => `(${p})`).join('|');
+export const ere = patterns => (patterns || []).map(pattern => `(${pattern})`).join('|');
 
 class Invalid extends Error {}
-const bad = msg => { throw new Invalid(msg); };
 
+function invalid(message) {
+  throw new Invalid(message);
+}
+
+const isOff = step => step === false || step === null;
+const commandOf = step => (step && typeof step === 'object' ? step.run : step);
+
+function checkPatternList(path, name, value) {
+  if (value === undefined) return;
+  const isList = Array.isArray(value) && value.every(pattern => typeof pattern === 'string');
+  if (!isList) invalid(`${path}: ${name} must be a list of patterns`);
+}
+
+function checkWorkspaces(path, workspaces) {
+  const named = workspaces && typeof workspaces === 'object' && Object.keys(workspaces).length;
+  if (!named) invalid(`${path}: workspaces must name at least one directory ("." for the root)`);
+
+  for (const [dir, steps] of Object.entries(workspaces)) {
+    if (!steps || typeof steps !== 'object') invalid(`${path}: workspaces["${dir}"] must be an object of steps`);
+
+    for (const [name, step] of Object.entries(steps)) {
+      if (isOff(step)) continue;
+      const command = commandOf(step);
+      const oneLine = typeof command === 'string' && command.trim() && !/[\t\n]/.test(command);
+      if (!oneLine) invalid(`${path}: workspaces["${dir}"].${name} must be a one-line command, false, or { run, files }`);
+      if (typeof step === 'object' && typeof step.files !== 'string') {
+        invalid(`${path}: workspaces["${dir}"].${name}.files must be a pattern`);
+      }
+    }
+  }
+}
+
+// Reads and validates the config. `optional` is for callers that only want a
+// pattern or a setting: no file is then an empty config, and workspaces may be missing.
 export function load({ optional = false } = {}) {
   const path = file();
-  if (!existsSync(path)) return optional ? {} : bad(`no ${relative(process.cwd(), path) || path} — write one with: bash static-gate.sh init`);
-  let cfg;
-  try { cfg = JSON.parse(readFileSync(path, 'utf8')); } catch (e) { bad(`${path}: ${e.message}`); }
-  for (const k of Object.keys(cfg)) KEYS.includes(k) || bad(`${path}: unknown key "${k}" (known: ${KEYS.join(', ')})`);
-  const patterns = (v, name) => v === undefined || (Array.isArray(v) && v.every(p => typeof p === 'string')) || bad(`${path}: ${name} must be a list of patterns`);
-  patterns(cfg.stack, 'stack'); patterns(cfg.shared, 'shared');
-  patterns(cfg.risk?.high, 'risk.high'); patterns(cfg.risk?.medium, 'risk.medium');
-  patterns(cfg.secrets?.allow, 'secrets.allow'); patterns(cfg.deps?.allow, 'deps.allow');
-  cfg.writing === undefined || WRITING.includes(cfg.writing) || bad(`${path}: writing must be one of: ${WRITING.join(', ')}`);
-  if (optional && cfg.workspaces === undefined) return cfg;
-  const ws = cfg.workspaces;
-  ws && typeof ws === 'object' && Object.keys(ws).length || bad(`${path}: workspaces must name at least one directory ("." for the root)`);
-  for (const [dir, steps] of Object.entries(ws)) {
-    steps && typeof steps === 'object' || bad(`${path}: workspaces["${dir}"] must be an object of steps`);
-    for (const [name, step] of Object.entries(steps)) {
-      const run = step && typeof step === 'object' ? step.run : step;
-      if (step === false || step === null) continue;
-      typeof run === 'string' && run.trim() && !/[\t\n]/.test(run) || bad(`${path}: workspaces["${dir}"].${name} must be a one-line command, false, or { run, files }`);
-      if (typeof step === 'object') typeof step.files === 'string' || bad(`${path}: workspaces["${dir}"].${name}.files must be a pattern`);
-    }
+  if (!existsSync(path)) {
+    if (optional) return {};
+    invalid(`no ${relative(process.cwd(), path) || path} — write one with: bash static-gate.sh init`);
   }
-  return cfg;
+
+  let config;
+  try {
+    config = JSON.parse(readFileSync(path, 'utf8'));
+  } catch (error) {
+    invalid(`${path}: ${error.message}`);
+  }
+
+  for (const key of Object.keys(config)) {
+    if (!KEYS.includes(key)) invalid(`${path}: unknown key "${key}" (known: ${KEYS.join(', ')})`);
+  }
+  checkPatternList(path, 'stack', config.stack);
+  checkPatternList(path, 'shared', config.shared);
+  checkPatternList(path, 'risk.high', config.risk?.high);
+  checkPatternList(path, 'risk.medium', config.risk?.medium);
+  checkPatternList(path, 'secrets.allow', config.secrets?.allow);
+  checkPatternList(path, 'deps.allow', config.deps?.allow);
+  if (config.writing !== undefined && !WRITING.includes(config.writing)) {
+    invalid(`${path}: writing must be one of: ${WRITING.join(', ')}`);
+  }
+
+  if (optional && config.workspaces === undefined) return config;
+  checkWorkspaces(path, config.workspaces);
+  return config;
 }
 
-const norm = dir => dir.replace(/^\.\//, '').replace(/\/+$/, '') || '.';
-const quote = s => `'${s.replace(/'/g, `'\\''`)}'`;
+const normalizeDir = dir => dir.replace(/^\.\//, '').replace(/\/+$/, '') || '.';
+const shellQuote = text => `'${text.replace(/'/g, `'\\''`)}'`;
+const isInside = (path, dir) => dir === '.' || path === dir || path.startsWith(dir + '/');
+const relativeTo = (dir, path) => (dir === '.' ? path : path.slice(dir.length + 1));
 
-export function plan(cfg, paths) {
+// Groups the changed paths by the workspace that owns them: the deepest directory wins.
+function groupByWorkspace(workspaces, paths) {
+  const deepestFirst = Object.keys(workspaces)
+    .map(dir => [normalizeDir(dir), workspaces[dir]])
+    .sort((a, b) => b[0].length - a[0].length);
+
+  const touched = new Map();
+  const orphans = [];
+  for (const path of paths) {
+    const owner = deepestFirst.find(([dir]) => isInside(path, dir));
+    if (!owner) {
+      orphans.push(path);
+      continue;
+    }
+    const [dir, steps] = owner;
+    if (!touched.has(dir)) touched.set(dir, { steps, paths: [] });
+    touched.get(dir).paths.push(path);
+  }
+  return { touched, orphans };
+}
+
+// One row for one step of one workspace: [RUN|SKIP|OFF, dir, step, command or reason]. Null when the step has nothing to do.
+function planStep(base, dir, name, step, changed) {
+  if (step === undefined) return ['SKIP', dir, name, `no command for ${dir}; set one, or false`];
+  if (isOff(step)) return ['OFF', dir, name, ''];
+
+  const command = commandOf(step);
+  const relevant = typeof step === 'string' ? changed : changed.filter(path => new RegExp(step.files).test(path));
+  if (!relevant.length) return null;
+  if (!command.includes('{files}')) return ['RUN', dir, name, command];
+
+  const existing = relevant.filter(path => existsSync(join(base, path)));
+  if (!existing.length) return ['SKIP', dir, name, 'every matching path was deleted'];
+  const files = existing.map(path => shellQuote(relativeTo(dir, path))).join(' ');
+  return ['RUN', dir, name, command.replaceAll('{files}', files)];
+}
+
+export function plan(config, paths) {
   const base = root();
-  const dirs = Object.keys(cfg.workspaces).map(d => [norm(d), cfg.workspaces[d]]).sort((a, b) => b[0].length - a[0].length);
-  const touched = new Map(), orphans = [];
-  for (const p of paths) {
-    const hit = dirs.find(([d]) => d === '.' || p === d || p.startsWith(d + '/'));
-    if (!hit) { orphans.push(p); continue; }
-    touched.has(hit[0]) || touched.set(hit[0], { steps: hit[1], paths: [] });
-    touched.get(hit[0]).paths.push(p);
-  }
-  const out = [];
+  const { touched, orphans } = groupByWorkspace(config.workspaces, paths);
+  const rows = [];
   for (const [dir, { steps, paths: changed }] of touched) {
-    for (const name of [...new Set([...Object.keys(steps), ...STEPS])]) {
-      const step = steps[name];
-      if (step === undefined) { out.push(['SKIP', dir, name, `no command for ${dir}; set one, or false`]); continue; }
-      if (step === false || step === null) { out.push(['OFF', dir, name, '']); continue; }
-      const run = typeof step === 'string' ? step : step.run;
-      const mine = typeof step === 'string' ? changed : changed.filter(p => new RegExp(step.files).test(p));
-      if (!mine.length) continue;
-      if (!run.includes('{files}')) { out.push(['RUN', dir, name, run]); continue; }
-      const live = mine.filter(p => existsSync(join(base, p)));
-      if (!live.length) { out.push(['SKIP', dir, name, 'every matching path was deleted']); continue; }
-      out.push(['RUN', dir, name, run.replaceAll('{files}', live.map(p => quote(dir === '.' ? p : p.slice(dir.length + 1))).join(' '))]);
+    const names = new Set([...Object.keys(steps), ...STEPS]);
+    for (const name of names) {
+      const row = planStep(base, dir, name, steps[name], changed);
+      if (row) rows.push(row);
     }
   }
-  if (orphans.length) out.push(['SKIP', '-', 'workspace', `${orphans.length} path(s) under no workspace: ${orphans.slice(0, 3).join(', ')}${orphans.length > 3 ? ', …' : ''}`]);
-  return out;
+  if (orphans.length) {
+    const shown = orphans.slice(0, 3).join(', ') + (orphans.length > 3 ? ', …' : '');
+    rows.push(['SKIP', '-', 'workspace', `${orphans.length} path(s) under no workspace: ${shown}`]);
+  }
+  return rows;
 }
 
+// A first draft of the config, guessed from the lockfile, the package.json files and the config files beside them.
 function draft() {
   const base = root();
-  const json = p => { try { return JSON.parse(readFileSync(join(base, p), 'utf8')); } catch { return {}; } };
-  const has = (dir, re) => { try { return readdirSync(join(base, dir)).some(f => re.test(f)); } catch { return false; } };
-  const pm = has('.', /^pnpm-lock\.yaml$/) ? 'pnpm' : has('.', /^yarn\.lock$/) ? 'yarn' : has('.', /^bun\.lockb?$/) ? 'bun' : 'npm';
-  const bin = { npm: 'npx --no-install', pnpm: 'pnpm exec', yarn: 'yarn run', bun: 'bun x' }[pm];
-  const rootPkg = json('package.json');
-  const all = pkg => ({ ...pkg.dependencies, ...pkg.devDependencies });
-  const manifests = git('ls-files', '-co', '--exclude-standard', '--', 'package.json', '*/package.json').split('\n').filter(f => f && !f.includes('node_modules/'));
-  const workspaces = {}, seen = {};
-  for (const m of manifests.sort()) {
-    const dir = norm(dirname(m)), pkg = json(m), deps = { ...all(rootPkg), ...all(pkg) }, scripts = pkg.scripts || {};
-    Object.assign(seen, all(pkg));
-    const here = re => has(dir, re) || has('.', re), steps = {};
-    if (scripts.typecheck) steps.typecheck = { run: `${pm} run typecheck`, files: CODE };
-    else if (has(dir, /^tsconfig\.json$/)) steps.typecheck = { run: `${bin} tsc --noEmit -p tsconfig.json`, files: '\\.[cm]?tsx?$' };
-    if (here(/^(eslint\.config\.|\.eslintrc)/) || pkg.eslintConfig) steps.lint = { run: `${bin} eslint --max-warnings=0 --no-warn-ignored {files}`, files: '\\.([cm]?[jt]sx?|vue|svelte)$' };
-    if (here(/^(\.prettierrc|prettier\.config\.)/) || pkg.prettier || rootPkg.prettier) steps.format = `${bin} prettier --check --ignore-unknown {files}`;
-    if (deps.vitest) steps.test = { run: `${bin} vitest related --run {files}`, files: CODE };
-    else if (deps.jest) steps.test = { run: `${bin} jest --findRelatedTests {files}`, files: CODE };
-    else if (scripts.test) steps.test = { run: `${pm} test`, files: CODE };
-    if ((deps.prisma || deps['@prisma/client']) && git('ls-files', '-co', '--exclude-standard', '--', dir === '.' ? '*.prisma' : `${dir}/*.prisma`)) steps.prisma = { run: `${bin} prisma validate`, files: '\\.prisma$' };
+  const readJson = path => {
+    try {
+      return JSON.parse(readFileSync(join(base, path), 'utf8'));
+    } catch {
+      return {};
+    }
+  };
+  const dirHas = (dir, pattern) => {
+    try {
+      return readdirSync(join(base, dir)).some(name => pattern.test(name));
+    } catch {
+      return false;
+    }
+  };
+  const tracked = (...patterns) => git('ls-files', '-co', '--exclude-standard', '--', ...patterns);
+  const dependenciesOf = manifest => ({ ...manifest.dependencies, ...manifest.devDependencies });
+
+  let packageManager = 'npm';
+  if (dirHas('.', /^pnpm-lock\.yaml$/)) packageManager = 'pnpm';
+  else if (dirHas('.', /^yarn\.lock$/)) packageManager = 'yarn';
+  else if (dirHas('.', /^bun\.lockb?$/)) packageManager = 'bun';
+  const exec = { npm: 'npx --no-install', pnpm: 'pnpm exec', yarn: 'yarn run', bun: 'bun x' }[packageManager];
+
+  const rootManifest = readJson('package.json');
+  const manifests = tracked('package.json', '*/package.json')
+    .split('\n')
+    .filter(path => path && !path.includes('node_modules/'))
+    .sort();
+
+  const workspaces = {};
+  const allDependencies = {};
+  for (const path of manifests) {
+    const dir = normalizeDir(dirname(path));
+    const manifest = readJson(path);
+    const dependencies = { ...dependenciesOf(rootManifest), ...dependenciesOf(manifest) };
+    const scripts = manifest.scripts || {};
+    Object.assign(allDependencies, dependenciesOf(manifest));
+    const hereOrRootHas = pattern => dirHas(dir, pattern) || dirHas('.', pattern);
+
+    const steps = {};
+    if (scripts.typecheck) {
+      steps.typecheck = { run: `${packageManager} run typecheck`, files: CODE };
+    } else if (dirHas(dir, /^tsconfig\.json$/)) {
+      steps.typecheck = { run: `${exec} tsc --noEmit -p tsconfig.json`, files: '\\.[cm]?tsx?$' };
+    }
+    if (hereOrRootHas(/^(eslint\.config\.|\.eslintrc)/) || manifest.eslintConfig) {
+      steps.lint = { run: `${exec} eslint --max-warnings=0 --no-warn-ignored {files}`, files: '\\.([cm]?[jt]sx?|vue|svelte)$' };
+    }
+    if (hereOrRootHas(/^(\.prettierrc|prettier\.config\.)/) || manifest.prettier || rootManifest.prettier) {
+      steps.format = `${exec} prettier --check --ignore-unknown {files}`;
+    }
+    if (dependencies.vitest) {
+      steps.test = { run: `${exec} vitest related --run {files}`, files: CODE };
+    } else if (dependencies.jest) {
+      steps.test = { run: `${exec} jest --findRelatedTests {files}`, files: CODE };
+    } else if (scripts.test) {
+      steps.test = { run: `${packageManager} test`, files: CODE };
+    }
+    const usesPrisma = dependencies.prisma || dependencies['@prisma/client'];
+    if (usesPrisma && tracked(dir === '.' ? '*.prisma' : `${dir}/*.prisma`)) {
+      steps.prisma = { run: `${exec} prisma validate`, files: '\\.prisma$' };
+    }
+
     if (dir === '.' || Object.keys(steps).length) workspaces[dir] = steps;
   }
   workspaces['.'] ||= {};
-  const marks = { nestjs: '@nestjs/core', angular: '@angular/core', 'react-native': 'react-native', expo: 'expo', next: 'next', react: 'react', prisma: '@prisma/client' };
-  return { stack: Object.keys(marks).filter(k => seen[marks[k]]), writing: DEFAULTS.writing, workspaces };
+
+  const stackMarkers = {
+    nestjs: '@nestjs/core',
+    angular: '@angular/core',
+    'react-native': 'react-native',
+    expo: 'expo',
+    next: 'next',
+    react: 'react',
+    prisma: '@prisma/client',
+  };
+  const stack = Object.keys(stackMarkers).filter(name => allDependencies[stackMarkers[name]]);
+  return { stack, writing: DEFAULTS.writing, workspaces };
 }
 
-function main([cmd, ...args]) {
-  if (cmd === 'check') return void load();
-  if (cmd === 'get') {
-    const value = (args[0] || '').split('.').reduce((o, k) => o?.[k], { ...DEFAULTS, ...load({ optional: true }) });
-    if (value !== undefined && value !== null) console.log(Array.isArray(value) ? ere(value) : typeof value === 'object' ? JSON.stringify(value) : String(value));
-    return;
+function printValue(key) {
+  const config = { ...DEFAULTS, ...load({ optional: true }) };
+  const value = (key || '').split('.').reduce((object, part) => object?.[part], config);
+  if (value === undefined || value === null) return;
+  if (Array.isArray(value)) console.log(ere(value));
+  else if (typeof value === 'object') console.log(JSON.stringify(value));
+  else console.log(String(value));
+}
+
+function writeDraft() {
+  const path = file();
+  if (existsSync(path)) invalid(`${path} exists; edit it`);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(draft(), null, 2) + '\n');
+  console.log(`wrote ${relative(process.cwd(), path)} — every command in it is a guess from package.json. Read it, fix it, commit it.`);
+  console.log('A step the gate should never run for a workspace is `false`; a missing step is reported as skipped on every run.');
+}
+
+function main([command, ...args]) {
+  switch (command) {
+    case 'check':
+      load();
+      return;
+    case 'get':
+      printValue(args[0]);
+      return;
+    case 'plan':
+      for (const row of plan(load(), args)) console.log(row.join('\t'));
+      return;
+    case 'init':
+      writeDraft();
+      return;
+    default:
+      console.error('usage: config.mjs check | get <key> | plan <path>... | init');
+      process.exit(2);
   }
-  if (cmd === 'plan') return void plan(load(), args).forEach(l => console.log(l.join('\t')));
-  if (cmd === 'init') {
-    const path = file();
-    if (existsSync(path)) bad(`${path} exists; edit it`);
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify(draft(), null, 2) + '\n');
-    console.log(`wrote ${relative(process.cwd(), path)} — every command in it is a guess from package.json. Read it, fix it, commit it.`);
-    console.log('A step the gate should never run for a workspace is `false`; a missing step is reported as skipped on every run.');
-    return;
-  }
-  console.error('usage: config.mjs check | get <key> | plan <path>... | init');
-  process.exit(2);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  try { main(process.argv.slice(2)); } catch (e) {
-    if (!(e instanceof Invalid)) throw e;
-    console.error(`delivery config: ${e.message}`);
+  try {
+    main(process.argv.slice(2));
+  } catch (error) {
+    if (!(error instanceof Invalid)) throw error;
+    console.error(`delivery config: ${error.message}`);
     process.exit(2);
   }
 }

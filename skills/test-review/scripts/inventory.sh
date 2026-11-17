@@ -8,45 +8,79 @@
 # Reporting script: a grep with no match is a normal outcome, not an error.
 set -uo pipefail
 
-LIMIT="${INVENTORY_LIMIT:-40}"
-cap() { awk -v n="$LIMIT" 'NR<=n{print;next} END{if(NR>n) printf "  … +%d more lines (raise INVENTORY_LIMIT=%d to see them)\n", NR-n, n}'; }
+limit="${INVENTORY_LIMIT:-40}"
+
+cap() {
+  awk -v limit="$limit" '
+    NR <= limit { print; next }
+    END { if (NR > limit) printf "  … +%d more lines (raise INVENTORY_LIMIT=%d to see them)\n", NR - limit, limit }
+  '
+}
 
 root="${1:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
-[ -d "$root" ] || { echo "root not found: $root" >&2; exit 1; }
+if [ ! -d "$root" ]; then
+  echo "root not found: $root" >&2
+  exit 1
+fi
 cd "$root"
 echo "root: $root"
 
+indent() {
+  sed 's/^/  /'
+}
+
+not_vendored() {
+  grep -v node_modules
+}
+
 echo
 echo "## Runner and config"
-for f in vitest.config.* vitest.workspace.* jest.config.* .mocharc* playwright.config.* cypress.config.*; do
-  for m in $f; do [ -e "$m" ] && echo "  $m"; done
+for pattern in vitest.config.* vitest.workspace.* jest.config.* .mocharc* playwright.config.* cypress.config.*; do
+  for config in $pattern; do
+    [ -e "$config" ] && echo "  $config"
+  done
 done
-node -e 'const p=require("./package.json");const s=p.scripts||{};for(const k of Object.keys(s))if(/test|e2e|coverage/.test(k))console.log("  script",k+":",s[k])' 2>/dev/null
-grep -rlE 'setupFiles|setupFilesAfterEach|globalSetup' vitest.config.* jest.config.* 2>/dev/null | while read -r c; do
-  grep -oE "(setupFiles|setupFilesAfterEach|globalSetup)[^]]*\]?" "$c" | head -3 | sed 's/^/  /'
+
+node -e '
+  const scripts = require("./package.json").scripts || {};
+  for (const name of Object.keys(scripts)) {
+    if (/test|e2e|coverage/.test(name)) console.log("  script", name + ":", scripts[name]);
+  }
+' 2>/dev/null
+
+setup_keys='setupFiles|setupFilesAfterEach|globalSetup'
+grep -rlE "$setup_keys" vitest.config.* jest.config.* 2>/dev/null | while read -r config; do
+  grep -oE "($setup_keys)[^]]*\]?" "$config" | head -3 | indent
 done
 
 echo
 echo "## Helper modules"
+exported_names() {
+  local declaration='export (async function|function|const) '
+  grep -oE "${declaration}[A-Za-z0-9_]+" "$1" | sed -E "s/^$declaration//" | sort -u | paste -sd, -
+}
+
 find . -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' \) \
   \( -path '*/test-utils/*' -o -path '*/testing/*' -o -path '*/fixtures/*' -o -path '*/factories/*' \
      -o -path '*/__mocks__/*' -o -path '*/mocks/*' -o -path '*/test/helpers/*' -o -path '*/tests/helpers/*' \
      -o -name 'test-utils.*' -o -name 'setup-tests.*' -o -name 'setupTests.*' -o -name 'test-setup.*' \) \
-  -not -path '*/node_modules/*' -not -path '*/dist/*' 2>/dev/null | sort | while read -r f; do
-  exports=$(grep -oE 'export (async function|function|const) [A-Za-z0-9_]+' "$f" | sed -E 's/^export (async function|function|const) //' | sort -u | paste -sd, -)
-  printf '  %-48s %s\n' "${f#./}" "${exports:-—}"
+  -not -path '*/node_modules/*' -not -path '*/dist/*' 2>/dev/null | sort | while read -r file; do
+  exports=$(exported_names "$file")
+  printf '  %-48s %s\n' "${file#./}" "${exports:-—}"
 done | cap
 
 echo
 echo "## Factories and builders exported anywhere"
-grep -rhoE 'export (async )?(function|const) (create|build|make|mock|stub|fake)[A-Z][A-Za-z0-9]*' --include='*.ts' --include='*.tsx' . 2>/dev/null \
-  | grep -v node_modules | sed -E 's/export (async )?(function|const) //' | sort -u | sed 's/^/  /' | cap
+builder='export (async )?(function|const) '
+grep -rhoE "$builder(create|build|make|mock|stub|fake)[A-Z][A-Za-z0-9]*" --include='*.ts' --include='*.tsx' . 2>/dev/null \
+  | not_vendored | sed -E "s/$builder//" | sort -u | indent | cap
 
 echo
 echo "## Network fixtures (msw, nock)"
-grep -rlE 'setupServer\(|setupWorker\(|\bnock\(' --include='*.ts' --include='*.tsx' --include='*.js' . 2>/dev/null | grep -v node_modules | sed 's/^/  /' | cap
+grep -rlE 'setupServer\(|setupWorker\(|\bnock\(' --include='*.ts' --include='*.tsx' --include='*.js' . 2>/dev/null \
+  | not_vendored | indent | cap
 
 echo
 echo "## Focused or skipped tests across the suite"
 grep -rnE '\b(it|test|describe)\.(only|skip)\(|\bx(it|test|describe)\(' --include='*.ts' --include='*.tsx' --include='*.js' . 2>/dev/null \
-  | grep -v node_modules | sed 's/^/  /' | cap
+  | not_vendored | indent | cap

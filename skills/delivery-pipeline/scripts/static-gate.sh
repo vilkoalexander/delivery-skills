@@ -23,187 +23,487 @@
 set -uo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
-mode="${1:-}"; shift || true
-[ -z "$mode" ] && { sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+skills="$here/../.."
+mode="${1:-}"
+shift || true
+if [ -z "$mode" ]; then
+  sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' >&2
+  exit 2
+fi
 
 root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-has_script() { node -e 'const s=require(process.argv[1]+"/package.json").scripts||{};process.exit(s[process.argv[2]]?0:1)' "$root" "$1" 2>/dev/null; }
-has_dep()    { node -e 'const p=require(process.argv[1]+"/package.json"),d={...p.dependencies,...p.devDependencies};process.exit(d[process.argv[2]]?0:1)' "$root" "$1" 2>/dev/null; }
-skip()       { [[ " ${STATIC_SKIP:-} " == *" $1 "* ]]; }
-any_file()   { local f; for f in "$@"; do [ -e "$f" ] && { echo "$f"; return 0; }; done; return 1; }
-emit()       { [ -f "$here/../../chunked-delivery/scripts/event.sh" ] && bash "$here/../../chunked-delivery/scripts/event.sh" gate "$@" || true; }
-uniq_words() { tr ' ' '\n' | awk 'NF && !seen[$0]++' | tr '\n' ' '; }
+
+has_script() {
+  node -e '
+    const scripts = require(process.argv[1] + "/package.json").scripts || {};
+    process.exit(scripts[process.argv[2]] ? 0 : 1);
+  ' "$root" "$1" 2>/dev/null
+}
+
+has_dep() {
+  node -e '
+    const pkg = require(process.argv[1] + "/package.json");
+    const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+    process.exit(deps[process.argv[2]] ? 0 : 1);
+  ' "$root" "$1" 2>/dev/null
+}
+
+lint_script_fails_on_warnings() {
+  node -e '
+    const scripts = require("./package.json").scripts || {};
+    process.exit(/max-warnings[= ]0/.test(scripts.lint || "") ? 0 : 1);
+  ' 2>/dev/null
+}
+
+skip() {
+  [[ " ${STATIC_SKIP:-} " == *" $1 "* ]]
+}
+
+first_existing() {
+  local file
+  for file in "$@"; do
+    if [ -e "$file" ]; then
+      echo "$file"
+      return 0
+    fi
+  done
+  return 1
+}
+
+exists_any() {
+  first_existing "$@" > /dev/null
+}
+
+emit() {
+  local event="$skills/chunked-delivery/scripts/event.sh"
+  [ -f "$event" ] || return 0
+  bash "$event" gate "$@" || true
+}
+
+unique_words() {
+  tr ' ' '\n' | awk 'NF && !seen[$0]++' | tr '\n' ' '
+}
+
+row() {
+  printf '  %-44s %s\n' "$1" "$2"
+}
 
 # ---------------------------------------------------------------- coverage
-coverage() {
-  cd "$root"
-  local absent=()
-  row() { printf '  %-44s %s\n' "$1" "$2"; }
-  echo "Static coverage — $(basename "$root")"
-  echo
+absent=()
+
+mark_absent() {
+  absent+=("$1")
+}
+
+json_true() {
+  grep -qE "\"$2\"[[:space:]]*:[[:space:]]*true" <<< "$1"
+}
+
+coverage_typescript() {
   echo "## Type checking"
-  if [ -f tsconfig.json ]; then
-    local cfg; cfg=$(npx --no-install tsc --showConfig 2>/dev/null || cat tsconfig.json)
-    local strict=0; echo "$cfg" | grep -qE '"strict"[[:space:]]*:[[:space:]]*true' && strict=1
-    for opt in strict noImplicitAny strictNullChecks useUnknownInCatchVariables noUncheckedIndexedAccess exactOptionalPropertyTypes noImplicitReturns noImplicitOverride noFallthroughCasesInSwitch noPropertyAccessFromIndexSignature; do
-      if echo "$cfg" | grep -qE "\"$opt\"[[:space:]]*:[[:space:]]*true"; then row "$opt" "on"
-      elif [ "$strict" = 1 ] && [[ "$opt" =~ ^(noImplicitAny|strictNullChecks|useUnknownInCatchVariables)$ ]]; then row "$opt" "on (via strict)"
-      else row "$opt" "absent"; absent+=("tsc:$opt"); fi
-    done
-    if echo "$cfg" | grep -q '"angularCompilerOptions"'; then
-      echo "$cfg" | grep -qE '"strictTemplates"[[:space:]]*:[[:space:]]*true' && row "angular strictTemplates" "on" || { row "angular strictTemplates" "absent"; absent+=("tsc:strictTemplates"); }
+  if [ ! -f tsconfig.json ]; then
+    row "tsconfig.json" "none"
+    mark_absent "typescript"
+    return
+  fi
+
+  local config option
+  local options="strict noImplicitAny strictNullChecks useUnknownInCatchVariables noUncheckedIndexedAccess exactOptionalPropertyTypes noImplicitReturns noImplicitOverride noFallthroughCasesInSwitch noPropertyAccessFromIndexSignature"
+  local implied_by_strict='^(noImplicitAny|strictNullChecks|useUnknownInCatchVariables)$'
+  config=$(npx --no-install tsc --showConfig 2>/dev/null || cat tsconfig.json)
+
+  for option in $options; do
+    if json_true "$config" "$option"; then
+      row "$option" "on"
+    elif json_true "$config" strict && [[ $option =~ $implied_by_strict ]]; then
+      row "$option" "on (via strict)"
+    else
+      row "$option" "absent"
+      mark_absent "tsc:$option"
     fi
-    has_script typecheck && row "script: typecheck" "$(node -e 'console.log(require("./package.json").scripts.typecheck)')" || row "script: typecheck" "none — falls back to tsc --noEmit"
-  else
-    row "tsconfig.json" "none"; absent+=("typescript")
+  done
+
+  if grep -q '"angularCompilerOptions"' <<< "$config"; then
+    if json_true "$config" strictTemplates; then
+      row "angular strictTemplates" "on"
+    else
+      row "angular strictTemplates" "absent"
+      mark_absent "tsc:strictTemplates"
+    fi
   fi
 
-  echo
+  if has_script typecheck; then
+    row "script: typecheck" "$(node -e 'console.log(require("./package.json").scripts.typecheck)')"
+  else
+    row "script: typecheck" "none — falls back to tsc --noEmit"
+  fi
+}
+
+# Prints error, warn, off, absent, or ? for one rule of a resolved ESLint config on stdin.
+rule_level() {
+  node -e '
+    let text = "";
+    process.stdin.on("data", chunk => (text += chunk)).on("end", () => {
+      try {
+        const rule = JSON.parse(text).rules[process.argv[1]];
+        if (!rule) return console.log("absent");
+        const level = Array.isArray(rule) ? rule[0] : rule;
+        if (level === 2 || level === "error") return console.log("error");
+        if (level === 1 || level === "warn") return console.log("warn");
+        console.log("off");
+      } catch {
+        console.log("?");
+      }
+    });
+  ' "$1"
+}
+
+# Does this rule say anything about a file of this kind, in this project?
+rule_applies() {
+  local rule=$1 kind=$2
+  local app_code=0 test_code=0
+  [[ $kind == tsx || $kind == service ]] && app_code=1
+  [[ $kind == spec || $kind == test ]] && test_code=1
+
+  case "$rule" in
+    react-native/*)   [ "$kind" = tsx ] && { has_dep react-native || has_dep expo; } ;;
+    sonarjs/*)        [ "$app_code" = 1 ] && has_dep eslint-plugin-sonarjs ;;
+    react*|jsx-a11y*) [ "$kind" = tsx ] ;;
+    @angular*)        [ "$kind" = component ] ;;
+    jest/*|vitest/*)  [ "$test_code" = 1 ] ;;
+    import/*)         [ "$app_code" = 1 ] && has_dep eslint-plugin-import ;;
+    import-x/*)       [ "$app_code" = 1 ] && { has_dep eslint-plugin-import || has_dep eslint-plugin-import-x; } ;;
+    *)                [ "$app_code" = 1 ] ;;
+  esac
+}
+
+coverage_eslint() {
   echo "## ESLint"
-  local esl; esl=$(any_file eslint.config.* .eslintrc*)
-  local testplug=""; has_dep vitest && testplug=vitest; has_dep jest && testplug=jest
-  if [ -n "$esl" ]; then
-    row "config" "$esl"
-    # One sample file per kind the rubrics care about.
-    local sample kind
-    for kind in 'tsx:*.tsx' 'service:*.service.ts' 'component:*.component.ts' 'spec:*.spec.ts' 'test:*.test.ts'; do
-      sample=$(find . -name "${kind#*:}" -not -path '*/node_modules/*' -not -path '*/dist/*' 2>/dev/null | head -1)
-      [ -n "$sample" ] || continue
-      local pc; pc=$(npx --no-install eslint --print-config "$sample" 2>/dev/null)
-      [ -n "$pc" ] || { row "print-config ${kind%%:*}" "failed"; continue; }
-      if echo "$pc" | grep -qE '"(project|projectService)"[[:space:]]*:[[:space:]]*(true|"|\[)'; then row "type-aware (${kind%%:*})" "on"; else row "type-aware (${kind%%:*})" "absent"; absent+=("eslint:type-aware"); fi
-      for rule in @typescript-eslint/no-floating-promises @typescript-eslint/no-misused-promises @typescript-eslint/no-explicit-any @typescript-eslint/no-unsafe-assignment no-console \
-                  import-x/no-cycle import/no-cycle \
-                  complexity max-depth max-params sonarjs/cognitive-complexity \
-                  react-native/no-inline-styles react-native/no-color-literals react-native/no-unused-styles \
-                  react-hooks/rules-of-hooks react-hooks/exhaustive-deps react/jsx-key jsx-a11y/alt-text \
-                  @angular-eslint/prefer-standalone @angular-eslint/template/use-track-by-function @angular-eslint/template/click-events-have-key-events \
-                  ${testplug:+$testplug/expect-expect $testplug/no-focused-tests $testplug/no-disabled-tests $testplug/no-conditional-expect}; do
-        local lvl; lvl=$(echo "$pc" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const r=JSON.parse(s).rules[process.argv[1]];if(!r)return console.log("absent");const v=Array.isArray(r)?r[0]:r;console.log(v===2||v==="error"?"error":v===1||v==="warn"?"warn":"off")}catch{console.log("?")}})' "$rule")
-        case "$rule" in
-          react-native/*) [ "${kind%%:*}" = tsx ] || continue; has_dep react-native || has_dep expo || continue;;
-          sonarjs/*) [[ "${kind%%:*}" = tsx || "${kind%%:*}" = service ]] || continue; has_dep eslint-plugin-sonarjs || continue;;
-          react*|jsx-a11y*) [ "${kind%%:*}" = tsx ] || continue;;
-          @angular*) [ "${kind%%:*}" = component ] || continue;;
-          jest/*|vitest/*) [[ "${kind%%:*}" = spec || "${kind%%:*}" = test ]] || continue;;
-          import/*) [[ "${kind%%:*}" = tsx || "${kind%%:*}" = service ]] || continue; has_dep eslint-plugin-import || continue;;
-          import-x/*) [[ "${kind%%:*}" = tsx || "${kind%%:*}" = service ]] || continue; has_dep eslint-plugin-import || { has_dep eslint-plugin-import-x || continue; };;
-          *) [[ "${kind%%:*}" = tsx || "${kind%%:*}" = service ]] || continue;;
-        esac
-        row "$rule (${kind%%:*})" "$lvl"
-        [ "$lvl" = error ] || absent+=("eslint:$rule")
-      done
-    done
-  else
-    row "config" "none"; absent+=("eslint")
+  local config_file
+  config_file=$(first_existing eslint.config.* .eslintrc*)
+  if [ -z "$config_file" ]; then
+    row "config" "none"
+    mark_absent "eslint"
+    return
+  fi
+  row "config" "$config_file"
+
+  local rules="
+    @typescript-eslint/no-floating-promises @typescript-eslint/no-misused-promises
+    @typescript-eslint/no-explicit-any @typescript-eslint/no-unsafe-assignment no-console
+    import-x/no-cycle import/no-cycle
+    complexity max-depth max-params sonarjs/cognitive-complexity
+    react-native/no-inline-styles react-native/no-color-literals react-native/no-unused-styles
+    react-hooks/rules-of-hooks react-hooks/exhaustive-deps react/jsx-key jsx-a11y/alt-text
+    @angular-eslint/prefer-standalone @angular-eslint/template/use-track-by-function
+    @angular-eslint/template/click-events-have-key-events"
+  local test_plugin=""
+  has_dep vitest && test_plugin=vitest
+  has_dep jest && test_plugin=jest
+  if [ -n "$test_plugin" ]; then
+    rules="$rules $test_plugin/expect-expect $test_plugin/no-focused-tests $test_plugin/no-disabled-tests $test_plugin/no-conditional-expect"
   fi
 
-  echo
+  # One sample file per kind the rubrics care about.
+  local kind_and_glob kind sample resolved rule level
+  for kind_and_glob in 'tsx:*.tsx' 'service:*.service.ts' 'component:*.component.ts' 'spec:*.spec.ts' 'test:*.test.ts'; do
+    kind=${kind_and_glob%%:*}
+    sample=$(find . -name "${kind_and_glob#*:}" -not -path '*/node_modules/*' -not -path '*/dist/*' 2>/dev/null | head -1)
+    [ -n "$sample" ] || continue
+
+    resolved=$(npx --no-install eslint --print-config "$sample" 2>/dev/null)
+    if [ -z "$resolved" ]; then
+      row "print-config $kind" "failed"
+      continue
+    fi
+
+    if grep -qE '"(project|projectService)"[[:space:]]*:[[:space:]]*(true|"|\[)' <<< "$resolved"; then
+      row "type-aware ($kind)" "on"
+    else
+      row "type-aware ($kind)" "absent"
+      mark_absent "eslint:type-aware"
+    fi
+
+    for rule in $rules; do
+      rule_applies "$rule" "$kind" || continue
+      level=$(rule_level "$rule" <<< "$resolved")
+      row "$rule ($kind)" "$level"
+      [ "$level" = error ] || mark_absent "eslint:$rule"
+    done
+  done
+}
+
+coverage_other_gates() {
   echo "## Other gates"
-  any_file .prettierrc* prettier.config.* >/dev/null && row "prettier" "config present" || { row "prettier" "none"; absent+=("prettier"); }
-  node -e 'const s=require("./package.json").scripts||{};process.exit(/max-warnings[= ]0/.test(s.lint||"")?0:1)' 2>/dev/null && row "lint script --max-warnings=0" "on" || { row "lint script --max-warnings=0" "absent — warn never fails"; absent+=("eslint:max-warnings"); }
-  if find . -name 'schema.prisma' -not -path '*/node_modules/*' | grep -q .; then row "prisma validate" "available"; else row "prisma" "no schema"; fi
-  grep -qsE 'depConstraints|enforce-module-boundaries|eslint-plugin-boundaries' nx.json eslint.config.* .eslintrc* 2>/dev/null && row "module boundaries" "on" \
-    || { any_file .dependency-cruiser.* >/dev/null && row "module boundaries" "dependency-cruiser" || { row "module boundaries" "absent"; absent+=("module-boundaries"); }; }
-  local dead=0; for t in knip depcheck ts-prune; do has_dep "$t" && { row "$t" "installed"; dead=1; }; done
-  [ "$dead" = 0 ] && { row "unused exports / deps (knip)" "absent"; absent+=("knip"); }
-  if [ -f .husky/pre-commit ] || [ -f .pre-commit-config.yaml ] || [ -f lefthook.yml ]; then row "pre-commit hook" "on"; else row "pre-commit hook" "none"; absent+=("pre-commit"); fi
-  has_dep lint-staged && row "lint-staged" "installed"
-  any_file .gitleaks.toml .secretlintrc* >/dev/null && row "secret scan" "on" || { row "secret scan (gitleaks)" "absent"; absent+=("gitleaks"); }
-  has_dep jscpd && row "duplicate detection (jscpd)" "installed" || row "duplicate detection (jscpd)" "absent — reuse-guardrails B1"
-  row "reuse guardrails" "bash $here/../../reuse-guardrails/scripts/audit.sh"
-  if any_file .github/workflows/*.yml .gitlab-ci.yml >/dev/null; then
-    grep -lsE 'lint|tsc|typecheck' .github/workflows/*.yml .gitlab-ci.yml 2>/dev/null | head -1 | xargs -I{} echo "  ci runs lint/typecheck                       {}"
-  else row "ci" "none found"; fi
 
-  echo
+  if exists_any .prettierrc* prettier.config.*; then
+    row "prettier" "config present"
+  else
+    row "prettier" "none"
+    mark_absent "prettier"
+  fi
+
+  if lint_script_fails_on_warnings; then
+    row "lint script --max-warnings=0" "on"
+  else
+    row "lint script --max-warnings=0" "absent — warn never fails"
+    mark_absent "eslint:max-warnings"
+  fi
+
+  if find . -name 'schema.prisma' -not -path '*/node_modules/*' | grep -q .; then
+    row "prisma validate" "available"
+  else
+    row "prisma" "no schema"
+  fi
+
+  if grep -qsE 'depConstraints|enforce-module-boundaries|eslint-plugin-boundaries' nx.json eslint.config.* .eslintrc* 2>/dev/null; then
+    row "module boundaries" "on"
+  elif exists_any .dependency-cruiser.*; then
+    row "module boundaries" "dependency-cruiser"
+  else
+    row "module boundaries" "absent"
+    mark_absent "module-boundaries"
+  fi
+
+  local tool dead_code_tool=0
+  for tool in knip depcheck ts-prune; do
+    if has_dep "$tool"; then
+      row "$tool" "installed"
+      dead_code_tool=1
+    fi
+  done
+  if [ "$dead_code_tool" = 0 ]; then
+    row "unused exports / deps (knip)" "absent"
+    mark_absent "knip"
+  fi
+
+  if [ -f .husky/pre-commit ] || [ -f .pre-commit-config.yaml ] || [ -f lefthook.yml ]; then
+    row "pre-commit hook" "on"
+  else
+    row "pre-commit hook" "none"
+    mark_absent "pre-commit"
+  fi
+
+  if has_dep lint-staged; then
+    row "lint-staged" "installed"
+  fi
+
+  if exists_any .gitleaks.toml .secretlintrc*; then
+    row "secret scan" "on"
+  else
+    row "secret scan (gitleaks)" "absent"
+    mark_absent "gitleaks"
+  fi
+
+  if has_dep jscpd; then
+    row "duplicate detection (jscpd)" "installed"
+  else
+    row "duplicate detection (jscpd)" "absent — reuse-guardrails B1"
+  fi
+  row "reuse guardrails" "bash $skills/reuse-guardrails/scripts/audit.sh"
+
+  if exists_any .github/workflows/*.yml .gitlab-ci.yml; then
+    local ci_file
+    ci_file=$(grep -lsE 'lint|tsc|typecheck' .github/workflows/*.yml .gitlab-ci.yml 2>/dev/null | head -1)
+    [ -z "$ci_file" ] || row "ci runs lint/typecheck" "$ci_file"
+  else
+    row "ci" "none found"
+  fi
+}
+
+coverage_drift() {
   echo "## Drift checks"
-  local drift d; drift=$(bash "$here/drift.sh" coverage)
-  echo "$drift" | grep -v '^UNDECLARED:'
-  for d in $(echo "$drift" | sed -n 's/^UNDECLARED: //p'); do [ "$d" = nothing ] || absent+=("drift:$d"); done
+  local report undeclared
+  report=$(bash "$here/drift.sh" coverage)
+  grep -v '^UNDECLARED:' <<< "$report"
+  for undeclared in $(sed -n 's/^UNDECLARED: //p' <<< "$report"); do
+    [ "$undeclared" = nothing ] || mark_absent "drift:$undeclared"
+  done
+}
 
-  echo
-  local list; list=$(printf '%s ' "${absent[@]+"${absent[@]}"}" | uniq_words)
-  echo "ABSENT: ${list:-nothing — everything above is enforced}"
+# The STATIC-SETUP.md section that holds the recipe for one absent item.
+setup_section() {
+  case "$1" in
+    typescript|tsc:*) echo typescript ;;
+    eslint|eslint:type-aware|eslint:@typescript-eslint/*|eslint:no-console|eslint:max-warnings) echo eslint ;;
+    eslint:complexity|eslint:max-depth|eslint:max-params|eslint:sonarjs/*|eslint:react-native/*) echo shape ;;
+    eslint:react*|eslint:jsx-a11y*)   echo react ;;
+    eslint:@angular*)                 echo angular ;;
+    eslint:jest/*|eslint:vitest/*)    echo tests ;;
+    eslint:import*|module-boundaries) echo boundaries ;;
+    prettier)                         echo prettier ;;
+    knip)                             echo dead-code ;;
+    pre-commit|gitleaks)              echo hooks ;;
+    drift:*)                          echo drift ;;
+  esac
+}
+
+coverage_summary() {
+  local absent_list item sections=""
+  absent_list=$(printf '%s ' ${absent[@]+"${absent[@]}"} | unique_words)
+  echo "ABSENT: ${absent_list:-nothing — everything above is enforced}"
   echo "Rules at error above are never a review finding. Each ABSENT item is either a reviewer's job or a tooling chunk the human can choose to add."
-  [ -n "$list" ] || return 0
+  [ -n "$absent_list" ] || return 0
+
   echo
   echo "SETUP: the strict recipe for each is in STATIC-SETUP.md next to this script —"
-  local sections="" a
-  for a in $list; do
-    case "$a" in
-      typescript|tsc:*)              sections="$sections typescript";;
-      eslint|eslint:type-aware|eslint:@typescript-eslint/*|eslint:no-console|eslint:max-warnings) sections="$sections eslint";;
-      eslint:complexity|eslint:max-depth|eslint:max-params|eslint:sonarjs/*|eslint:react-native/*) sections="$sections shape";;
-      eslint:react*|eslint:jsx-a11y*) sections="$sections react";;
-      eslint:@angular*)               sections="$sections angular";;
-      eslint:jest/*|eslint:vitest/*)  sections="$sections tests";;
-      eslint:import*|module-boundaries) sections="$sections boundaries";;
-      prettier)                       sections="$sections prettier";;
-      knip)                           sections="$sections dead-code";;
-      pre-commit|gitleaks)            sections="$sections hooks";;
-      drift:*)                        sections="$sections drift";;
-    esac
+  for item in $absent_list; do
+    sections="$sections $(setup_section "$item")"
   done
-  echo "  sections: $(echo "$sections" | uniq_words)"
+  echo "  sections: $(echo "$sections" | unique_words)"
   echo "  Propose them as one tooling chunk at plan approval; do not add them unasked."
 }
 
+coverage() {
+  cd "$root"
+  echo "Static coverage — $(basename "$root")"
+  echo
+  coverage_typescript
+  echo
+  coverage_eslint
+  echo
+  coverage_other_gates
+  echo
+  coverage_drift
+  echo
+  coverage_summary
+}
+
 # ------------------------------------------------------------------- check
+steps_run=()
+steps_skipped=()
+gate_failed=0
+
+# run_step NAME SHOWN command... — SHOWN is what the report prints after the name
+run_step() {
+  local name=$1 shown=$2 started=$SECONDS ok=true
+  shift 2
+  printf '== %s: %s\n' "$name" "$shown"
+  emit gate_step_start step="$name"
+  steps_run+=("$name")
+
+  if "$@" > "$step_log" 2>&1; then
+    echo "   ok"
+  else
+    echo "   FAIL"
+    tail -40 "$step_log" | sed 's/^/   /'
+    gate_failed=1
+    ok=false
+  fi
+  emit gate_step step="$name" ok:=$ok s:=$((SECONDS - started))
+}
+
+skip_step() {
+  steps_skipped+=("$1")
+  printf -- '-- %s: skipped — %s\n' "$1" "$2"
+}
+
+run_in_dir() {
+  (cd "$1" && bash -c "$2") < /dev/null
+}
+
+# test-lock, drift and secrets: the gate's own steps, before the project's.
+check_built_in_steps() {
+  local lock="$skills/test-review/scripts/test-lock.sh"
+  if skip test-lock; then
+    skip_step test-lock STATIC_SKIP
+  elif [ -f "$lock" ]; then
+    run_step test-lock "bash $lock ${changed[*]}" bash "$lock" "${changed[@]}"
+  fi
+
+  if skip drift; then
+    skip_step drift STATIC_SKIP
+  elif [ -f "${DRIFT_FILE:-docs/review/drift.checks}" ]; then
+    run_step drift "bash $here/drift.sh check ${changed[*]}" bash "$here/drift.sh" check "${changed[@]}"
+  fi
+
+  if skip secrets; then
+    skip_step secrets STATIC_SKIP
+  elif [ ${#existing[@]} -gt 0 ]; then
+    run_step secrets "bash $here/secret-scan.sh ${existing[*]}" bash "$here/secret-scan.sh" "${existing[@]}"
+  fi
+}
+
+# The project's own steps, as docs/review/delivery.json names them.
+check_project_steps() {
+  local kind dir name text label
+  while IFS=$'\t' read -r kind dir name text; do
+    label=$name
+    [ "$dir" = . ] || [ "$dir" = - ] || label="$name:$dir"
+    case "$kind" in
+      RUN)
+        if skip "$name"; then
+          skip_step "$label" STATIC_SKIP
+        else
+          run_step "$label" "$text" run_in_dir "$dir" "$text"
+        fi
+        ;;
+      SKIP)
+        skip_step "$label" "$text"
+        ;;
+    esac
+  done < <(node "$here/config.mjs" plan "${changed[@]}")
+}
+
+# Reuse flags ride along to the reviewer and the chunk report; they never
+# fail the gate (REUSE_STRICT=1 on the scan itself does, when wanted).
+check_reuse() {
+  local scan="$skills/reuse-guardrails/scripts/reuse-scan.sh"
+  skip reuse && return 0
+  [ -f "$scan" ] && [ ${#existing[@]} -gt 0 ] || return 0
+
+  printf '== reuse scan\n'
+  emit gate_step_start step=reuse
+  bash "$scan" "${existing[@]}" | sed 's/^/   /'
+  emit gate_step step=reuse ok:=true s:=0
+}
+
 check() {
   cd "$root"
-  local paths=("$@")
-  if [ ${#paths[@]} -eq 0 ]; then while IFS= read -r l; do [ -n "$l" ] && paths+=("$l"); done; fi
-  [ ${#paths[@]} -eq 0 ] && { echo "check: no paths" >&2; exit 2; }
-  node "$here/config.mjs" check || exit 2
-  local existing=(); for p in "${paths[@]}"; do [ -f "$p" ] && existing+=("$p"); done
-  local failed=0 log ran=() skipped=(); log=$(mktemp)
-  emit gate_start paths:=${#paths[@]}
-  step() { # name, command...
-    local name="$1" t0=$SECONDS; shift
-    printf '== %s: %s\n' "$name" "${show:-$*}"
-    emit gate_step_start step="$name"
-    ran+=("$name")
-    if "$@" > "$log" 2>&1; then echo "   ok"; emit gate_step step="$name" ok:=true s:=$((SECONDS - t0))
-    else echo "   FAIL"; tail -40 "$log" | sed 's/^/   /'; failed=1; emit gate_step step="$name" ok:=false s:=$((SECONDS - t0)); fi
-  }
-  miss() { skipped+=("$1"); printf -- '-- %s: skipped — %s\n' "$1" "$2"; }
-  in_dir() { (cd "$1" && bash -c "$2") < /dev/null; }
-
-  local lock="$here/../../test-review/scripts/test-lock.sh"
-  if skip test-lock; then miss test-lock STATIC_SKIP; elif [ -f "$lock" ]; then step test-lock bash "$lock" "${paths[@]}"; fi
-  if skip drift; then miss drift STATIC_SKIP; elif [ -f "${DRIFT_FILE:-docs/review/drift.checks}" ]; then step drift bash "$here/drift.sh" check "${paths[@]}"; fi
-  if skip secrets; then miss secrets STATIC_SKIP; elif [ ${#existing[@]} -gt 0 ]; then step secrets bash "$here/secret-scan.sh" "${existing[@]}"; fi
-
-  # The project's own steps, as docs/review/delivery.json names them.
-  local kinds=() dirs=() names=() texts=() kind dir name text i label show
-  while IFS=$'\t' read -r kind dir name text; do kinds+=("$kind"); dirs+=("$dir"); names+=("$name"); texts+=("$text"); done < <(node "$here/config.mjs" plan "${paths[@]}")
-  for i in ${kinds[@]+"${!kinds[@]}"}; do
-    kind=${kinds[$i]} dir=${dirs[$i]} name=${names[$i]} text=${texts[$i]}
-    label=$name; [ "$dir" = . ] || [ "$dir" = - ] || label="$name:$dir"
-    case "$kind" in
-      RUN) if skip "$name"; then miss "$label" STATIC_SKIP; else show="$text" step "$label" in_dir "$dir" "$text"; fi ;;
-      SKIP) miss "$label" "$text" ;;
-    esac
-  done
-  rm -f "$log"
-
-  # Reuse flags ride along to the reviewer and the chunk report; they never
-  # fail the gate (REUSE_STRICT=1 on the scan itself does, when wanted).
-  local scan="$here/../../reuse-guardrails/scripts/reuse-scan.sh"
-  if ! skip reuse && [ -f "$scan" ] && [ ${#existing[@]} -gt 0 ]; then
-    printf '== reuse scan\n'
-    emit gate_step_start step=reuse
-    bash "$scan" "${existing[@]}" | sed 's/^/   /'
-    emit gate_step step=reuse ok:=true s:=0
+  changed=("$@")
+  if [ ${#changed[@]} -eq 0 ]; then
+    local line
+    while IFS= read -r line; do
+      [ -n "$line" ] && changed+=("$line")
+    done
   fi
-  local summary="ran: ${ran[*]:-nothing}"; [ ${#skipped[@]} -gt 0 ] && summary="$summary; skipped: ${skipped[*]}"
-  [ "$failed" -eq 0 ] && { emit gate_end ok:=true; echo "static gate: clean — $summary"; } || { emit gate_end ok:=false; echo "static gate: FAILED — $summary. Send the output above to the implementer; no reviewer yet"; exit 1; }
+  if [ ${#changed[@]} -eq 0 ]; then
+    echo "check: no paths" >&2
+    exit 2
+  fi
+  node "$here/config.mjs" check || exit 2
+
+  existing=()
+  local path
+  for path in "${changed[@]}"; do
+    [ -f "$path" ] && existing+=("$path")
+  done
+
+  step_log=$(mktemp)
+  emit gate_start paths:=${#changed[@]}
+  check_built_in_steps
+  check_project_steps
+  rm -f "$step_log"
+  check_reuse
+
+  local summary="ran: ${steps_run[*]:-nothing}"
+  [ ${#steps_skipped[@]} -gt 0 ] && summary="$summary; skipped: ${steps_skipped[*]}"
+  if [ "$gate_failed" -eq 0 ]; then
+    emit gate_end ok:=true
+    echo "static gate: clean — $summary"
+  else
+    emit gate_end ok:=false
+    echo "static gate: FAILED — $summary. Send the output above to the implementer; no reviewer yet"
+    exit 1
+  fi
 }
 
 case "$mode" in
-  coverage) coverage "$@";;
-  check)    check "$@";;
-  init)     cd "$root" && node "$here/config.mjs" init;;
-  *) echo "unknown mode: $mode (coverage | check | init)" >&2; exit 2;;
+  coverage) coverage "$@" ;;
+  check)    check "$@" ;;
+  init)     cd "$root" && node "$here/config.mjs" init ;;
+  *)
+    echo "unknown mode: $mode (coverage | check | init)" >&2
+    exit 2
+    ;;
 esac

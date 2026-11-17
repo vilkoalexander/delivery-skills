@@ -17,84 +17,195 @@
 #              paths, and they are put back as they were afterwards.
 set -uo pipefail
 
-mode="${1:-}"; shift || true
-[ -z "$mode" ] && { sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+mode="${1:-}"
+shift || true
+if [ -z "$mode" ]; then
+  sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//' >&2
+  exit 2
+fi
 root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 cd "$root" || exit 2
-file="${DRIFT_FILE:-docs/review/drift.checks}"
+checks_file="${DRIFT_FILE:-docs/review/drift.checks}"
 
-trim() { sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'; }
-field() { awk -F'::' -v n="$2" '{ print $n }' <<<"$1" | trim; }
-rows() { [ -f "$file" ] && grep -vE '^[[:space:]]*(#|$)' "$file"; }
-sum() { if command -v shasum >/dev/null 2>&1; then shasum; else sha1sum; fi; }
-# shellcheck disable=SC2086
-hashes() { find $1 -type f 2>/dev/null | LC_ALL=C sort | while IFS= read -r f; do printf '%s  %s\n' "$(sum < "$f" | cut -c1-40)" "$f"; done; }
+# ------------------------------------------------------- the checks file
+trim() {
+  sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'
+}
+
+# field ROW N — the Nth `::`-separated field of one line of the checks file
+field() {
+  awk -F'::' -v n="$2" '{ print $n }' <<< "$1" | trim
+}
+
+declared_checks() {
+  [ -f "$checks_file" ] && grep -vE '^[[:space:]]*(#|$)' "$checks_file"
+}
+
+indent() {
+  sed "s/^/$1/"
+}
+
+# ------------------------------------------------------------------ check
+sha1() {
+  if command -v shasum > /dev/null 2>&1; then shasum; else sha1sum; fi
+}
+
+# One "hash  path" line per file under the given paths.
+content_hashes() {
+  # shellcheck disable=SC2086
+  find $1 -type f 2>/dev/null | LC_ALL=C sort | while IFS= read -r file; do
+    printf '%s  %s\n' "$(sha1 < "$file" | cut -c1-40)" "$file"
+  done
+}
+
+run_quietly() {
+  sh -c "$1" > "$work/out" 2>&1 < /dev/null
+}
+
+show_output() {
+  tail -30 "$work/out" | indent '   '
+}
+
+# A plain check: the command's exit code says whether there is drift.
+run_command_check() {
+  if run_quietly "$1"; then
+    echo "   ok"
+    return 0
+  fi
+  echo "   DRIFT"
+  show_output
+  return 1
+}
+
+# A generator check: drift is any change the command makes to the generated paths.
+# They are put back as they were afterwards.
+run_generator_check() {
+  local command=$1 generated=$2 status=0
+  case " $generated " in
+    *" /"*|*..*)
+      echo "   generated paths must be inside the repo: $generated" >&2
+      return 1
+      ;;
+  esac
+
+  content_hashes "$generated" > "$work/before"
+  # shellcheck disable=SC2086
+  tar -cf "$work/keep.tar" $generated 2>/dev/null
+
+  if ! run_quietly "$command"; then
+    echo "   FAILED to run"
+    show_output
+    status=1
+  else
+    content_hashes "$generated" > "$work/after"
+    if cmp -s "$work/before" "$work/after"; then
+      echo "   ok"
+    else
+      echo "   DRIFT — regenerating changes these; run the command and keep the result:"
+      diff "$work/before" "$work/after" | sed -nE 's/^[<>] [0-9a-f]+  //p' | sort -u | head -15 | indent '     '
+      status=1
+    fi
+  fi
+
+  # shellcheck disable=SC2086
+  rm -rf $generated && tar -xf "$work/keep.tar" 2>/dev/null
+  return $status
+}
 
 check() {
-  [ -f "$file" ] || { echo "drift: no $file — no checks declared"; exit 0; }
-  local paths=("$@") failed=0 ran=0 row name when cmd gen tmp
-  tmp=$(mktemp -d)
+  if [ ! -f "$checks_file" ]; then
+    echo "drift: no $checks_file — no checks declared"
+    exit 0
+  fi
+
+  local changed=("$@") failed=0 ran=0 row name when command generated
+  work=$(mktemp -d)
   while IFS= read -r row; do
-    name=$(field "$row" 1); when=$(field "$row" 2); cmd=$(field "$row" 3); gen=$(field "$row" 4)
-    [ -n "$name" ] && [ -n "$cmd" ] || { echo "drift: bad line, want name :: when :: command — $row" >&2; failed=1; continue; }
-    if [ -n "$when" ] && [ ${#paths[@]} -gt 0 ]; then
-      printf '%s\n' "${paths[@]}" | grep -qE -- "$when" || continue
-    fi
-    ran=$((ran+1))
-    printf '== drift %s: %s\n' "$name" "$cmd"
-    if [ -z "$gen" ]; then
-      if sh -c "$cmd" > "$tmp/out" 2>&1 < /dev/null; then echo "   ok"; else echo "   DRIFT"; tail -30 "$tmp/out" | sed 's/^/   /'; failed=1; fi
+    name=$(field "$row" 1)
+    when=$(field "$row" 2)
+    command=$(field "$row" 3)
+    generated=$(field "$row" 4)
+    if [ -z "$name" ] || [ -z "$command" ]; then
+      echo "drift: bad line, want name :: when :: command — $row" >&2
+      failed=1
       continue
     fi
-    case " $gen " in *" /"*|*..*) echo "   generated paths must be inside the repo: $gen" >&2; failed=1; continue ;; esac
-    hashes "$gen" > "$tmp/before"
-    # shellcheck disable=SC2086
-    tar -cf "$tmp/keep.tar" $gen 2>/dev/null
-    if ! sh -c "$cmd" > "$tmp/out" 2>&1 < /dev/null; then
-      echo "   FAILED to run"; tail -30 "$tmp/out" | sed 's/^/   /'; failed=1
-    else
-      hashes "$gen" > "$tmp/after"
-      if cmp -s "$tmp/before" "$tmp/after"; then echo "   ok"
-      else
-        echo "   DRIFT — regenerating changes these; run the command and keep the result:"
-        diff "$tmp/before" "$tmp/after" | sed -nE 's/^[<>] [0-9a-f]+  //p' | sort -u | head -15 | sed 's/^/     /'
-        failed=1
-      fi
+    if [ -n "$when" ] && [ ${#changed[@]} -gt 0 ]; then
+      printf '%s\n' "${changed[@]}" | grep -qE -- "$when" || continue
     fi
-    # shellcheck disable=SC2086
-    rm -rf $gen && tar -xf "$tmp/keep.tar" 2>/dev/null
-  done < <(rows)
-  rm -rf "$tmp"
-  [ "$failed" -eq 0 ] && { echo "drift: clean ($ran check(s) run)"; exit 0; }
-  echo "drift: FAILED"; exit 1
+
+    ran=$((ran + 1))
+    printf '== drift %s: %s\n' "$name" "$command"
+    if [ -z "$generated" ]; then
+      run_command_check "$command" || failed=1
+    else
+      run_generator_check "$command" "$generated" || failed=1
+    fi
+  done < <(declared_checks)
+  rm -rf "$work"
+
+  if [ "$failed" -eq 0 ]; then
+    echo "drift: clean ($ran check(s) run)"
+    exit 0
+  fi
+  echo "drift: FAILED"
+  exit 1
+}
+
+# --------------------------------------------------------------- coverage
+row() {
+  printf '  %-44s %s\n' "$1" "$2"
+}
+
+project_has_file() {
+  find . -maxdepth "$1" -name "$2" -not -path '*/node_modules/*' 2>/dev/null | grep -q .
+}
+
+project_has_locale_dir() {
+  find . -maxdepth 6 -type d \( -name locales -o -name i18n -o -name translations \) -not -path '*/node_modules/*' 2>/dev/null | grep -q .
 }
 
 coverage() {
-  local declared="" pkgs missing=()
-  row() { printf '  %-44s %s\n' "$1" "$2"; }
-  if [ -f "$file" ]; then
-    declared=$(rows)
-    while IFS= read -r r; do [ -n "$r" ] && row "$(field "$r" 1)" "$(field "$r" 3)"; done <<<"$declared"
+  local declared="" check manifests undeclared=()
+  if [ -f "$checks_file" ]; then
+    declared=$(declared_checks)
+    while IFS= read -r check; do
+      [ -n "$check" ] && row "$(field "$check" 1)" "$(field "$check" 3)"
+    done <<< "$declared"
   else
-    row "$file" "none"
+    row "$checks_file" "none"
   fi
-  pkgs=$(find . -maxdepth 4 -name package.json -not -path '*/node_modules/*' 2>/dev/null)
-  dep() { [ -n "$pkgs" ] && grep -qE "\"($1)\"[[:space:]]*:" $pkgs 2>/dev/null; }
-  pair() { # name, keyword that a covering check would contain
-    grep -qiE -- "$2" <<<"$declared" && return 0
-    row "$1" "absent"; missing+=("$1")
+
+  manifests=$(find . -maxdepth 4 -name package.json -not -path '*/node_modules/*' 2>/dev/null)
+
+  depends_on() {
+    # shellcheck disable=SC2086
+    [ -n "$manifests" ] && grep -qE "\"($1)\"[[:space:]]*:" $manifests 2>/dev/null
   }
-  find . -maxdepth 5 -name schema.prisma -not -path '*/node_modules/*' 2>/dev/null | grep -q . && pair prisma-migrations 'prisma'
-  dep 'openapi-typescript|orval|swagger-typescript-api|@graphql-codegen/cli|@openapitools/openapi-generator-cli' && pair generated-api-client 'openapi|orval|swagger|codegen'
-  dep 'expo' && pair expo-native-deps 'expo'
-  find . -maxdepth 6 -type d \( -name locales -o -name i18n -o -name translations \) -not -path '*/node_modules/*' 2>/dev/null | grep -q . && pair locale-keys 'i18n|locale|translation'
-  find . -maxdepth 4 -name '.env.example' -not -path '*/node_modules/*' 2>/dev/null | grep -q . && pair env-keys '\benv'
-  [ "$(wc -l <<<"$pkgs" | tr -d ' ')" -gt 1 ] && pair workspace-versions 'syncpack|manypkg'
-  echo "UNDECLARED: ${missing[*]:-nothing}"
+
+  # expect NAME KEYWORD — a known pair needs a declared check that mentions KEYWORD
+  expect() {
+    grep -qiE -- "$2" <<< "$declared" && return 0
+    row "$1" "absent"
+    undeclared+=("$1")
+  }
+
+  project_has_file 5 schema.prisma && expect prisma-migrations 'prisma'
+  depends_on 'openapi-typescript|orval|swagger-typescript-api|@graphql-codegen/cli|@openapitools/openapi-generator-cli' \
+    && expect generated-api-client 'openapi|orval|swagger|codegen'
+  depends_on 'expo' && expect expo-native-deps 'expo'
+  project_has_locale_dir && expect locale-keys 'i18n|locale|translation'
+  project_has_file 4 '.env.example' && expect env-keys '\benv'
+  [ "$(wc -l <<< "$manifests" | tr -d ' ')" -gt 1 ] && expect workspace-versions 'syncpack|manypkg'
+
+  echo "UNDECLARED: ${undeclared[*]:-nothing}"
 }
 
 case "$mode" in
   check)    check "$@" ;;
   coverage) coverage ;;
-  *) echo "unknown mode: $mode (check | coverage)" >&2; exit 2 ;;
+  *)
+    echo "unknown mode: $mode (check | coverage)" >&2
+    exit 2
+    ;;
 esac

@@ -5,42 +5,83 @@
 # Usage: bash scripts/token-budget.sh [path-to-superpowers-sdd-skill]
 set -uo pipefail
 cd "$(dirname "$0")/.."
-sdd="${1:-$(ls -d ~/.claude/plugins/cache/claude-plugins-official/superpowers/*/skills/subagent-driven-development 2>/dev/null | sort -V | tail -1)}"
-t() { local b=0 f; for f in "$@"; do [ -f "$f" ] && b=$((b + $(wc -c < "$f"))); done; echo $((b / 4)); }
-row() { printf '  %-52s %6s\n' "$1" "$2"; }
+
+latest_sdd_skill() {
+  ls -d ~/.claude/plugins/cache/claude-plugins-official/superpowers/*/skills/subagent-driven-development 2>/dev/null \
+    | sort -V | tail -1
+}
+sdd="${1:-$(latest_sdd_skill)}"
+
+# tokens FILE... — the files that exist, summed, at four bytes a token
+tokens() {
+  local bytes=0 file
+  for file in "$@"; do
+    [ -f "$file" ] && bytes=$((bytes + $(wc -c < "$file")))
+  done
+  echo $((bytes / 4))
+}
+
+# row LABEL FILE... — one line of the table
+row() {
+  local label=$1
+  shift
+  printf '  %-52s %6s\n' "$label" "$(tokens "$@")"
+}
+
+chunked=skills/chunked-delivery
+references=$chunked/references
+screens=skills/react-screen-authoring
+cleanup=skills/comment-cleanup
+guardrails=skills/reuse-guardrails
 
 echo "Controller start (loaded once per run)"
-c=skills/chunked-delivery
-row "chunked-delivery: SKILL + writing + plan" "$(t $c/SKILL.md $c/references/writing.md $c/references/plan.md)"
-[ -n "$sdd" ] && row "+ superpowers SDD SKILL.md" "$(t "$sdd/SKILL.md")"
+row "chunked-delivery: SKILL + writing + plan" $chunked/SKILL.md $references/writing.md $references/plan.md
+[ -n "$sdd" ] && row "+ superpowers SDD SKILL.md" "$sdd/SKILL.md"
+
 echo
 echo "Task reviewer, fixed load before the diff (every task)"
-[ -n "$sdd" ] && row "SDD task-reviewer prompt" "$(t "$sdd/task-reviewer-prompt.md")"
-row "reviewer agent definition" "$(t agents/reviewer.md)"
-row "verifier agent definition" "$(t agents/verifier.md)"
-row "review-routing" "$(t skills/review-routing/SKILL.md)"
-for r in skills/*-review; do
-  n=$(basename "$r"); inv="$r/INVARIANTS.md"; [ -f "$inv" ] || inv="$r/INVENTORY.md"
-  row "$n: CHECKLIST + $(basename "$inv") + template project layer" "$(t "$r/CHECKLIST.md" "$inv" "templates/$n.md")"
+[ -n "$sdd" ] && row "SDD task-reviewer prompt" "$sdd/task-reviewer-prompt.md"
+row "reviewer agent definition" agents/reviewer.md
+row "verifier agent definition" agents/verifier.md
+row "review-routing" skills/review-routing/SKILL.md
+for rubric in skills/*-review; do
+  name=$(basename "$rubric")
+  inventory="$rubric/INVARIANTS.md"
+  [ -f "$inventory" ] || inventory="$rubric/INVENTORY.md"
+  row "$name: CHECKLIST + $(basename "$inventory") + template project layer" \
+    "$rubric/CHECKLIST.md" "$inventory" "templates/$name.md"
 done
+
 echo
 echo "Single-file review entry point (SKILL.md, not loaded in diff review)"
-for r in skills/*-review; do row "$(basename "$r")" "$(t "$r/SKILL.md")"; done
+for rubric in skills/*-review; do
+  row "$(basename "$rubric")" "$rubric/SKILL.md"
+done
+
 echo
 echo "Implementer, loaded before a new screen is written (only those tasks)"
-row "react-screen-authoring: SKILL + CHECKLIST + react-review INVENTORY.md + template project layer" "$(t skills/react-screen-authoring/SKILL.md skills/react-screen-authoring/CHECKLIST.md skills/react-review/INVENTORY.md templates/react-screen-authoring.md)"
+row "react-screen-authoring: SKILL + CHECKLIST + react-review INVENTORY.md + template project layer" \
+  $screens/SKILL.md $screens/CHECKLIST.md skills/react-review/INVENTORY.md templates/react-screen-authoring.md
+
 echo
 echo "Loaded only when a comment cleanup is asked for"
-row "comment-cleanup: SKILL + RULES" "$(t skills/comment-cleanup/SKILL.md skills/comment-cleanup/RULES.md)"
+row "comment-cleanup: SKILL + RULES" $cleanup/SKILL.md $cleanup/RULES.md
+
 echo
 echo "Controller, loaded only when its condition is true"
-for f in $c/references/final.md $c/references/static-gate.md $c/references/cross-model.md $c/references/risk-content.md $c/references/long-run.md $c/references/models.md $c/references/review-map.md; do row "${f#skills/}" "$(t "$f")"; done
+for reference in final static-gate cross-model risk-content long-run models review-map; do
+  row "chunked-delivery/references/$reference.md" "$references/$reference.md"
+done
+
 echo
 echo "Loaded only when a tooling chunk is proposed"
-row "delivery-pipeline/STATIC-SETUP.md" "$(t skills/delivery-pipeline/STATIC-SETUP.md)"
-row "reuse-guardrails: SKILL + CHECKLIST" "$(t skills/reuse-guardrails/SKILL.md skills/reuse-guardrails/CHECKLIST.md)"
+row "delivery-pipeline/STATIC-SETUP.md" skills/delivery-pipeline/STATIC-SETUP.md
+row "reuse-guardrails: SKILL + CHECKLIST" $guardrails/SKILL.md $guardrails/CHECKLIST.md
+
 echo
 echo "Skill descriptions in every session's system prompt (chars)"
-row "all skills" "$(grep -h '^description:' skills/*/SKILL.md | wc -c | tr -d ' ')"
+description_chars=$(grep -h '^description:' skills/*/SKILL.md | wc -c | tr -d ' ')
+printf '  %-52s %6s\n' "all skills" "$description_chars"
+
 echo
 echo "Not counted: inventory.sh output (INVENTORY_LIMIT lines per section), scan.sh output, the diff itself."

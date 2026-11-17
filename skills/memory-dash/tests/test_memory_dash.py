@@ -30,6 +30,9 @@ class CollectTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp()
+        # A fresh checkout stamps every file with today; the stale flag needs an old one.
+        old = 1735689600  # 2025-01-01
+        os.utime(os.path.join(ROOT, CUR, "memory", "db_host.md"), (old, old))
         cls.inv = collect(os.path.join(cls.tmp, "inventory.json"))
         cls.p = cls.inv["projects"][CUR]
         cls.by_file = {m["file"]: m for m in cls.p["memories"]}

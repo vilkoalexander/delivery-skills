@@ -26,99 +26,164 @@
 #   RISK_DIFF_FILE      read the diff from this file instead of git
 set -uo pipefail
 
-MAX_LOW="${RISK_MAX_LOW_FILES:-5}"
-cfg() { node "$(dirname "$0")/config.mjs" get "$1" 2>/dev/null; }
-RISK_HIGH="${RISK_HIGH:-$(cfg risk.high)}"
-RISK_MEDIUM="${RISK_MEDIUM:-$(cfg risk.medium)}"
+here=$(cd "$(dirname "$0")" && pwd)
+max_low_files="${RISK_MAX_LOW_FILES:-5}"
+
+from_config() {
+  node "$here/config.mjs" get "$1" 2>/dev/null
+}
+project_high="${RISK_HIGH:-$(from_config risk.high)}"
+project_medium="${RISK_MEDIUM:-$(from_config risk.medium)}"
 
 if [ $# -gt 0 ]; then
   paths=("$@")
 else
   paths=()
-  while IFS= read -r line; do [ -n "$line" ] && paths+=("$line"); done
+  while IFS= read -r line; do
+    [ -n "$line" ] && paths+=("$line")
+  done
 fi
-[ ${#paths[@]} -eq 0 ] && { echo "usage: risk.sh <path>... | git diff --name-only | risk.sh" >&2; exit 2; }
+if [ ${#paths[@]} -eq 0 ]; then
+  echo "usage: risk.sh <path>... | git diff --name-only | risk.sh" >&2
+  exit 2
+fi
 
-# Returns "class<TAB>rule" for one path. High rules first, then low, then medium.
-classify() {
-  local p="$1"
-  if [ -n "${RISK_HIGH:-}" ] && [[ "$p" =~ ${RISK_HIGH} ]]; then echo $'high\tRISK_HIGH'; return; fi
-  if [ -n "${RISK_MEDIUM:-}" ] && [[ "$p" =~ ${RISK_MEDIUM} ]]; then echo $'medium\tRISK_MEDIUM'; return; fi
-
+# ------------------------------------------------------------ path rules
+# class :: rule :: pattern (ERE over the path). The first line that matches wins.
+rules=(
   # high — one-way doors
-  [[ "$p" =~ \.prisma$ || "$p" =~ (^|/)migrations/ || "$p" =~ \.sql$ ]] && { echo $'high\tschema or migration'; return; }
-  [[ "$p" =~ (^|/)(libs|packages)/(shared|contracts|api-types|api-contract)(/|$) ]] && { echo $'high\tshared contract package'; return; }
-  [[ "$p" =~ (^|/)(auth|guards|strategies|session)(/|\.) || "$p" =~ \.(guard|strategy)\.ts$ || "$p" =~ (jwt|passport|oauth) ]] && { echo $'high\tauth, guard, session'; return; }
-  [[ "$p" =~ (payment|billing|ledger|invoice|checkout|wallet|stripe|subscription) ]] && { echo $'high\tmoney path'; return; }
-  [[ "$p" =~ (^|/)\.env(\.|$) || "$p" =~ (secret|credential) ]] && { echo $'high\tenv or secrets'; return; }
-  [[ "$p" =~ (^|/)\.github/workflows/ || "$p" =~ (^|/)(Dockerfile|docker-compose[^/]*|helm|terraform|k8s|deploy|infra)(/|\.|$) ]] && { echo $'high\tCI, deploy, infra'; return; }
+  'high :: schema or migration :: \.prisma$|(^|/)migrations/|\.sql$'
+  'high :: shared contract package :: (^|/)(libs|packages)/(shared|contracts|api-types|api-contract)(/|$)'
+  'high :: auth, guard, session :: (^|/)(auth|guards|strategies|session)(/|\.)|\.(guard|strategy)\.ts$|(jwt|passport|oauth)'
+  'high :: money path :: (payment|billing|ledger|invoice|checkout|wallet|stripe|subscription)'
+  'high :: env or secrets :: (^|/)\.env(\.|$)|(secret|credential)'
+  'high :: CI, deploy, infra :: (^|/)\.github/workflows/|(^|/)(Dockerfile|docker-compose[^/]*|helm|terraform|k8s|deploy|infra)(/|\.|$)'
 
   # low — local, visible, cheap
-  [[ "$p" =~ \.(spec|test)\.[cm]?[jt]sx?$ || "$p" =~ (^|/)(__tests__|test|tests|e2e|cypress|playwright)/ ]] && { echo $'low\ttests'; return; }
-  [[ "$p" =~ \.(md|mdx|txt)$ || "$p" =~ (^|/)docs/ ]] && { echo $'low\tdocs'; return; }
-  [[ "$p" =~ \.(css|scss|sass|less|styl)$ || "$p" =~ (^|/)(styles|theme|assets|public|static|fonts|images)/ ]] && { echo $'low\tstyling or assets'; return; }
-  [[ "$p" =~ (^|/)(i18n|locales|translations)/ ]] && { echo $'low\tcopy, i18n'; return; }
-  [[ "$p" =~ (eslint|prettier|editorconfig|tsconfig|vitest|jest|babel|vite|webpack)[^/]*$ || "$p" =~ (^|/)\.(vscode|idea)/ ]] && { echo $'low\tdev tooling config'; return; }
-  [[ "$p" =~ (^|/)(features|pages|views|screens|routes)/.*\.(tsx|jsx|vue|svelte|html)$ || "$p" =~ (^|/)(features|pages|views|screens)/.*\.component\.ts$ ]] && { echo $'low\tfeature-local UI'; return; }
+  'low :: tests :: \.(spec|test)\.[cm]?[jt]sx?$|(^|/)(__tests__|test|tests|e2e|cypress|playwright)/'
+  'low :: docs :: \.(md|mdx|txt)$|(^|/)docs/'
+  'low :: styling or assets :: \.(css|scss|sass|less|styl)$|(^|/)(styles|theme|assets|public|static|fonts|images)/'
+  'low :: copy, i18n :: (^|/)(i18n|locales|translations)/'
+  'low :: dev tooling config :: (eslint|prettier|editorconfig|tsconfig|vitest|jest|babel|vite|webpack)[^/]*$|(^|/)\.(vscode|idea)/'
+  'low :: feature-local UI :: (^|/)(features|pages|views|screens|routes)/.*\.(tsx|jsx|vue|svelte|html)$|(^|/)(features|pages|views|screens)/.*\.component\.ts$'
 
   # medium — shared behaviour, reversible
-  [[ "$p" =~ \.(service|controller|module|resolver|interceptor|filter|pipe|middleware)\.ts$ ]] && { echo $'medium\tNestJS unit'; return; }
-  [[ "$p" =~ (^|/)(components/ui|hooks|lib|utils|shared|common|store|state|api|services)(/|$) ]] && { echo $'medium\tshared primitive, hook or util'; return; }
-  [[ "$p" =~ (^|/)package\.json$ || "$p" =~ (^|/)(pnpm-lock\.yaml|package-lock\.json|yarn\.lock)$ ]] && { echo $'medium\tdependency change'; return; }
-  [[ "$p" =~ \.(tsx|jsx|vue|svelte)$ || "$p" =~ \.component\.ts$ || "$p" =~ \.html$ ]] && { echo $'low\tleaf component'; return; }
+  'medium :: NestJS unit :: \.(service|controller|module|resolver|interceptor|filter|pipe|middleware)\.ts$'
+  'medium :: shared primitive, hook or util :: (^|/)(components/ui|hooks|lib|utils|shared|common|store|state|api|services)(/|$)'
+  'medium :: dependency change :: (^|/)package\.json$|(^|/)(pnpm-lock\.yaml|package-lock\.json|yarn\.lock)$'
 
-  echo $'medium\tno rule matched — unsure is medium'
+  'low :: leaf component :: \.(tsx|jsx|vue|svelte)$|\.component\.ts$|\.html$'
+)
+
+# Prints "class<TAB>rule" for one path.
+classify() {
+  local path=$1 rule class name pattern
+  if [ -n "$project_high" ] && [[ $path =~ $project_high ]]; then
+    printf 'high\tRISK_HIGH\n'
+    return
+  fi
+  if [ -n "$project_medium" ] && [[ $path =~ $project_medium ]]; then
+    printf 'medium\tRISK_MEDIUM\n'
+    return
+  fi
+
+  for rule in "${rules[@]}"; do
+    class=${rule%% :: *}
+    rule=${rule#* :: }
+    name=${rule%% :: *}
+    pattern=${rule#* :: }
+    if [[ $path =~ $pattern ]]; then
+      printf '%s\t%s\n' "$class" "$name"
+      return
+    fi
+  done
+  printf 'medium\tno rule matched — unsure is medium\n'
 }
 
-rank() { case "$1" in high) echo 3;; medium) echo 2;; *) echo 1;; esac; }
+rank_of() {
+  case "$1" in
+    high)   echo 3 ;;
+    medium) echo 2 ;;
+    *)      echo 1 ;;
+  esac
+}
 
-top=1
-floors=$(mktemp); trap 'rm -f "$floors"' EXIT
-for p in "${paths[@]}"; do
-  IFS=$'\t' read -r cls rule < <(classify "$p")
-  printf '%-7s %s  (%s)\n' "$cls" "$p" "$rule"
-  printf '%s\t%s\n' "$cls" "$p" >> "$floors"
-  r=$(rank "$cls"); [ "$r" -gt "$top" ] && top=$r
+class_of() {
+  case "$1" in
+    3) echo high ;;
+    2) echo medium ;;
+    *) echo low ;;
+  esac
+}
+
+# --------------------------------------------------------- class for the set
+floors=$(mktemp)
+trap 'rm -f "$floors"' EXIT
+
+highest=1
+for path in "${paths[@]}"; do
+  IFS=$'\t' read -r class rule < <(classify "$path")
+  printf '%-7s %s  (%s)\n' "$class" "$path" "$rule"
+  printf '%s\t%s\n' "$class" "$path" >> "$floors"
+  rank=$(rank_of "$class")
+  [ "$rank" -gt "$highest" ] && highest=$rank
 done
 
-n=${#paths[@]}
+file_count=${#paths[@]}
 note=""
-if [ "$n" -gt "$MAX_LOW" ] && [ "$top" -lt 2 ]; then top=2; note="  (raised: $n files > RISK_MAX_LOW_FILES=$MAX_LOW)"; fi
-case "$top" in 3) cls=high;; 2) cls=medium;; *) cls=low;; esac
-echo "files: $n"
-dep_paths=$(grep -cE $'\t''(.*/)?(package\.json|pnpm-lock\.yaml|package-lock\.json|yarn\.lock)$' "$floors")
-[ "$dep_paths" -gt 0 ] && [ "$dep_paths" -lt "$n" ] && echo "mixed: dependency change shares the chunk with other paths ($((n - dep_paths))); a version bump goes in its own chunk"
+if [ "$file_count" -gt "$max_low_files" ] && [ "$highest" -lt 2 ]; then
+  highest=2
+  note="  (raised: $file_count files > RISK_MAX_LOW_FILES=$max_low_files)"
+fi
+class=$(class_of "$highest")
+echo "files: $file_count"
+
+manifest=$'\t''(.*/)?(package\.json|pnpm-lock\.yaml|package-lock\.json|yarn\.lock)$'
+dependency_paths=$(grep -cE "$manifest" "$floors")
+if [ "$dependency_paths" -gt 0 ] && [ "$dependency_paths" -lt "$file_count" ]; then
+  echo "mixed: dependency change shares the chunk with other paths ($((file_count - dependency_paths))); a version bump goes in its own chunk"
+fi
 
 # ---------------------------------------------------------------- router
-here=$(cd "$(dirname "$0")" && pwd)
 if [ -z "${TYPESAFE_API_KEY:-}" ] || [ "${RISK_CONTENT:-on}" = "off" ]; then
-  echo "class: $cls$note"
+  echo "class: $class$note"
   echo "escalators: controller"
   exit 0
 fi
 
 # Collect the hunks. A path git diff does not know (new, untracked) gets a
 # whole-file diff so the content pass still sees it.
-diff_for() {
-  if [ -n "${RISK_DIFF_FILE:-}" ]; then cat "$RISK_DIFF_FILE"; return; fi
-  local out; out=$(git diff ${RISK_DIFF_RANGE:-} -- "${paths[@]}" 2>/dev/null)
-  printf '%s\n' "$out"
-  local p
-  for p in "${paths[@]}"; do
-    [ -f "$p" ] || continue
+diff_for_content_pass() {
+  if [ -n "${RISK_DIFF_FILE:-}" ]; then
+    cat "$RISK_DIFF_FILE"
+    return
+  fi
+
+  local tracked path
+  # shellcheck disable=SC2086
+  tracked=$(git diff ${RISK_DIFF_RANGE:-} -- "${paths[@]}" 2>/dev/null)
+  printf '%s\n' "$tracked"
+
+  for path in "${paths[@]}"; do
+    [ -f "$path" ] || continue
     # Seen already (as a change or as the target of a rename)? A substring
     # test, not a pipe into grep -q: on a large diff grep exits first and the
     # writer takes SIGPIPE, which pipefail reads as "not found".
-    [[ "$out" == *"diff --git a/"*" b/$p"$'\n'* ]] && continue
-    git diff --no-index -- /dev/null "$p" 2>/dev/null | sed "1s#a/dev/null b/$p#a/$p b/$p#"
+    [[ $tracked == *"diff --git a/"*" b/$path"$'\n'* ]] && continue
+    git diff --no-index -- /dev/null "$path" 2>/dev/null \
+      | sed "1s#a/dev/null b/$path#a/$path b/$path#"
   done
   return 0
 }
 
-echo "paths: $cls$note"
+echo "paths: $class$note"
 echo "--- content (${RISK_CONTENT_MODEL:-jev-latest})"
-if diff_for | bash "$here/risk-content.sh" --floor "$cls" --floors "$floors"; then
-  if [ "${RISK_CONTENT_DRY:-}" = "1" ]; then echo "escalators: controller  (dry run)"; else echo "escalators: jev"; fi
+if diff_for_content_pass | bash "$here/risk-content.sh" --floor "$class" --floors "$floors"; then
+  if [ "${RISK_CONTENT_DRY:-}" = "1" ]; then
+    echo "escalators: controller  (dry run)"
+  else
+    echo "escalators: jev"
+  fi
 else
   echo "escalators: controller  (content pass failed; apply the escalators yourself)"
   exit 1

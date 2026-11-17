@@ -16,36 +16,71 @@ set -uo pipefail
 
 base="${TEST_LOCK_BASE:-HEAD}"
 allow="${TEST_LOCK_ALLOW:-}"
-is_test='(\.(spec|test)\.[cm]?[jt]sx?$|(^|/)(__tests__|test|tests|e2e)/)'
+test_path='(\.(spec|test)\.[cm]?[jt]sx?$|(^|/)(__tests__|test|tests|e2e)/)'
 assertion='\b(expect|assert)[.(]'
-block='\b(it|test|describe)(\.(each|skip|only|todo))?\('
-disabled='\b(it|test|describe)\.(skip|only|todo)\(|\bx(it|test|describe)\(|\bf(it|describe)\('
+test_block='\b(it|test|describe)(\.(each|skip|only|todo))?\('
+disabled_test='\b(it|test|describe)\.(skip|only|todo)\(|\bx(it|test|describe)\(|\bf(it|describe)\('
 
 paths=("$@")
-if [ ${#paths[@]} -eq 0 ]; then while IFS= read -r l; do [ -n "$l" ] && paths+=("$l"); done; fi
-[ ${#paths[@]} -eq 0 ] && { echo "usage: test-lock.sh <path>... (or paths on stdin)" >&2; exit 2; }
+if [ ${#paths[@]} -eq 0 ]; then
+  while IFS= read -r line; do
+    [ -n "$line" ] && paths+=("$line")
+  done
+fi
+if [ ${#paths[@]} -eq 0 ]; then
+  echo "usage: test-lock.sh <path>... (or paths on stdin)" >&2
+  exit 2
+fi
 
-count() { grep -E "^$1" <<<"$diff" | grep -vE '^(\+\+\+|---) ' | grep -cE "$2"; }
+# count_lines DIFF SIGN REGEX — how many removed (-) or added (\+) lines of the diff match
+count_lines() {
+  grep -E "^$2" <<< "$1" | grep -vE '^(\+\+\+|---) ' | grep -cE "$3"
+}
 
-weakened=(); allowed=()
-for p in "${paths[@]}"; do
-  [[ "$p" =~ $is_test ]] || continue
-  git cat-file -e "$base:$p" 2>/dev/null || continue
-  why=()
-  if [ ! -f "$p" ]; then
-    why+=("deleted")
-  else
-    diff=$(git diff "$base" -- "$p")
-    n=$(count - "$assertion"); [ "$n" -gt 0 ] && why+=("$n assertion line(s) removed or rewritten")
-    n=$(( $(count - "$block") - $(count '\+' "$block") )); [ "$n" -gt 0 ] && why+=("$n test block(s) removed")
-    n=$(count '\+' "$disabled"); [ "$n" -gt 0 ] && why+=("$n skip/only/todo added")
+# Prints why a test file counts as weakened, reasons joined by "; ". Nothing when it was not.
+weakening_of() {
+  local path=$1 diff reasons=()
+  if [ ! -f "$path" ]; then
+    echo "deleted"
+    return
   fi
-  [ ${#why[@]} -eq 0 ] && continue
-  line="$p — $(IFS=';'; echo "${why[*]}" | sed 's/;/; /g')"
-  if [ -n "$allow" ] && [[ "$p" =~ $allow ]]; then allowed+=("$line"); else weakened+=("$line"); fi
+
+  diff=$(git diff "$base" -- "$path")
+  local assertions_removed blocks_removed disabled_added
+  assertions_removed=$(count_lines "$diff" - "$assertion")
+  blocks_removed=$(( $(count_lines "$diff" - "$test_block") - $(count_lines "$diff" '\+' "$test_block") ))
+  disabled_added=$(count_lines "$diff" '\+' "$disabled_test")
+
+  [ "$assertions_removed" -gt 0 ] && reasons+=("$assertions_removed assertion line(s) removed or rewritten")
+  [ "$blocks_removed" -gt 0 ] && reasons+=("$blocks_removed test block(s) removed")
+  [ "$disabled_added" -gt 0 ] && reasons+=("$disabled_added skip/only/todo added")
+  [ ${#reasons[@]} -gt 0 ] || return 0
+
+  local joined
+  joined=$(printf '%s; ' "${reasons[@]}")
+  echo "${joined%; }"
+}
+
+weakened=()
+allowed=()
+for path in "${paths[@]}"; do
+  [[ $path =~ $test_path ]] || continue
+  git cat-file -e "$base:$path" 2> /dev/null || continue
+
+  reasons=$(weakening_of "$path")
+  [ -n "$reasons" ] || continue
+
+  if [ -n "$allow" ] && [[ $path =~ $allow ]]; then
+    allowed+=("$path — $reasons")
+  else
+    weakened+=("$path — $reasons")
+  fi
 done
 
-[ ${#allowed[@]} -gt 0 ] && { echo "test lock: allowed by TEST_LOCK_ALLOW"; printf '  %s\n' "${allowed[@]}"; }
+if [ ${#allowed[@]} -gt 0 ]; then
+  echo "test lock: allowed by TEST_LOCK_ALLOW"
+  printf '  %s\n' "${allowed[@]}"
+fi
 if [ ${#weakened[@]} -eq 0 ]; then
   echo "test lock: no existing test was weakened"
   exit 0

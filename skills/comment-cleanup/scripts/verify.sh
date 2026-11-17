@@ -13,7 +13,8 @@
 # renamed.
 set -uo pipefail
 
-strip() {
+# Removes comments and all whitespace, so two versions of a line compare equal when only comments differ.
+strip_comments() {
   sed -E \
     -e 's#\{[[:space:]]*/\*.*\*/[[:space:]]*\}##g' \
     -e 's#/\*.*\*/##g' \
@@ -24,33 +25,40 @@ strip() {
     -e '/^$/d'
 }
 
-bad=0; n=0
+# code_on_side DIFF SIGN — the code left on the removed (-) or added (+) side of a diff
+code_on_side() {
+  local file_header
+  if [ "$2" = "-" ]; then file_header='^---'; else file_header='^+++'; fi
+  printf '%s\n' "$1" | grep "^[$2]" | grep -v "$file_header" | sed 's/^.//' | strip_comments
+}
 
-moved=$(git status --porcelain -- "$@" | grep -vE '^( M|M |MM) ')
-if [ -n "$moved" ]; then
-  printf 'NOT A COMMENT CHANGE — files added, deleted or renamed:\n%s\n\n' "$moved"
-  bad=1
+failed=0
+changed_count=0
+
+added_deleted_or_renamed=$(git status --porcelain -- "$@" | grep -vE '^( M|M |MM) ')
+if [ -n "$added_deleted_or_renamed" ]; then
+  printf 'NOT A COMMENT CHANGE — files added, deleted or renamed:\n%s\n\n' "$added_deleted_or_renamed"
+  failed=1
 fi
 
-while IFS= read -r f; do
-  [ -z "$f" ] && continue
-  n=$((n + 1))
-  d=$(git diff -U0 -- "$f")
-  minus=$(printf '%s\n' "$d" | grep '^-' | grep -v '^---' | sed 's/^-//' | strip)
-  plus=$(printf '%s\n' "$d" | grep '^+' | grep -v '^+++' | sed 's/^+//' | strip)
-  if [ "$minus" != "$plus" ]; then
-    printf 'CODE CHANGED — %s\n' "$f"
-    diff <(printf '%s\n' "$minus") <(printf '%s\n' "$plus") | grep '^[<>]' | head -n 20
-    echo
-    bad=1
-  fi
-done <<EOF
-$(git diff --name-only -- "$@")
-EOF
+while IFS= read -r file; do
+  [ -n "$file" ] || continue
+  changed_count=$((changed_count + 1))
 
-if [ "$bad" -eq 0 ]; then
-  echo "ok: $n file(s) changed, comment lines only"
+  diff=$(git diff -U0 -- "$file")
+  removed_code=$(code_on_side "$diff" -)
+  added_code=$(code_on_side "$diff" +)
+  [ "$removed_code" = "$added_code" ] && continue
+
+  printf 'CODE CHANGED — %s\n' "$file"
+  diff <(printf '%s\n' "$removed_code") <(printf '%s\n' "$added_code") | grep '^[<>]' | head -n 20
+  echo
+  failed=1
+done < <(git diff --name-only -- "$@")
+
+if [ "$failed" -eq 0 ]; then
+  echo "ok: $changed_count file(s) changed, comment lines only"
 else
-  echo "FAILED: $n file(s) changed, see above"
+  echo "FAILED: $changed_count file(s) changed, see above"
 fi
-exit "$bad"
+exit "$failed"

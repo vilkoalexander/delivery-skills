@@ -10,14 +10,30 @@
 set -uo pipefail
 
 file="${1:-}"
-[ -z "$file" ] && { echo "usage: scan.sh <test file>" >&2; exit 1; }
-[ -f "$file" ] || { echo "not found: $file" >&2; exit 1; }
+if [ -z "$file" ]; then
+  echo "usage: scan.sh <test file>" >&2
+  exit 1
+fi
+if [ ! -f "$file" ]; then
+  echo "not found: $file" >&2
+  exit 1
+fi
 
-hits=0
+found_any=0
+
+# flag LABEL [LINES] — prints a finding, with the lines that caused it when there are any
+flag() {
+  printf '## %s\n' "$1"
+  [ -n "${2:-}" ] && printf '%s\n' "$2"
+  printf '\n'
+  found_any=1
+}
+
+# report LABEL REGEX — flags every line of the file that matches
 report() {
-  local out
-  out=$(grep -nE "$2" "$file")
-  if [ -n "$out" ]; then printf '## %s\n%s\n\n' "$1" "$out"; hits=1; fi
+  local matches
+  matches=$(grep -nE "$2" "$file")
+  [ -n "$matches" ] && flag "$1" "$matches"
 }
 
 # --- can it fail --------------------------------------------------------------
@@ -30,25 +46,28 @@ report "Weak assertion — passes for any non-empty result, check a value is ass
 report "Assertion on a mock call — fine as a second assertion, not the first" \
   'toHaveBeenCalled(Times|With)?\('
 report "Assertion inside a condition or catch — may never run" \
-  '^[[:space:]]*(if|else|catch)\b.*\{[[:space:]]*$|\.catch\(.*expect'
+  '^[[:space:]]*(\}[[:space:]]*)?(if|else|catch)\b.*\{[[:space:]]*$|\.catch\(.*expect'
 report "Swallowed act — try/catch around the code under test" \
   '^[[:space:]]*try[[:space:]]*\{'
 
 # Test blocks with no assertion at all: count it/test blocks vs expect/assert.
-blocks=$(grep -cE '^\s*(it|test)\(' "$file")
-asserts=$(grep -cE '\b(expect|assert)[.(]' "$file")
-if [ "$blocks" -gt 0 ] && [ "$asserts" -lt "$blocks" ]; then
-  printf '## Fewer assertions (%s) than test blocks (%s) — some test asserts nothing\n\n' "$asserts" "$blocks"
-  hits=1
+test_blocks=$(grep -cE '^\s*(it|test)\(' "$file")
+assertions=$(grep -cE '\b(expect|assert)[.(]' "$file")
+if [ "$test_blocks" -gt 0 ] && [ "$assertions" -lt "$test_blocks" ]; then
+  flag "Fewer assertions ($assertions) than test blocks ($test_blocks) — some test asserts nothing"
 fi
 
 # --- mocking ------------------------------------------------------------------
 # The subject is whatever is imported from a relative path and not a helper dir.
-subject=$(grep -oE "from ['\"](\.\.?/[^'\"]+)['\"]" "$file" | grep -vE 'test-utils|testing|fixtures|factories|__mocks__|mocks|helpers' | head -1 | sed -E "s/from ['\"](.*)['\"]/\1/")
+helper_dirs='test-utils|testing|fixtures|factories|__mocks__|mocks|helpers'
+subject=$(grep -oE "from ['\"](\.\.?/[^'\"]+)['\"]" "$file" \
+  | grep -vE "$helper_dirs" \
+  | head -1 \
+  | sed -E "s/from ['\"](.*)['\"]/\1/")
 if [ -n "$subject" ]; then
-  esc=$(printf '%s' "$subject" | sed 's/[.[\*^$/]/\\&/g')
+  subject_regex=$(printf '%s' "$subject" | sed 's/[.[\*^$/]/\\&/g')
   report "Mocks the module under test ($subject)" \
-    "(vi|jest)\.mock\(['\"]${esc}['\"]"
+    "(vi|jest)\.mock\(['\"]${subject_regex}['\"]"
 fi
 report "Mock typed any — shape can drift from the real dependency" \
   'as any\b.*(mock|Mock)|(mock|Mock).*as any\b|: any = .*(mock|jest\.fn|vi\.fn)'
@@ -61,11 +80,12 @@ report "Real time — use fake timers or await the condition" \
 report "Long waitFor timeout — usually hides a race" \
   'waitFor\(.*timeout: *[0-9]{4,}'
 report "Random data without a seed" \
-  'Math\.random\(|faker\.[a-z]+\.[a-zA-Z]+\(' 
+  'Math\.random\(|faker\.[a-z]+\.[a-zA-Z]+\('
 report "Module-level mutable state — check it is reset in beforeEach" \
   '^(let|var) [A-Za-z_]+ *= *(\[\]|\{\}|new Map|new Set|0|null)'
-out=$(grep -nE '\b(fetch|axios|got)\(|\bfs\.(read|write)|https?://' "$file" | grep -vE 'localhost|127\.0\.0\.1')
-[ -n "$out" ] && { printf '## Real network or filesystem in a unit test\n%s\n\n' "$out"; hits=1; }
+
+real_io=$(grep -nE '\b(fetch|axios|got)\(|\bfs\.(read|write)|https?://' "$file" | grep -vE 'localhost|127\.0\.0\.1')
+[ -n "$real_io" ] && flag "Real network or filesystem in a unit test" "$real_io"
 
 # --- snapshots ----------------------------------------------------------------
 report "Snapshot — proves unchanged, not correct; check it is not the only assertion" \
@@ -81,5 +101,5 @@ report "console.* in a test" \
 report "TODO/FIXME — confirm intentional" \
   '(TODO|FIXME|XXX)'
 
-[ "$hits" -eq 0 ] && echo "clean — no mechanical smells"
+[ "$found_any" -eq 0 ] && echo "clean — no mechanical smells"
 exit 0

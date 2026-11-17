@@ -13,101 +13,114 @@
 set -uo pipefail
 
 file="${1:-}"
-[ -z "$file" ] && { echo "usage: scan.sh <file.ts>" >&2; exit 1; }
-[ -f "$file" ] || { echo "not found: $file" >&2; exit 1; }
-
-TENANT="${TENANT_FIELD-tenantId}"
-UNSCOPED="${EXEMPT_MODELS:-__none__}"
-
-hits=0
-report() {
-  local out
-  out=$(grep -nE "$2" "$file")
-  if [ -n "$out" ]; then printf '## %s\n%s\n\n' "$1" "$out"; hits=1; fi
-}
-emit() { printf '## %s\n%s\n\n' "$1" "$2"; hits=1; }
-
-# --- inside a $transaction callback -----------------------------------------
-tx=$(awk '
-  intx {
-    if ($0 ~ /this\.prisma\./)
-      printf "%d: %s  <- outer client inside tx\n", NR, $0
-    if ($0 ~ /fetch\(|axios\.|https?\.request|httpService|\.publish\(|\.emit\(/)
-      printf "%d: %s  <- network/queue call inside tx\n", NR, $0
-    d += gsub(/\{/,"{") - gsub(/\}/,"}")
-    if (d <= 0) intx = 0
-    next
-  }
-  /\$transaction\(/ { intx = 1; d = gsub(/\{/,"{") - gsub(/\}/,"}") }
-' "$file")
-[ -n "$tx" ] && emit "Inside a \$transaction callback — use tx, and no network calls" "$tx"
-
-# --- tenant scoping ----------------------------------------------------------
-if [ -n "$TENANT" ]; then
-  noscope=$(awk -v unscoped="$UNSCOPED" -v tenant="$TENANT" '
-    { L[NR] = $0 }
-    END {
-      for (i = 1; i <= NR; i++) {
-        if (L[i] !~ /(this\.prisma|prisma|tx)\.[a-zA-Z]+\.(findFirst|findMany|findUnique|updateMany|deleteMany|update|delete|count|aggregate|groupBy)\(/) continue
-        if (L[i] ~ ("(this\\.prisma|prisma|tx)\\.(" unscoped ")\\.")) continue
-        found = 0
-        for (j = i; j <= i + 15 && j <= NR; j++) if (L[j] ~ tenant) found = 1
-        for (j = i - 20; j < i; j++) if (j > 0 && L[j] ~ tenant) found = 1
-        if (!found) printf "%d: %s\n", i, L[i]
-      }
-    }
-  ' "$file")
-  [ -n "$noscope" ] && emit "Prisma call with no $TENANT within 15 lines — verify the model is genuinely non-tenant" "$noscope"
-
-  fu=$(awk -v unscoped="$UNSCOPED" -v tenant="$TENANT" '
-    { L[NR] = $0 }
-    END {
-      for (i = 1; i <= NR; i++) {
-        if (L[i] !~ /(this\.prisma|prisma|tx)\.[a-zA-Z]+\.findUnique\(/) continue
-        if (L[i] ~ ("(this\\.prisma|prisma|tx)\\.(" unscoped ")\\.")) continue
-        scoped = 0
-        for (j = i; j <= i + 5 && j <= NR; j++) if (L[j] ~ tenant) scoped = 1
-        if (!scoped) printf "%d: %s\n", i, L[i]
-      }
-    }
-  ' "$file")
-  [ -n "$fu" ] && emit "findUnique with no $TENANT — only a compound unique including the tenant key can be tenant-scoped; otherwise use findFirst" "$fu"
+if [ -z "$file" ]; then
+  echo "usage: scan.sh <file.ts>" >&2
+  exit 1
+fi
+if [ ! -f "$file" ]; then
+  echo "not found: $file" >&2
+  exit 1
 fi
 
-unbounded=$(awk '
-  { L[NR] = $0 }
-  END {
-    for (i = 1; i <= NR; i++) {
-      if (L[i] !~ /(this\.prisma|prisma|tx)\.[a-zA-Z]+\.findMany\(/) continue
-      found = 0
-      for (j = i; j <= i + 15 && j <= NR; j++) if (L[j] ~ /take:/) found = 1
-      if (!found) printf "%d: %s\n", i, L[i]
+tenant="${TENANT_FIELD-tenantId}"
+exempt_models="${EXEMPT_MODELS:-__none__}"
+
+found_any=0
+
+# flag LABEL LINES — prints a finding with the lines that caused it
+flag() {
+  printf '## %s\n%s\n\n' "$1" "$2"
+  found_any=1
+}
+
+# report LABEL REGEX — flags every line of the file that matches
+report() {
+  local matches
+  matches=$(grep -nE "$2" "$file")
+  [ -n "$matches" ] && flag "$1" "$matches"
+}
+
+# --- inside a $transaction callback -----------------------------------------
+# Follows the braces from each $transaction( and prints what must not be inside.
+misuse_inside_transactions() {
+  awk '
+    in_transaction {
+      if ($0 ~ /this\.prisma\./)
+        printf "%d: %s  <- outer client inside tx\n", NR, $0
+      if ($0 ~ /fetch\(|axios\.|https?\.request|httpService|\.publish\(|\.emit\(/)
+        printf "%d: %s  <- network/queue call inside tx\n", NR, $0
+      depth += gsub(/\{/, "{") - gsub(/\}/, "}")
+      if (depth <= 0) in_transaction = 0
+      next
     }
-  }
-' "$file")
-[ -n "$unbounded" ] && emit "findMany with no take within 15 lines — unbounded query" "$unbounded"
+    /\$transaction\(/ {
+      in_transaction = 1
+      depth = gsub(/\{/, "{") - gsub(/\}/, "}")
+    }
+  ' "$file"
+}
+in_transaction=$(misuse_inside_transactions)
+[ -n "$in_transaction" ] && flag "Inside a \$transaction callback — use tx, and no network calls" "$in_transaction"
+
+# --- tenant scoping ----------------------------------------------------------
+# prisma_calls_without METHODS WORD AFTER BEFORE [EXEMPT]
+# Prints each Prisma call to one of METHODS (an ERE alternation) with no line matching WORD
+# among the AFTER lines from the call on, or the BEFORE lines ahead of it.
+# Calls on a model in EXEMPT (an ERE alternation) are left out.
+prisma_calls_without() {
+  awk -v methods="$1" -v word="$2" -v after="$3" -v before="$4" -v exempt="${5:-__none__}" '
+    { lines[NR] = $0 }
+    END {
+      client = "(this\\.prisma|prisma|tx)\\."
+      for (i = 1; i <= NR; i++) {
+        if (lines[i] !~ (client "[a-zA-Z]+\\.(" methods ")\\(")) continue
+        if (lines[i] ~ (client "(" exempt ")\\.")) continue
+        found = 0
+        for (j = i - before; j <= i + after && j <= NR; j++)
+          if (j > 0 && lines[j] ~ word) found = 1
+        if (!found) printf "%d: %s\n", i, lines[i]
+      }
+    }
+  ' "$file"
+}
+
+if [ -n "$tenant" ]; then
+  reads_and_writes='findFirst|findMany|findUnique|updateMany|deleteMany|update|delete|count|aggregate|groupBy'
+  unscoped=$(prisma_calls_without "$reads_and_writes" "$tenant" 15 20 "$exempt_models")
+  [ -n "$unscoped" ] && flag "Prisma call with no $tenant within 15 lines — verify the model is genuinely non-tenant" "$unscoped"
+
+  unscoped_unique=$(prisma_calls_without 'findUnique' "$tenant" 5 0 "$exempt_models")
+  [ -n "$unscoped_unique" ] && flag "findUnique with no $tenant — only a compound unique including the tenant key can be tenant-scoped; otherwise use findFirst" "$unscoped_unique"
+fi
+
+unbounded=$(prisma_calls_without 'findMany' 'take:' 15 0)
+[ -n "$unbounded" ] && flag "findMany with no take within 15 lines — unbounded query" "$unbounded"
 
 # --- async correctness (no type-aware lint) ----------------------------------
-unawaited=$(grep -nE '^[[:space:]]*(this\.prisma|tx)\.[a-zA-Z]+\.' "$file" \
-  | grep -vE 'await|return|=' || true)
-[ -n "$unawaited" ] && emit "Prisma call that is neither awaited, returned, nor assigned" "$unawaited"
+floating=$(grep -nE '^[[:space:]]*(this\.prisma|tx)\.[a-zA-Z]+\.' "$file" | grep -vE 'await|return|=' || true)
+[ -n "$floating" ] && flag "Prisma call that is neither awaited, returned, nor assigned" "$floating"
 report "async ngOnInit / async lifecycle-style hook — a rejected promise there is unhandled" \
   'async (onModuleInit|onApplicationBootstrap)\('
 
 # --- money / ledger ----------------------------------------------------------
 report "Float arithmetic near money — amounts are integer minor units" \
   'parseFloat|toFixed|Math\.round\(.*(Minor|Cents|amount)|/ *100|\* *100'
-money=$(awk '
-  {
-    line = $0
-    while (match(line, /(amount|price|total|balance|fee|cost)[A-Za-z]*[[:space:]]*:[[:space:]]*number/)) {
-      tok = substr(line, RSTART, RLENGTH)
-      if (tok !~ /(Minor|Cents)/) printf "%d: %s\n", NR, $0
-      line = substr(line, RSTART + RLENGTH)
+
+# Prints each line typing a money-named field as number when the name lacks Minor or Cents.
+money_typed_as_plain_number() {
+  awk '
+    {
+      rest = $0
+      while (match(rest, /(amount|price|total|balance|fee|cost)[A-Za-z]*[[:space:]]*:[[:space:]]*number/)) {
+        field = substr(rest, RSTART, RLENGTH)
+        if (field !~ /(Minor|Cents)/) printf "%d: %s\n", NR, $0
+        rest = substr(rest, RSTART + RLENGTH)
+      }
     }
-  }
-' "$file")
-[ -n "$money" ] && emit "A money-ish field typed as plain number without a minor-unit suffix" "$money"
+  ' "$file"
+}
+plain_money=$(money_typed_as_plain_number)
+[ -n "$plain_money" ] && flag "A money-ish field typed as plain number without a minor-unit suffix" "$plain_money"
 
 # --- errors ------------------------------------------------------------------
 report "Exception thrown with a literal string — user-facing messages go through the project's i18n / messages constant" \
@@ -123,30 +136,31 @@ report "process.env read — configuration should be injected" \
 report "any / as any — type it or use unknown + guard" \
   ':[[:space:]]*any\b|as any\b'
 report "Non-null assertion — handle the null instead" \
-  '[A-Za-z0-9_\)\]]![.\[]'
+  '[]A-Za-z0-9_)]!(\.|\[)'
 report "\$use — Prisma middleware is deprecated on 5+; use \$extends" \
   '\$use\('
 
 # --- controllers -------------------------------------------------------------
-if [[ "$file" == *.controller.ts ]]; then
+if [[ $file == *.controller.ts ]]; then
   report "Prisma access in a controller — belongs in the service" 'prisma\.'
   report "Route id param without a Parse*Pipe" "@Param\('[a-zA-Z]*[iI]d'\)[[:space:]]*[a-zA-Z]+:"
   report "req.* read directly — use the project's param decorator" '@Req\(\)|req\.(user|tenant|org)'
 fi
 
 # --- ForbiddenException in a service ----------------------------------------
-if [[ "$file" == *.service.ts ]]; then
-  fb=$(grep -nE 'throw new ForbiddenException' "$file" || true)
-  [ -n "$fb" ] && emit "ForbiddenException in a service — confirm each is an authorization failure, not a cross-tenant miss (which must be 404)" "$fb"
+if [[ $file == *.service.ts ]]; then
+  forbidden=$(grep -nE 'throw new ForbiddenException' "$file" || true)
+  [ -n "$forbidden" ] && flag "ForbiddenException in a service — confirm each is an authorization failure, not a cross-tenant miss (which must be 404)" "$forbidden"
 fi
 
 # --- spec coverage -----------------------------------------------------------
-b=$(basename "$file" .ts); d=$(dirname "$file")
-if [[ "$file" == *.service.ts || "$file" == *.controller.ts ]]; then
-  if [ ! -f "$d/$b.spec.ts" ] && [ ! -f "$d/__tests__/$b.spec.ts" ]; then
-    emit "No spec for this unit" "  expected $d/$b.spec.ts or $d/__tests__/$b.spec.ts"
+unit=$(basename "$file" .ts)
+dir=$(dirname "$file")
+if [[ $file == *.service.ts || $file == *.controller.ts ]]; then
+  if [ ! -f "$dir/$unit.spec.ts" ] && [ ! -f "$dir/__tests__/$unit.spec.ts" ]; then
+    flag "No spec for this unit" "  expected $dir/$unit.spec.ts or $dir/__tests__/$unit.spec.ts"
   fi
 fi
 
-[ "$hits" -eq 0 ] && echo "clean — no mechanical smells"
+[ "$found_any" -eq 0 ] && echo "clean — no mechanical smells"
 exit 0

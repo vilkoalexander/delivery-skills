@@ -6,16 +6,25 @@ input=$(cat)
 run_dir="${DELIVERY_RUN_DIR:-$HOME/.claude/delivery-skills/runs}"
 [ -n "$(ls -A "$run_dir" 2>/dev/null)" ] || exit 0
 
-proj="${CLAUDE_PROJECT_DIR:-}"
-if [ -z "$proj" ] && [[ $input =~ \"cwd\":\"([^\"]*)\" ]]; then proj=${BASH_REMATCH[1]}; fi
-[ -n "$proj" ] || exit 0
-root=$(git -C "$proj" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$proj")
-hash() { if command -v shasum >/dev/null 2>&1; then shasum; else sha1sum; fi | cut -c1-12; }
-id=$(printf '%s' "$root" | hash)
-marker="$run_dir/$id"
+project="${CLAUDE_PROJECT_DIR:-}"
+if [ -z "$project" ] && [[ $input =~ \"cwd\":\"([^\"]*)\" ]]; then
+  project=${BASH_REMATCH[1]}
+fi
+[ -n "$project" ] || exit 0
+root=$(git -C "$project" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$project")
+
+short_hash() {
+  if command -v shasum > /dev/null 2>&1; then shasum; else sha1sum; fi | cut -c1-12
+}
+checkout_id=$(printf '%s' "$root" | short_hash)
+marker="$run_dir/$checkout_id"
 [ -f "$marker" ] || exit 0
 
-if [[ $(<"$marker") =~ \"run\":\"([^\"]+)\" ]]; then run=${BASH_REMATCH[1]}; else run="$id-0"; fi
+if [[ $(< "$marker") =~ \"run\":\"([^\"]+)\" ]]; then
+  run=${BASH_REMATCH[1]}
+else
+  run="$checkout_id-0"
+fi
 events_dir="${DELIVERY_EVENTS_DIR:-$(dirname "$run_dir")/events}"
 
 line=$(EV_RUN="$run" EV_REFUSAL="${EMIT_REFUSAL:-}" jq -c '

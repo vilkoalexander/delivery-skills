@@ -10,69 +10,90 @@
 #   COMMENT_TOP   rows in the per-file table (default 30)
 set -uo pipefail
 
-ext="${COMMENT_EXT:-ts|tsx|js|jsx|mjs|cjs}"
-top="${COMMENT_TOP:-30}"
-skip='(^|/)(node_modules|dist|build|coverage|vendor|generated|__generated__|__snapshots__)/|\.(min|gen|generated)\.|\.d\.ts$'
+extensions="${COMMENT_EXT:-ts|tsx|js|jsx|mjs|cjs}"
+table_rows="${COMMENT_TOP:-30}"
+not_source='(^|/)(node_modules|dist|build|coverage|vendor|generated|__generated__|__snapshots__)/|\.(min|gen|generated)\.|\.d\.ts$'
 
-if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  list=$(git ls-files -- "$@")
+if git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
+  candidates=$(git ls-files -- "$@")
 else
-  list=$(find "${@:-.}" -type f)
+  candidates=$(find "${@:-.}" -type f)
 fi
-files=$(printf '%s\n' "$list" | grep -E "\.($ext)$" | grep -vE "$skip")
-[ -z "$files" ] && { echo "no source files in scope"; exit 0; }
+files=$(printf '%s\n' "$candidates" | grep -E "\.($extensions)$" | grep -vE "$not_source")
+if [ -z "$files" ]; then
+  echo "no source files in scope"
+  exit 0
+fi
 
-all=$(mktemp); tool=$(mktemp); human=$(mktemp)
-trap 'rm -f "$all" "$tool" "$human"' EXIT
+all_comments=$(mktemp)
+for_tools=$(mktemp)
+for_humans=$(mktemp)
+trap 'rm -f "$all_comments" "$for_tools" "$for_humans"' EXIT
 
 # A full-line comment, a block-comment body line, a JSX comment, or a trailing
 # `//` that is not the tail of a URL scheme.
-printf '%s\n' "$files" | tr '\n' '\0' |
-  xargs -0 grep -HnE '^[[:space:]]*(//|/\*|\*)|\{/\*|[^:"'"'"'`/]//[[:space:]]' > "$all" 2>/dev/null
+comment_line='^[[:space:]]*(//|/\*|\*)|\{/\*|[^:"'"'"'`/]//[[:space:]]'
+printf '%s\n' "$files" | tr '\n' '\0' | xargs -0 grep -HnE "$comment_line" > "$all_comments" 2> /dev/null
 
 # Comments a tool reads. RULES.md "Never touched".
 directive='eslint-(disable|enable)|@ts-(expect-error|ignore|nocheck|check)|prettier-ignore|biome-ignore|(istanbul|c8|v8) ignore|webpack[A-Z]|@vite-ignore|<reference |@(jest|vitest)-environment|sourceMappingURL|@license|@preserve|Copyright|SPDX-|@deprecated|@internal|@public'
-grep -E "$directive" "$all" > "$tool"
-grep -vE "$directive" "$all" > "$human"
+grep -E "$directive" "$all_comments" > "$for_tools"
+grep -vE "$directive" "$all_comments" > "$for_humans"
+
+count_lines() {
+  wc -l | tr -d ' '
+}
+
+comments_to_judge=$(count_lines < "$for_humans")
+files_to_judge=$(cut -d: -f1 "$for_humans" | sort -u | count_lines)
+comments_for_tools=$(count_lines < "$for_tools")
 
 echo "## Comment lines"
-echo "$(wc -l < "$human" | tr -d ' ') to judge in $(cut -d: -f1 "$human" | sort -u | wc -l | tr -d ' ') files; $(wc -l < "$tool" | tr -d ' ') lines a tool reads, left alone"
+echo "$comments_to_judge to judge in $files_to_judge files; $comments_for_tools lines a tool reads, left alone"
 echo
-echo "## Per file, densest first (top $top)"
-cut -d: -f1 "$human" | sort | uniq -c | sort -rn | head -n "$top"
+echo "## Per file, densest first (top $table_rows)"
+cut -d: -f1 "$for_humans" | sort | uniq -c | sort -rn | head -n "$table_rows"
 echo
 
-# $1 = label, $2 = regex matched against the comment text only, never the
-# path. $3 = "cs" for a case-sensitive match; the default lowercases the text.
+section() {
+  [ -n "$2" ] && printf '## %s\n%s\n\n' "$1" "$2"
+}
+
+# flag LABEL REGEX [cs] — the regex is matched against the comment text only, never the
+# path. "cs" makes the match case-sensitive; the default lowercases the text first.
 flag() {
-  local out
-  out=$(RE="$2" CS="${3:-}" awk '{
-    t = $0; sub(/^[^:]*:[0-9]+:/, "", t)
-    if (ENVIRON["CS"] == "") t = tolower(t)
-    if (t ~ ENVIRON["RE"]) print
-  }' "$human")
-  [ -n "$out" ] && printf '## %s\n%s\n\n' "$1" "$out"
+  local matches
+  matches=$(REGEX=$2 CASE_SENSITIVE=${3:-} awk '
+    {
+      text = $0
+      sub(/^[^:]*:[0-9]+:/, "", text)
+      if (ENVIRON["CASE_SENSITIVE"] == "") text = tolower(text)
+      if (text ~ ENVIRON["REGEX"]) print
+    }
+  ' "$for_humans")
+  section "$1" "$matches"
 }
 
 flag "Describes the change, not the code — delete" \
   '^[[:space:]]*(\/\/|\/?\*+)[[:space:]]*(added|removed|changed|fixed|refactored|updated|moved|renamed|replaced|migrated|now|new:|old:)[ :]|no longer|previously|used to be|as requested|per (the )?(plan|task|spec|review)|instead of the old'
 flag "Names the outside world: ticket, PR, date, link — delete the reference" \
   'https?:\/\/|(^|[^A-Za-z0-9&])#[0-9]+([^0-9A-Za-z]|$)|(^|[^A-Za-z])(PR|pr|issue|ticket|Issue|Ticket)[ #-]*[0-9]+|(^|[^A-Za-z0-9])[A-Z][A-Z]+-[0-9][0-9]+|20[0-9][0-9]-[01][0-9]-[0-3][0-9]' cs
+# Written out, not {4,}: older mawk has no interval expressions.
 flag "Banner, divider or region marker — delete" \
-  '[-=#~_]{4,}|\*{5,}|#(end)?region'
+  '[-=#~_][-=#~_][-=#~_][-=#~_]|\*\*\*\*\*|#(end)?region'
 flag "Step number — delete, or extract a named function" \
   '^[[:space:]]*(\/\/|\*)[[:space:]]*(step[[:space:]]*)?[0-9]+[.):][[:space:]]'
 flag "Looks like commented-out code — delete" \
   '^[[:space:]]*\/\/[[:space:]]*((const|let|var|import|export|return|await|function|class|if|for|while)[ (]|[})\]]|<\/?[a-z])|^[[:space:]]*\/\/.*[;{][[:space:]]*$'
-out=$(grep -E 'eslint-disable|@ts-(ignore|expect-error|nocheck)' "$tool" |
-  grep -vE -- '--|@ts-(ignore|expect-error|nocheck)[[:space:]:-]+[A-Za-z]')
-[ -n "$out" ] && printf '## Suppression with no reason — report, do not edit\n%s\n\n' "$out"
+
+suppression='eslint-disable|@ts-(ignore|expect-error|nocheck)'
+with_a_reason='--|@ts-(ignore|expect-error|nocheck)[[:space:]:-]+[A-Za-z]'
+section "Suppression with no reason — report, do not edit" \
+  "$(grep -E "$suppression" "$for_tools" | grep -vE -- "$with_a_reason")"
+
 flag "TODO / FIXME — list in the report, do not edit" \
   '(^|[^a-z])(todo|fixme|xxx|hack)([^a-z]|$)'
 
-ts=$(grep -E '^[^:]*\.tsx?:' "$human")
-if [ -n "$ts" ]; then
-  out=$(printf '%s\n' "$ts" | grep -E '@(param|returns?|type)[[:space:]]*\{')
-  [ -n "$out" ] && printf '## JSDoc repeating TypeScript types — delete the tag\n%s\n\n' "$out"
-fi
+section "JSDoc repeating TypeScript types — delete the tag" \
+  "$(grep -E '^[^:]*\.tsx?:' "$for_humans" | grep -E '@(param|returns?|type)[[:space:]]*\{')"
 exit 0

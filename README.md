@@ -67,9 +67,9 @@ is a script, and a model is asked only what is left.
 | `comment-cleanup/scripts/verify.sh` | A cleanup changed comment lines only | After a comment cleanup |
 
 Paths are under `skills/`. Outside a run the hook does nothing, so other
-plugins that commit keep working. The scripts with logic worth breaking have
-tests, run in CI: `guard`, `emit`, `event`, `test-lock`, `drift`, `dep-vet`, `config`, `run-log`,
-`redo`, `risk-content`, `factory-floor`.
+plugins that commit keep working. Every script has tests;
+`bash scripts/test.sh` runs them all, as CI does, and `bash scripts/test.sh risk`
+runs the ones whose path contains a word.
 
 No script decides whether the design is right or the code will age well. That
 is the reviewer's first pass and then yours, which is why chunks are small.

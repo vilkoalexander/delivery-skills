@@ -10,18 +10,34 @@
 set -uo pipefail
 
 file="${1:-}"
-[ -z "$file" ] && { echo "usage: scan.sh <component.tsx>" >&2; exit 1; }
-[ -f "$file" ] || { echo "not found: $file" >&2; exit 1; }
+if [ -z "$file" ]; then
+  echo "usage: scan.sh <component.tsx>" >&2
+  exit 1
+fi
+if [ ! -f "$file" ]; then
+  echo "not found: $file" >&2
+  exit 1
+fi
 
-hits=0
+found_any=0
+
+# flag LABEL [LINES] — prints a finding, with the lines that caused it when there are any
+flag() {
+  printf '## %s\n' "$1"
+  [ -n "${2:-}" ] && printf '%s\n' "$2"
+  printf '\n'
+  found_any=1
+}
+
+# report LABEL REGEX — flags every line of the file that matches
 report() {
-  # $1 = label, $2 = extended-regex
-  local out
-  out=$(grep -nE "$2" "$file")
-  if [ -n "$out" ]; then
-    printf '## %s\n%s\n\n' "$1" "$out"
-    hits=1
-  fi
+  local matches
+  matches=$(grep -nE "$2" "$file")
+  [ -n "$matches" ] && flag "$1" "$matches"
+}
+
+has() {
+  grep -qE "$1" "$file"
 }
 
 # --- styling -----------------------------------------------------------------
@@ -29,9 +45,8 @@ report "Raw hex colors — use a token / theme value" \
   '#[0-9a-fA-F]{3,8}\b'
 report "Arbitrary utility values — use the project's scale" \
   'className=.*-\['
-if grep -qE 'className=' "$file" && grep -qE 'style=\{\{|StyleSheet\.create' "$file"; then
-  printf '## Mixed styling systems — className and style objects in one file\n\n'
-  hits=1
+if has 'className=' && has 'style=\{\{|StyleSheet\.create'; then
+  flag "Mixed styling systems — className and style objects in one file"
 fi
 
 # --- React 19 / hooks ---------------------------------------------------------
@@ -48,7 +63,7 @@ report "Hook after an early return or inside a condition — verify rules-of-hoo
 report "any / as any — type it or use unknown + guard" \
   ':[[:space:]]*any\b|as any\b'
 report "Non-null assertion — handle the null instead" \
-  '[A-Za-z0-9_\)\]]![.\[]'
+  '[]A-Za-z0-9_)]!(\.|\[)'
 
 # --- hygiene -----------------------------------------------------------------
 report "console.* left in" \
@@ -59,19 +74,15 @@ report "TODO/FIXME — confirm intentional (a project may mandate some TODO shap
   '(TODO|FIXME|XXX)'
 
 # --- cross-cutting heuristics ------------------------------------------------
-if grep -q 'ScrollView' "$file" && grep -qE '\.map\(' "$file"; then
-  printf '## .map() inside a ScrollView — virtualize if the list is unbounded\n\n'
-  hits=1
+if has 'ScrollView' && has '\.map\('; then
+  flag ".map() inside a ScrollView — virtualize if the list is unbounded"
 fi
-if grep -qE '<(Pressable|TouchableOpacity|TouchableHighlight)' "$file" \
-   && ! grep -q 'accessibilityRole' "$file"; then
-  printf '## Interactive element with no accessibilityRole anywhere in the file\n\n'
-  hits=1
+if has '<(Pressable|TouchableOpacity|TouchableHighlight)' && ! has 'accessibilityRole'; then
+  flag "Interactive element with no accessibilityRole anywhere in the file"
 fi
-if grep -qE "Platform\.OS *===? *'(ios|android)'" "$file"; then
-  printf '## Platform.OS branch — confirm the other platform has a path too\n\n'
-  hits=1
+if has "Platform\.OS *===? *'(ios|android)'"; then
+  flag "Platform.OS branch — confirm the other platform has a path too"
 fi
 
-[ "$hits" -eq 0 ] && echo "clean — no mechanical smells"
+[ "$found_any" -eq 0 ] && echo "clean — no mechanical smells"
 exit 0

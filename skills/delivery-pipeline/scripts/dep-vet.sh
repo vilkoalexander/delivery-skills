@@ -25,99 +25,184 @@
 #   DEP_REGISTRY, DEP_OSV endpoints (default registry.npmjs.org, api.osv.dev)
 #   DEP_VET=off           print nothing, exit 0
 set -uo pipefail
+set -uo pipefail
 [ "${DEP_VET:-on}" = "off" ] && exit 0
-[ $# -eq 0 ] && { sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+if [ $# -eq 0 ]; then
+  sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//' >&2
+  exit 2
+fi
 
 DELIVERY_CONFIG_MODULE="$(cd "$(dirname "$0")" && pwd)/config.mjs" exec node --input-type=module - "$@" <<'NODE'
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
-const env = process.env;
-const REG = (env.DEP_REGISTRY || 'https://registry.npmjs.org').replace(/\/$/, '');
-const OSV = (env.DEP_OSV || 'https://api.osv.dev').replace(/\/$/, '');
-let deps = {};
-try { const cfg = await import(env.DELIVERY_CONFIG_MODULE); deps = cfg.load({ optional: true }).deps || {}; deps.allow = cfg.ere(deps.allow); } catch {}
-const MIN_AGE = Number(env.DEP_MIN_AGE_DAYS || deps.minAgeDays || 30);
-const MIN_VER = Number(env.DEP_MIN_VERSION_DAYS || deps.minVersionDays || 7);
-const BUDGET = Number(env.DEP_VET_TIMEOUT || 6) * 1000;
-const allow = env.DEP_VET_ALLOW || deps.allow ? new RegExp(env.DEP_VET_ALLOW || deps.allow) : null;
-const signal = AbortSignal.timeout(BUDGET);
-const days = iso => Math.floor((Date.now() - Date.parse(iso)) / 86400000);
-const git = (...a) => { try { return execFileSync('git', a, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); } catch { return ''; } };
 
-function fromDiff(files) {
+const env = process.env;
+const REGISTRY = (env.DEP_REGISTRY || 'https://registry.npmjs.org').replace(/\/$/, '');
+const OSV = (env.DEP_OSV || 'https://api.osv.dev').replace(/\/$/, '');
+
+let config = {};
+try {
+  const configModule = await import(env.DELIVERY_CONFIG_MODULE);
+  config = configModule.load({ optional: true }).deps || {};
+  config.allow = configModule.ere(config.allow);
+} catch {}
+
+const MIN_PACKAGE_AGE_DAYS = Number(env.DEP_MIN_AGE_DAYS || config.minAgeDays || 30);
+const MIN_VERSION_AGE_DAYS = Number(env.DEP_MIN_VERSION_DAYS || config.minVersionDays || 7);
+const allowPattern = env.DEP_VET_ALLOW || config.allow;
+const allowed = allowPattern ? new RegExp(allowPattern) : null;
+const signal = AbortSignal.timeout(Number(env.DEP_VET_TIMEOUT || 6) * 1000);
+
+const MANIFEST = /(^|\/)package\.json$/;
+const REMOTE_SOURCE = /:\/\/|^(git\+|github:|gitlab:|bitbucket:)/;
+const LOCAL_PROTOCOL = /^(workspace|file|link|portal|catalog|patch):/;
+const PACKAGE_NAME = /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/i;
+
+const daysSince = iso => Math.floor((Date.now() - Date.parse(iso)) / 86400000);
+
+function git(...args) {
+  try {
+    return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch {
+    return '';
+  }
+}
+
+function dependenciesOf(manifestText) {
+  try {
+    const manifest = JSON.parse(manifestText || '{}');
+    return { ...manifest.dependencies, ...manifest.devDependencies, ...manifest.optionalDependencies };
+  } catch {
+    return {};
+  }
+}
+
+function changedManifests(range) {
+  const changed = range
+    ? git('diff', '--name-only', range)
+    : git('diff', '--name-only', 'HEAD') + git('ls-files', '--others', '--exclude-standard');
+  return changed.split('\n').filter(file => MANIFEST.test(file) && !file.includes('node_modules/'));
+}
+
+// The specs (name@range) a diff adds or re-versions in the given package.json files.
+function specsFromDiff(files) {
   const range = env.DEP_VET_RANGE || '';
   const [base, head] = range ? range.split('..') : ['HEAD', ''];
-  if (!files.length) {
-    const changed = range ? git('diff', '--name-only', range) : git('diff', '--name-only', 'HEAD') + git('ls-files', '--others', '--exclude-standard');
-    files = changed.split('\n').filter(f => /(^|\/)package\.json$/.test(f) && !f.includes('node_modules/'));
-  }
-  const deps = s => { try { const p = JSON.parse(s || '{}'); return Object.assign({}, p.dependencies, p.devDependencies, p.optionalDependencies); } catch { return {}; } };
+  if (!files.length) files = changedManifests(range);
+
   const specs = new Set();
-  for (const f of files) {
-    if (!/(^|\/)package\.json$/.test(f)) continue;
-    const before = deps(git('show', `${base}:${f}`));
-    let now = '';
-    if (head) now = git('show', `${head}:${f}`); else { try { now = fs.readFileSync(f, 'utf8'); } catch {} }
-    for (const [name, spec] of Object.entries(deps(now))) if (before[name] !== spec) specs.add(`${name}@${spec}`);
+  for (const file of files) {
+    if (!MANIFEST.test(file)) continue;
+    const before = dependenciesOf(git('show', `${base}:${file}`));
+    let afterText = '';
+    if (head) {
+      afterText = git('show', `${head}:${file}`);
+    } else {
+      try { afterText = fs.readFileSync(file, 'utf8'); } catch {}
+    }
+    for (const [name, wanted] of Object.entries(dependenciesOf(afterText))) {
+      if (before[name] !== wanted) specs.add(`${name}@${wanted}`);
+    }
   }
   return [...specs];
 }
 
-function parse(raw) {
-  let s = raw.replace(/^['"]|['"]$/g, '');
-  const alias = s.match(/^(?:@[^/]+\/)?[^@]+@npm:(.+)$/);
-  if (alias) s = alias[1];
-  const at = s.lastIndexOf('@');
-  const name = at > 0 ? s.slice(0, at) : s;
-  const want = at > 0 ? s.slice(at + 1) : '';
-  if (/^(workspace|file|link|portal|catalog|patch):/.test(want) || want === '*') return null;
-  const local = /^(\.|\/|~)/.test(s) || /^(file|link|workspace):/.test(s);
-  if (local) return null;
-  if (/:\/\/|^(git\+|github:|gitlab:|bitbucket:)/.test(s) || /:\/\/|^(git\+|github:|gitlab:|bitbucket:)/.test(want) || !/^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/i.test(name))
-    return { raw: s, foreign: true };
-  return { name, want };
-}
+// Returns { name, wanted } for a registry package, { raw, foreign: true } for one
+// that comes from somewhere else, and null for a local one that needs no vetting.
+function parseSpec(raw) {
+  let spec = raw.replace(/^['"]|['"]$/g, '');
+  const alias = spec.match(/^(?:@[^/]+\/)?[^@]+@npm:(.+)$/);
+  if (alias) spec = alias[1];
 
-async function vet({ name, want }) {
-  const out = [];
-  const res = await fetch(`${REG}/${name.replace('/', '%2F')}`, { signal, headers: { accept: 'application/json' } });
-  if (res.status === 404) return [`BLOCK ${name} — not in the registry; check the name against the docs it came from`];
-  if (!res.ok) return [`SKIP ${name} — registry answered ${res.status}; not vetted`];
-  const doc = await res.json();
-  const versions = doc.versions || {}, tags = doc['dist-tags'] || {}, time = doc.time || {};
-  const base = want.replace(/^[\^~>=<v\s]+/, '').split(/[\s|]/)[0];
-  const version = versions[want] ? want : tags[want] ? tags[want] : versions[base] ? base : tags.latest;
-  const id = `${name}@${version}`;
-  if (time.created && days(time.created) < MIN_AGE) out.push(`BLOCK ${id} — package first published ${days(time.created)} days ago (under ${MIN_AGE})`);
-  else if (time[version] && days(time[version]) < MIN_VER) out.push(`BLOCK ${id} — this version was published ${days(time[version])} days ago (under ${MIN_VER}); pin the one before it`);
-  const scripts = (versions[version] || {}).scripts || {};
-  const hooks = ['preinstall', 'install', 'postinstall'].filter(k => scripts[k]);
-  if (hooks.length) out.push(`FLAG ${id} — runs ${hooks.join(', ')} on install`);
-  try {
-    const r = await fetch(`${OSV}/v1/querybatch`, { method: 'POST', signal, headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ queries: [{ package: { name, ecosystem: 'npm' }, version }] }) });
-    const ids = r.ok ? (((await r.json()).results || [])[0]?.vulns || []).map(v => v.id) : [];
-    const mal = ids.filter(i => i.startsWith('MAL-')), rest = ids.filter(i => !i.startsWith('MAL-'));
-    if (mal.length) out.push(`BLOCK ${id} — reported as malware: ${mal.join(', ')}`);
-    if (rest.length) out.push(`FLAG ${id} — ${rest.length} known advisor${rest.length > 1 ? 'ies' : 'y'}: ${rest.slice(0, 3).join(', ')}${rest.length > 3 ? ', …' : ''}`);
-  } catch { out.push(`SKIP ${id} — advisory database did not answer; advisories not checked`); }
-  return out;
-}
+  const at = spec.lastIndexOf('@');
+  const name = at > 0 ? spec.slice(0, at) : spec;
+  const wanted = at > 0 ? spec.slice(at + 1) : '';
 
-(async () => {
-  const argv = process.argv.slice(2);
-  const raw = argv[0] === '--diff' ? fromDiff(argv.slice(1)) : argv;
-  const lines = [];
-  const jobs = [];
-  for (const r of [...new Set(raw)]) {
-    const p = parse(r);
-    if (!p) continue;
-    if (p.foreign) { lines.push(`FLAG ${p.raw} — not a registry package; nothing to vet it against`); continue; }
-    if (allow && allow.test(p.name)) continue;
-    jobs.push(vet(p).catch(() => [`SKIP ${p.name} — registry did not answer; not vetted`]));
+  if (LOCAL_PROTOCOL.test(wanted) || wanted === '*') return null;
+  if (/^(\.|\/|~)/.test(spec) || /^(file|link|workspace):/.test(spec)) return null;
+  if (REMOTE_SOURCE.test(spec) || REMOTE_SOURCE.test(wanted) || !PACKAGE_NAME.test(name)) {
+    return { raw: spec, foreign: true };
   }
-  for (const r of await Promise.all(jobs)) lines.push(...r);
-  if (lines.length) console.log(lines.join('\n'));
-  process.exit(lines.some(l => l.startsWith('BLOCK ')) ? 1 : 0);
-})();
+  return { name, wanted };
+}
+
+// A range is vetted at its base version (^1.2.3 as 1.2.3), a tag at what it points to, a bare name at latest.
+function resolveVersion(wanted, versions, tags) {
+  if (versions[wanted]) return wanted;
+  if (tags[wanted]) return tags[wanted];
+  const base = wanted.replace(/^[\^~>=<v\s]+/, '').split(/[\s|]/)[0];
+  if (versions[base]) return base;
+  return tags.latest;
+}
+
+async function advisoryFindings(name, version, id) {
+  try {
+    const response = await fetch(`${OSV}/v1/querybatch`, {
+      method: 'POST',
+      signal,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ queries: [{ package: { name, ecosystem: 'npm' }, version }] }),
+    });
+    const advisories = response.ok ? (((await response.json()).results || [])[0]?.vulns || []).map(v => v.id) : [];
+    const malware = advisories.filter(advisory => advisory.startsWith('MAL-'));
+    const others = advisories.filter(advisory => !advisory.startsWith('MAL-'));
+
+    const findings = [];
+    if (malware.length) findings.push(`BLOCK ${id} — reported as malware: ${malware.join(', ')}`);
+    if (others.length) {
+      const noun = others.length > 1 ? 'advisories' : 'advisory';
+      const shown = others.slice(0, 3).join(', ') + (others.length > 3 ? ', …' : '');
+      findings.push(`FLAG ${id} — ${others.length} known ${noun}: ${shown}`);
+    }
+    return findings;
+  } catch {
+    return [`SKIP ${id} — advisory database did not answer; advisories not checked`];
+  }
+}
+
+async function vet({ name, wanted }) {
+  const response = await fetch(`${REGISTRY}/${name.replace('/', '%2F')}`, { signal, headers: { accept: 'application/json' } });
+  if (response.status === 404) return [`BLOCK ${name} — not in the registry; check the name against the docs it came from`];
+  if (!response.ok) return [`SKIP ${name} — registry answered ${response.status}; not vetted`];
+
+  const doc = await response.json();
+  const versions = doc.versions || {};
+  const published = doc.time || {};
+  const version = resolveVersion(wanted, versions, doc['dist-tags'] || {});
+  const id = `${name}@${version}`;
+  const findings = [];
+
+  if (published.created && daysSince(published.created) < MIN_PACKAGE_AGE_DAYS) {
+    findings.push(`BLOCK ${id} — package first published ${daysSince(published.created)} days ago (under ${MIN_PACKAGE_AGE_DAYS})`);
+  } else if (published[version] && daysSince(published[version]) < MIN_VERSION_AGE_DAYS) {
+    findings.push(`BLOCK ${id} — this version was published ${daysSince(published[version])} days ago (under ${MIN_VERSION_AGE_DAYS}); pin the one before it`);
+  }
+
+  const scripts = (versions[version] || {}).scripts || {};
+  const installScripts = ['preinstall', 'install', 'postinstall'].filter(hook => scripts[hook]);
+  if (installScripts.length) findings.push(`FLAG ${id} — runs ${installScripts.join(', ')} on install`);
+
+  findings.push(...(await advisoryFindings(name, version, id)));
+  return findings;
+}
+
+const args = process.argv.slice(2);
+const rawSpecs = args[0] === '--diff' ? specsFromDiff(args.slice(1)) : args;
+
+const lines = [];
+const lookups = [];
+for (const raw of new Set(rawSpecs)) {
+  const spec = parseSpec(raw);
+  if (!spec) continue;
+  if (spec.foreign) {
+    lines.push(`FLAG ${spec.raw} — not a registry package; nothing to vet it against`);
+    continue;
+  }
+  if (allowed && allowed.test(spec.name)) continue;
+  lookups.push(vet(spec).catch(() => [`SKIP ${spec.name} — registry did not answer; not vetted`]));
+}
+for (const findings of await Promise.all(lookups)) lines.push(...findings);
+
+if (lines.length) console.log(lines.join('\n'));
+process.exit(lines.some(line => line.startsWith('BLOCK ')) ? 1 : 0);
 NODE
