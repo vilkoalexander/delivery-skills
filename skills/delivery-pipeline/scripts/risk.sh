@@ -10,8 +10,9 @@
 # it cannot know a signature changed or a caller exists — so it is a floor to
 # tag from, never a verdict.
 #
-#   RISK_HIGH    extra ERE for paths that are always high   (project layer)
+#   RISK_HIGH    extra ERE for paths that are always high
 #   RISK_MEDIUM  extra ERE for paths that are always medium
+#                (default for both: risk.high and risk.medium in docs/review/delivery.json)
 #
 # With TYPESAFE_API_KEY set, the path class becomes a floor and risk-content.sh
 # reads the hunks for the escalators (signature changed, caller sees a change,
@@ -26,6 +27,9 @@
 set -uo pipefail
 
 MAX_LOW="${RISK_MAX_LOW_FILES:-5}"
+cfg() { node "$(dirname "$0")/config.mjs" get "$1" 2>/dev/null; }
+RISK_HIGH="${RISK_HIGH:-$(cfg risk.high)}"
+RISK_MEDIUM="${RISK_MEDIUM:-$(cfg risk.medium)}"
 
 if [ $# -gt 0 ]; then
   paths=("$@")
@@ -82,6 +86,8 @@ note=""
 if [ "$n" -gt "$MAX_LOW" ] && [ "$top" -lt 2 ]; then top=2; note="  (raised: $n files > RISK_MAX_LOW_FILES=$MAX_LOW)"; fi
 case "$top" in 3) cls=high;; 2) cls=medium;; *) cls=low;; esac
 echo "files: $n"
+dep_paths=$(grep -cE $'\t''(.*/)?(package\.json|pnpm-lock\.yaml|package-lock\.json|yarn\.lock)$' "$floors")
+[ "$dep_paths" -gt 0 ] && [ "$dep_paths" -lt "$n" ] && echo "mixed: dependency change shares the chunk with other paths ($((n - dep_paths))); a version bump goes in its own chunk"
 
 # ---------------------------------------------------------------- router
 here=$(cd "$(dirname "$0")" && pwd)

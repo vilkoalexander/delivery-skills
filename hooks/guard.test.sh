@@ -11,7 +11,10 @@ root=$(cd "$here/.." && pwd)
 guard="$root/hooks/guard.sh"
 run="$root/skills/chunked-delivery/scripts/run.sh"
 tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
+node "$root/skills/delivery-pipeline/scripts/dep-vet.fixture.mjs" > "$tmp/port" & server=$!
+trap 'kill $server 2>/dev/null; wait $server 2>/dev/null; rm -rf "$tmp"' EXIT
+for _ in $(seq 50); do [ -s "$tmp/port" ] && break; sleep 0.1; done
+export DEP_REGISTRY="http://127.0.0.1:$(cat "$tmp/port")" DEP_OSV="http://127.0.0.1:$(cat "$tmp/port")"
 
 export DELIVERY_RUN_DIR="$tmp/runs"
 repo="$tmp/repo"
@@ -90,6 +93,37 @@ hook "apply -R allowed"          0 "$(bash_json 'git apply -R /tmp/w/chunk-2.dif
 hook "grep for commit allowed"   0 "$(bash_json 'grep -rn "git commit" docs/')"
 hook "subagent commit blocked"   2 "$(bash_json 'git commit -m x' general-purpose)"
 
+# ---------------------------------------------------------------- package fetches, run active
+hook "install of a known package"        0 "$(bash_json 'npm install lodash')"
+hook "install of an unknown name blocked" 2 "$(bash_json 'npm install lodahs')"
+printf '%s' "$last_err" | grep -q "not in the registry" && printf '%s' "$last_err" | grep -q "DEP_VET_ALLOW" && ok "reason names the package and the way out" || nok "reason names the package and the way out" "$last_err"
+hook "npm i -D young package blocked"    2 "$(bash_json 'npm i -D young-pkg')"
+hook "pnpm add fresh version blocked"    2 "$(bash_json 'pnpm add --filter web fresh-version')"
+hook "pnpm add older pin allowed"        0 "$(bash_json 'pnpm add --filter web fresh-version@1.0.0')"
+hook "yarn add malware blocked"          2 "$(bash_json 'yarn add evil-pkg')"
+hook "bun add after cd blocked"          2 "$(bash_json 'cd apps/web && bun add lodahs')"
+hook "subagent install blocked"          2 "$(bash_json 'npm install lodahs' general-purpose)"
+hook "install script only flags"         0 "$(bash_json 'npm install has-script')"
+hook "npm -w value is not a package"     0 "$(bash_json 'npm install lodash -w not-a-package')"
+hook "npm ci allowed"                    0 "$(bash_json 'npm ci')"
+hook "npm run allowed"                   0 "$(bash_json 'npm run lodahs')"
+hook "npm uninstall allowed"             0 "$(bash_json 'npm uninstall lodahs')"
+hook "npx unknown package blocked"       2 "$(bash_json 'npx lodahs --help')"
+hook "npx -p unknown package blocked"    2 "$(bash_json 'npx -p lodahs some-bin')"
+hook "pnpm dlx unknown blocked"          2 "$(bash_json 'pnpm dlx lodahs')"
+hook "npx --no-install allowed"          0 "$(bash_json 'npx --no-install lodahs')"
+mkdir -p "$repo/node_modules/.bin" && touch "$repo/node_modules/.bin/lodahs"
+hook "npx of a local bin allowed"        0 "$(bash_json 'npx lodahs --help')"
+rm -rf "$repo/node_modules"
+hook "bare install, clean package.json"  0 "$(bash_json 'npm install')"
+echo '{"dependencies":{"lodahs":"^1.0.0"}}' > "$repo/package.json"
+hook "bare install, unknown dep blocked" 2 "$(bash_json 'pnpm install')"
+hook "bare yarn, unknown dep blocked"    2 "$(bash_json 'yarn')"
+rm -f "$repo/package.json"
+DEP_VET_ALLOW='^lodahs$' hook "allowed name passes" 0 "$(bash_json 'npm install lodahs')"
+DEP_VET=off hook "DEP_VET=off passes"    0 "$(bash_json 'npm install lodahs')"
+DEP_REGISTRY="http://127.0.0.1:1" hook "dead registry never blocks" 0 "$(bash_json 'npm install lodahs')"
+
 # ---------------------------------------------------------------- snapshot read, run active
 hook "controller reading snapshot blocked" 2 "$(read_json /tmp/w/chunk-3.diff)"
 hook "controller reading before-snapshot blocked" 2 "$(read_json /tmp/w/chunk-3-before.diff)"
@@ -126,6 +160,7 @@ out=$(cd "$repo" && bash "$run" stop 2>&1); code=$?
 [ "$code" = 0 ] && [ -z "$(ls -A "$DELIVERY_RUN_DIR")" ] && ok "stop removes the marker" || nok "stop removes the marker" "$out"
 hook "commit allowed with no run"        0 "$(bash_json 'git commit -m x')"
 hook "snapshot read allowed with no run" 0 "$(read_json /tmp/w/chunk-3.diff)"
+hook "unknown install allowed with no run" 0 "$(bash_json 'npm install lodahs')"
 hook "reviewer still read-only"          2 "$(bash_json 'rm -rf dist' delivery-skills:reviewer)"
 
 # ---------------------------------------------------------------- SubagentStop: Proof block

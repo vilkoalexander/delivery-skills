@@ -10,12 +10,14 @@
 #   git diff --name-only | bash reuse-scan.sh
 #
 #   REUSE_DIFF_RANGE   base..head to scan instead of the working tree vs HEAD
-#   REUSE_SHARED       ERE for shared-layer directories
-#                      (default: utils|lib|helpers|hooks|common|shared|components/ui)
+#   REUSE_SHARED       ERE for shared-layer directories (default: `shared` in
+#                      docs/review/delivery.json, else utils|lib|helpers|hooks|common|shared|components/ui)
 #   REUSE_STRICT=1     exit 1 when anything was flagged
+#   DEP_VET=off        skip the registry and advisory lookup for changed dependencies
 set -uo pipefail
 
-shared="${REUSE_SHARED:-(^|/)(utils|lib|helpers|hooks|common|shared|components/ui)(/|$)}"
+shared="${REUSE_SHARED:-$(node "$(dirname "$0")/../../delivery-pipeline/scripts/config.mjs" get shared 2>/dev/null)}"
+shared="${shared:-(^|/)(utils|lib|helpers|hooks|common|shared|components/ui)(/|$)}"
 range="${REUSE_DIFF_RANGE:-}"
 root=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "reuse-scan: not a git repository" >&2; exit 2; }
 cd "$root"
@@ -88,6 +90,13 @@ for p in "${paths[@]}"; do
   [ -n "$found" ] && deps="$deps$(printf '%s\n' "$found" | sed "s|^|$p: |; s|$| — new dependency; the plan task that named it goes in the ## Reuse block|")"$'\n'
 done
 section "Dependencies added" "${deps%$'\n'}"
+
+# 3b. What the registry and the advisory database say about added or re-versioned dependencies.
+pkgs=(); for p in "${paths[@]}"; do [[ "$(basename "$p")" = package.json ]] && pkgs+=("$p"); done
+vet="$(dirname "$0")/../../delivery-pipeline/scripts/dep-vet.sh"
+if [ ${#pkgs[@]} -gt 0 ] && [ -f "$vet" ]; then
+  section "Dependency vetting" "$(DEP_VET_RANGE="$range" bash "$vet" --diff "${pkgs[@]}" 2>/dev/null)"
+fi
 
 # 4. Hand-roll patterns in added lines (not exports: the inline kind).
 pat=""

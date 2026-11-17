@@ -76,6 +76,9 @@ name="mark: repeated key";   fails bash "$mark" phase=review phase=fix chunk=1
 name="mark: not key=value";  fails bash "$mark" review
 eq "rejected marks write nothing" "$(lines)" "$before"
 
+gate_cfg() { printf '{"workspaces":{".":{"typecheck":false,"lint":false,"format":false,"test":"%s"}}}' "$1" > "$tmp/delivery.json"; }
+export DELIVERY_CONFIG="$tmp/delivery.json"
+echo '{"workspaces":{".":{"typecheck":false,"lint":false,"format":false,"test":false}}}' > "$DELIVERY_CONFIG"
 before=$(lines)
 echo "nope.ts" | STATIC_SKIP="test-lock drift" bash "$gate" check >/dev/null 2>&1
 eq "gate on missing paths: start and end" "$(jq -r .ev "$(file)" | tail -n $(( $(lines) - before )) | tr '\n' ' ')" "gate_start gate_end "
@@ -84,12 +87,14 @@ eq "gate_end: src" "$(last .src)" gate
 
 echo "export const a = 1" > a.mjs
 before=$(lines)
-STATIC_SKIP="test-lock drift reuse" STATIC_TEST="false" bash "$gate" check a.mjs >/dev/null 2>&1
+gate_cfg false
+STATIC_SKIP="secrets test-lock drift reuse" bash "$gate" check a.mjs >/dev/null 2>&1
 eq "failing gate exits 1" "$?" 1
 eq "failing gate: events" "$(jq -r '.ev + (if .step then ":" + .step else "" end)' "$(file)" | tail -n $(( $(lines) - before )) | tr '\n' ' ')" "gate_start gate_step_start:test gate_step:test gate_end "
 eq "failing gate: end not ok" "$(last .ok)" false
 eq "failing gate: step not ok" "$(tail -n 2 "$(file)" | head -1 | jq -r .ok)" false
-STATIC_SKIP="test-lock drift reuse" STATIC_TEST="true" bash "$gate" check a.mjs >/dev/null 2>&1
+gate_cfg true
+STATIC_SKIP="test-lock drift reuse" bash "$gate" check a.mjs >/dev/null 2>&1
 eq "passing gate exits 0" "$?" 0
 eq "passing gate: end ok" "$(last .ok)" true
 
