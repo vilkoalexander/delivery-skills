@@ -2,7 +2,7 @@
 
 The one rule this plugin holds for code comments. `comment-cleanup` applies it
 to code that already exists. The Global Constraints block in
-`delivery-pipeline` and the comment section of the review checklists carry the
+`chunked-delivery`'s `references/plan.md` and the comment section of the review checklists carry the
 same rule in their own form; a rule that changes here changes there in the
 same change set.
 

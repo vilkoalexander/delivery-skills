@@ -1,252 +1,410 @@
 ---
 name: chunked-delivery
-description: Use when asked to execute an approved plan with subagents in chunks, build a feature with the agent team, or pause for human review between units instead of running a plan end to end.
+description: Use when asked to execute an approved plan with subagents in chunks, build a feature with the agent team, dispatch an implementer or a task reviewer for a plan, or pause for human review between units instead of running a plan end to end.
 ---
 
 # Chunked Delivery
 
-Plan together, then build in units small enough to read. After each unit the run
-**stops** and hands back a diff. Nothing proceeds until a human says so, and
-nothing is ever committed.
+You are the controller. You build an approved plan in chunks. A chunk is small
+enough for the human to read in one sitting. After each chunk you stop and give
+the human the diff. You start the next chunk only when the human tells you to.
+You commit nothing.
 
-Built on `superpowers:subagent-driven-development` with two overrides:
+`superpowers:subagent-driven-development` (SDD) owns the basic loop: a fresh
+implementer for each task, the task review, the scoped re-review, the ledger
+and the final review. Obey SDD. This file changes two SDD rules and adds what
+SDD leaves to the project.
 
-> **Override 1.** SDD's continuous-execution rule ("do not pause to check in
-> between tasks") does not apply; stopping at each chunk boundary is the point.
-> Every other SDD rule holds, including rulings-not-stalls *within* a chunk:
-> mid-chunk ambiguity gets decided, not escalated.
->
-> **Override 2.** SDD's implementer step "Commit your work" does not apply.
-> Nothing is committed, staged, pushed or merged at any point.
+- **Change 1.** The SDD rule "do not pause to check in between tasks" does not
+  apply. You stop at the end of each chunk.
+- **Change 2.** The SDD implementer step "Commit your work" does not apply.
+- All other SDD rules apply. This includes rulings: decide a question that
+  first appears inside a chunk. Do not stop for it. Record it as
+  `Ruling: <decision> — <why> — <cost if wrong>` and put it on the `Rulings:`
+  line of the report.
 
-Read `delivery-pipeline` first. A project's own copy wins over the global one.
+If the project has its own copy of this skill or of `delivery-pipeline`, the
+copy of the project wins.
+
+## Rules for the whole run
+
+1. **Commit nothing.** No controller and no subagent runs `git commit`,
+   `git add`, `git push`, `git merge` or opens a pull request. This applies to
+   each task, to the end of a clean run, and to a worktree branch. A ruling
+   cannot change this rule. The work stays in the working tree for the human.
+2. **Do not read a diff snapshot.** Your sources are the implementer reports,
+   the reviewer reports and `git diff --stat`. A chunk diff stays in the most
+   expensive context for the remaining run.
+3. **Obey a refusal.** The hook of the plugin (`hooks/guard.sh` at the plugin
+   root) refuses some actions and gives the reason on stderr. Most refusals
+   apply only while the run marker exists. A refusal is the rule in
+   operation. Do not find a way around it. The hook refuses:
+   - a git write from the controller or a subagent: `commit`, `add` without
+     `-N`, `push`, `merge`, `rebase`, `stash`, `clean`, `restore`,
+     `reset --hard`, `checkout --`, `gh pr create`;
+   - a read of a `chunk-*.diff` snapshot by the controller;
+   - a write from a reviewer seat or a verifier seat, in a run or not:
+     redirects, `sed -i`, `tee`, `rm`, `mv`, installs, `git apply`;
+   - the stop of an implementer whose dispatch named the `## Proof` block or
+     the `## Reuse` block, when the report does not have it, one time;
+   - an install or an `npx` of a package that `dep-vet.sh` gives a `BLOCK`.
+
+   The hook reads shell text and cannot see everything. The rules apply where
+   the hook does not see.
+4. **Write Simplified Technical English.** See "Writing" below.
+5. **Do not do these things unless the human tells you to:**
+   - start the next chunk (long-run mode is the only exception);
+   - publish a review map;
+   - change the plan. If a chunk shows that the plan is wrong, stop work
+     immediately and tell the human. Do not remove the run marker. The human
+     and you change the plan together. Then the loop continues.
+
+## The run in order
+
+| Phase | Do | Text |
+| --- | --- | --- |
+| 1. Preflight | Make the checkout and the session ready | "Preflight" below |
+| 2. Plan | Ask the questions, cut the chunks, get the approval | `references/plan.md` |
+| 3. Loop | Build each chunk and stop | "The loop" below |
+| 4. Final | Verify and review the whole tree | `references/final.md` |
+| 5. Handoff | Remove the run marker | `references/final.md` |
+
+Read each of these files when its condition is true, not before.
+
+| File | Read when |
+| --- | --- |
+| `references/writing.md` | at the start, unless the setting is `free` |
+| `references/plan.md` | at the start of phase 2 |
+| `references/static-gate.md` | a gate step fails and its output is not sufficient, or a step needs an allowance |
+| `references/risk-content.md` | `risk.sh` ends with `escalators: jev` |
+| `references/cross-model.md` | before the first cross-model review |
+| `references/long-run.md` | the human answers the cut with `long` |
+| `references/review-map.md` | the human says `map` |
+| `references/models.md` | the run is long, you substitute a model, or cost is a concern |
+| `references/final.md` | the human approves the last chunk |
+
+Script paths in this file start at `skills/` of this plugin:
+`chunked-delivery/scripts/` and `delivery-pipeline/scripts/`. `$WORKSPACE` is
+the directory where SDD keeps the ledger of the run.
+
+## Writing
+
+`node delivery-pipeline/scripts/config.mjs get writing` prints the setting.
+The default is `ste100`. With this setting, all text that a person reads in a
+run is ASD-STE100 Simplified Technical English. This includes your questions,
+the chunk list, each report, each ruling, and the findings, comments and
+documents of the subagents. `references/writing.md` has the
+rules. Code, commands, tool output and quoted text do not change.
+
+If the setting is `free`, do not read the file. Remove the Simplified
+Technical English line from the Global Constraints.
+
+## Roles and models
+
+Give an explicit model in each dispatch. Without one, the subagent uses the
+most expensive model of the session. Use the cheapest model that can do the
+role.
+
+| Role | Model | Dispatch as |
+| --- | --- | --- |
+| Controller | Opus 5.5. Fable 5.2 for a run of more than six chunks | the session |
+| Implementer, low or medium risk | Haiku 5.5. Sonnet 5.5 for a medium-risk task that touches more than two files | `model: haiku` or `model: sonnet` |
+| Implementer, high risk | Opus 5.5 | `subagent_type: delivery-skills:oneway-implementer`, `model: opus` |
+| Task reviewer, medium risk | Sonnet 5.5 | `subagent_type: delivery-skills:reviewer`, `model: sonnet` |
+| Task reviewer, high risk | Opus 5.5 | `subagent_type: delivery-skills:reviewer`, `model: opus` |
+| Scoped re-review | Haiku 5.5 | `model: haiku` |
+| Verifier | Sonnet 5.5 | `subagent_type: delivery-skills:verifier`, `model: sonnet` |
+| Whole-tree reviewer | Opus 5.5 | `subagent_type: delivery-skills:reviewer`, `model: opus` |
+
+- Use the short model names. Do not give a model ID with a date.
+- A `subagent_type` replaces `general-purpose` in the SDD prompt template for
+  that seat. The prompt body does not change.
+- A row with no `subagent_type` stays `general-purpose`.
+- The three agent definitions are in `agents/` of this plugin. They set
+  effort `high`. The reviewer and the verifier
+  have no Edit tool and no Write tool. A review that you dispatch as
+  `general-purpose` on Opus 5.5 is less deep than the Sonnet seat.
+- Do not change the controller model during a run. A change loses the plan and
+  the chunk summaries.
+- `diagrams/roles-and-models.svg` in this repository shows the roles.
+
+## What each risk class gets
+
+Each chunk has a risk class: low, medium or high. `references/plan.md` tells
+you how to classify. The class of a chunk is the highest class of its tasks.
+
+| Class | Chunk review | Verify | Fix rounds | Cross-model |
+| --- | --- | --- | --- | --- |
+| low | none | none | 0 | no |
+| medium | Sonnet 5.5 | Sonnet 5.5 | 3 at most | no |
+| high | Opus 5.5 | Sonnet 5.5 | 5 at most | yes |
+
+A low-risk chunk has no review of its own. The human reads its diff, and the
+whole-tree review at the end includes it.
 
 ## Preflight
 
-- The controller runs on the model `delivery-pipeline` names for the run's
-  length and stays on it: a swap loses the plan and chunk summaries.
-- Work in place, in the human's checkout, on a feature branch that is not
-  `main` (create one if needed). Do NOT create or enter a git worktree unless
-  the human explicitly asks for one in their message: it hides the diff and
-  needs its own install and `.env`.
-- The plan file exists and carries the Global Constraints block.
-- Run `bash scripts/run.sh start` (next to this skill). It marks the checkout
-  mid-run; the plugin's hooks then refuse every git write in this session,
-  refuse the controller a read of any chunk snapshot, keep reviewer seats
-  read-only and hold an implementer report that lacks its Proof block. A
-  refusal is the rule working, not an obstacle to route around. The marker
-  survives a crash: `run.sh status` shows it, `run.sh stop` clears it.
-- From here the hooks and scripts record what happens to the run's event
-  file, which the `factory-floor` page shows live. The one thing they cannot
-  observe is where the plan stands, so say it at every step of the loop, as
-  the step starts:
-  `bash scripts/mark.sh phase=<implement|gate|review|fix|verify|cross|report> chunk=N of=M`,
-  adding `name=<chunk name> risk=<class> plan=<path>` on a chunk's first call
-  and `round=N` on a fix round; `phase=final` alone after the last chunk.
-  Never write the event file by hand, and never report progress any other way.
+1. Use the checkout of the human. Use a feature branch that is not `main`.
+   Make one if necessary. Do not make or enter a git worktree unless the human
+   asks for one in the message. A worktree hides the diff and needs its own
+   install and `.env`.
+2. Make sure that the plan file exists.
+3. Make sure that `docs/review/delivery.json` exists. It names the stack and
+   the command for each static step in each workspace. The gate refuses to
+   run without it. If it does not exist,
+   run `bash delivery-pipeline/scripts/static-gate.sh init`. Then stop. The
+   human reads and corrects the draft before the run starts. Do not write or
+   change its commands during a run to make a chunk pass.
+4. Read the `writing` setting.
+5. Run `bash chunked-delivery/scripts/run.sh start`. This marks the checkout.
+   The hook now applies the refusals of rule 3. The marker stays after a
+   crash: `run.sh status` shows it and `run.sh stop` removes it.
+6. Record each step of the loop at the start of the step:
 
-## Grill the plan
+   ```
+   bash chunked-delivery/scripts/mark.sh phase=<implement|gate|review|fix|verify|cross|report> chunk=N of=M
+   ```
 
-Decisions the planner made alone are where runs go wrong. Before any file is
-classified or chunk cut, put them to the human in the shape of
-`mattpocock-skills:grilling`. Without that skill, the contract is:
+   Add `name=<chunk name> risk=<class> plan=<path>` on the first call of a
+   chunk. Add `round=N` on a fix round. Use `phase=final` alone after the last
+   chunk. The hooks and scripts record all other events, and the
+   `factory-floor` page shows them. Do not write the event file by hand. Do
+   not report progress in a different way.
 
-1. **Seed the frontier** with every call the plan makes that the design doc
-   or conversation did not settle: order and cut, what is hardcoded, bounds
-   and limits, flag or no flag, reuse or new, error paths, who may call it,
-   what the acceptance criteria leave unsaid. A call the human already made
-   is never asked again.
-2. **Facts are yours, decisions are theirs.** A fact lives in the repo:
-   dispatch an Explore agent for it, never the human. A decision that waits
-   on a fact waits for the agent.
-3. **Ask the whole frontier as one round**, numbered, each with a
-   recommended answer worded so "yes" accepts it. The round is the entire
-   message: no chunk list, no preflight findings, nothing else, except one
-   line saying how many questions wait on a repo lookup still running.
-4. **Fold each answer into the plan file**, in the task it changes, then
-   recompute the frontier and ask the next round.
-5. **Exit when the frontier is empty**, say so in one line, and go on to
-   classify and cut. On `cut` mid-round, stop and write every open question
-   into the plan as an `Assumed:` line with your recommended answer, visible
-   at cut approval and to the whole-tree reviewer.
-
-Rulings-not-stalls starts at dispatch: a question visible in the plan
-beforehand is a round question, however small; a ruling is for one that
-first appears inside a chunk.
-
-## Plan shape
-
-Plans group tasks into **chunks**, sized by how much needs a close read, not
-by how much a feature needs to be whole.
-
-### Classify before you cut
-
-Before cutting, sort every file the plan will touch into two piles:
-
-- **Closer look** — anything a reviewer must reason about: schema and
-  migrations, shared contracts and public types, services and handlers,
-  hooks, builders and view-model logic, components with branches, anything
-  that touches money, auth or tenancy.
-- **Glance** — anything a reviewer confirms exists and moves on: specs and
-  fixtures, locale bundles, prop plumbing and barrel exports, generated
-  files, docs, e2e flows, deletions whose callers are gone.
-
-Glance files ride along with their chunk and are never a reason to split.
-Only closer-look files set the size.
-
-### Size limits
-
-A chunk holds at most about **300 closer-look lines** across at most
-**8 closer-look files**, and stays under **20 files in total**: ceilings, not
-targets; a chunk that fits in a sitting is the goal.
-
-A slice over the ceiling is split, in this order:
-1. the data and contract cut (schema, migration, shared types, endpoint,
-   its tests) — verifiable with a request;
-2. the screen cut that consumes it — verifiable with a tap.
-Each half still ends in something the human can exercise; "it only demos as
-a whole" is no reason to exceed the ceiling.
-
-### Risk and order
-
-Each chunk carries a risk class per `delivery-pipeline` (its `scripts/risk.sh`
-suggests one from the paths, and from the hunks too when `TYPESAFE_API_KEY`
-is set; its `unsure:` lines go in the chunk list for the human to settle).
-The class picks the models, whether the chunk is reviewed at all, and the
-fix-round cap.
-
-Order chunks leaf first. A change to what an existing caller already gets is
-its own chunk, as late as the plan allows, behind a flag when the project has
-flags, so trunk exposure is one small chunk the human reads hardest.
-
-### Present the cut
-
-Before any dispatch, run `static-gate.sh coverage` per `delivery-pipeline`
-and `reuse-guardrails`' `scripts/audit.sh`; fold their `ABSENT:` and `MISS:`
-lists into one optional tooling chunk, listed first and marked optional.
-Then present the chunk list and **wait for approval**. Each chunk gets a
-name, a risk class, one line of what it does, its size as
-`closer-look N files / ~M lines, total F files` with the closer-look files
-named, a `criteria:` line naming the plan acceptance criteria it completes,
-and an `exercise:` line: the one request or tap that proves it works, which
-the verify seat will run. A list without those numbers and those two lines is
-not ready to approve. End the list with `Approve: "go" · "long" (see Long-run
-mode)`. Grilling exit and cut approval are the only plan-level gates; after
-them, approval is per chunk.
-
-If a chunk grows past the ceiling while being built, stop at the boundary,
-say by how much and why, and offer a split before continuing.
+Then do phase 2: read `references/plan.md`.
 
 ## The loop
 
-For each approved chunk, in order:
+Do these steps for each approved chunk, in the order of the chunk list.
 
-1. **Snapshot first.** Write `chunk-N-before.diff` per `delivery-pipeline`; it
-   is the only undo this run has.
-2. **Dispatch implementers.** One per task; parallel only when the tasks
-   touch disjoint files; models per `delivery-pipeline`. Work stays
-   uncommitted and unstaged; each report ends with the Proof block from
-   `delivery-pipeline` or goes back for it.
-3. **Snapshot the result** to `chunk-N.diff`, then **run the static gate**
-   on the changed paths per `delivery-pipeline`: the test lock, drift checks,
-   typecheck, lint, format, related tests, and the revert check when tests changed. A failure goes
-   back to the implementer with the tool output as fix round zero; nothing
-   else happens until it is clean. The gate ends with the reuse scan, whose
-   flags never fail the gate but ride along to the reviewer and the report's
-   `Reuse:` line. On a **low-risk chunk stop here**: no reviewer, no fix
-   rounds; the human reads the proof, the reuse flags and the diff at the gate,
-   and the whole-tree review covers it.
-   Otherwise dispatch the task reviewer against
-   the snapshot, with the line that sends it to the project's rubric routing
-   if there is one. Do not read the snapshot yourself.
-4. **Run fix rounds to clean.** Findings go back to the implementer, then a
-   scoped re-review that gets the findings and the fix diff, nothing else.
-   Say in one line that rounds are running. The counter trips at **three**
-   on a medium-risk chunk and **five** on a high-risk one, and the last round
-   goes one model up per `delivery-pipeline`; the human reads
-   the chunk next anyway, so a parked finding costs them a minute. Park what remains and say so in the report.
-5. **Verify** on a medium- or high-risk chunk: dispatch the verify seat per
-   `delivery-pipeline` with the chunk's `exercise:` line, the acceptance
-   criteria it completes, the implementer's Proof block and every parked
-   finding. A `FAIL` is one
-   more fix round under the same cap, then the failed lines are re-run.
-6. **Cross-model review** if the chunk is high-risk; `delivery-pipeline` has
-   the invocation and adjudication rules. Its findings are claims you rule
-   on, not a fix queue.
-7. **Stop and report** in the format below.
-8. **Wait.** Do not start the next chunk, do not prepare it, do not read ahead.
+### Step 1. Snapshot before
 
-## Long-run mode
-
-One long task, in this checkout, with the human away. It starts only when the
-human answers the cut with `long`; any other approval keeps the per-chunk gate.
-Every step of the loop still runs; only steps 7 and 8 change.
-
-After step 6, the run **stops and reports as a normal chunk** when any of these
-is true. `next` then continues in long-run mode.
-
-- The chunk is high risk.
-- A finding was parked, or a `FAIL` line survived the fix-round cap.
-- The static gate is still failing after three rounds.
-- The chunk grew past the size ceiling, or it proved the plan wrong.
-
-Otherwise, append the chunk's entry to `$WORKSPACE/long-run-report.md` and start
-the next chunk. A low-risk chunk has no verify of its own: add its `exercise:`
-line to the list the whole-tree verify must run.
-
-```
-## Chunk N/M — <name>   [risk]   <files> files, <added>/<removed> lines
-Changed:  <one or two lines of what it now does>
-Criteria: <one line per acceptance criterion: pass with what the verifier saw,
-          or "whole-tree verify" on a low-risk chunk>
-Needs you: <each "needs human" tap and "not verified" item, or "nothing">
-Rulings:  <decisions that could have gone the other way, or "none">
-Diff:     diff -u <$WORKSPACE>/chunk-N-before.diff <$WORKSPACE>/chunk-N.diff
+```bash
+git add -N .                                   # makes new files visible to diff
+git diff > "$WORKSPACE/chunk-$N-before.diff"
 ```
 
-Snapshots are cumulative, so the `Diff:` command is the way to see one chunk
-alone. After the last chunk, run `After the last chunk` as written; the `Final`
-report links the file on a `Report:` line and its `Next:` is `"ok"` ·
-`"fix N <thing>"` · `"stop"`. A chunk cannot be undone alone once later chunks
-sit on it, so a rejected chunk is a `fix`.
+`git add -N` records paths only, not content. `git reset` reverses it. It is
+the only change that this process makes to the index. This snapshot is the
+only undo of the run.
 
-## The run log
+### Step 2. Implement
 
-When the human's decision on a chunk lands, append one line, so later runs can
-be compared and replayed:
+Dispatch one implementer for each task. Dispatch in parallel only when the
+tasks touch different files. Use the model from the table. The work stays
+uncommitted and unstaged.
+
+Add these two paragraphs to the body of the SDD implementer prompt:
+
+> If this project has a skill for authoring the kind of file this task
+> creates, invoke it before writing the first line. Otherwise follow the
+> patterns in the sibling files and say so in one line.
+>
+> If an existing test or the task text looks wrong, or the task cannot be done
+> as written, stop with status BLOCKED and say what you found. Do not edit the
+> test, and do not build around the task. No change is a valid result.
+
+Do not copy the rules of an authoring skill into the prompt. A copy is
+different from its source after two edits. `react-screen-authoring` is an
+example of an authoring skill.
+
+A `BLOCKED` report is a ruling for you or a question for the human at the end
+of the chunk. Do not dispatch the same prompt again.
+
+**Each implementer prompt has an `## Inventory` section.** One time for each
+chunk, run the inventory script of each rubric that the paths of the chunk go
+to. `review-routing` has the table of paths and rubrics. Paste the output
+below that heading in each implementer prompt. The script sets the maximum
+length. If the plan task names a helper, the task text also names it by export
+and path. The Global Constraints line "the shared-layer inventory shows none"
+refers to this section. You cannot hold an implementer to a search that it
+did not get.
+
+**Each implementer report ends with these two blocks.** Add them to the SDD
+implementer `## Report Format`:
 
 ```
-bash scripts/run-log.sh add plan=<path> chunk=N risk=<low|medium|high> \
-  mode=<gated|long> implementer=<model> reviewer=<model|none> fix_rounds=N \
-  findings=N verify=<pass|fail|none> decision=<accepted|edited|rejected> \
-  static=N human_found=N
+## Proof
+- ran: <exact command> — <the pass/fail line from its output>
+- shows: <path to a screenshot or recording of the change on screen>
+  (only when the diff touches a rendered file)
+- exercised: <the output itself, pasted — a log line, a response body, a
+  CLI result — of the changed path running>   (medium and high risk)
+- not verified: <one line per thing you did not run or see, or "nothing">
+
+## Reuse
+- reused: <export> from <path>        (one line each, or "nothing")
+- searched: <what you looked for> — none found   (one per new helper)
+- new shared: <path> — <why nothing above fit>   (or "nothing")
+- new dependency: <name> — <plan task that named it>   (or "nothing")
 ```
 
-`static` counts what the static gate sent back, `findings` what review found,
-`human_found` the defects the human's `fix` named that both had passed.
-`bash scripts/run-log.sh stats` totals the three per risk class: a gate that
-catches nothing over many chunks is a gate to drop, and a `human_found` that
-keeps rising is a rubric to sharpen.
+Rules for the blocks:
 
-`decision` is `accepted` when approved as shown, `edited` when any `fix` came
-first, `rejected` on `redo`. In long-run mode, log every chunk at the final
-`ok`, `edited` for any chunk that took a `fix`. A chunk the run stopped short of
-gets no line. A logging error is one line in the report and never stops the run.
+- A test that the implementer wrote but did not run is not proof. It goes
+  below `not verified`.
+- `exercised` holds output. A sentence such as "manually verified N cases" is
+  not proof. Send the report back for the output.
+- A `new shared` line needs a `searched` line above it. If there is none, send
+  the report back.
+- If a block is missing, send the report back for the block. Do not ask for a
+  second implementation.
+- On a high-risk chunk, each `not verified` item becomes a focus for the
+  reviewer. On a low-risk chunk, the human does a check of it first.
+
+### Step 3. Snapshot after, then the static gate
+
+```bash
+git add -N .
+git diff > "$WORKSPACE/chunk-$N.diff"
+git diff --name-only | bash delivery-pipeline/scripts/static-gate.sh check
+```
+
+Run the gate after each after-snapshot, before a reviewer, on each risk class.
+The gate runs the commands that the config names for the workspace of each
+changed path. A reviewer sees only a diff that the tools accept.
+
+| Step of `check` | Fails the gate when |
+| --- | --- |
+| test lock | a test that was in `HEAD` is gone, skipped, or has a changed assertion. If a plan task names the test file, set `TEST_LOCK_ALLOW` and name the file on the `Rulings:` line |
+| drift | two copies of one fact in `docs/review/drift.checks` do not agree |
+| secrets | an added line holds a credential |
+| typecheck, lint, format, test | the command from the config fails |
+| reuse scan (`reuse-scan.sh`) | never. It gives flags |
+
+- **A failure is a static round.** Send the tool output to the implementer.
+  Then take the after-snapshot again and run the gate again. A static round
+  does not count against the fix-round limit, because no reviewer worked. Do
+  two static rounds at most, on each risk class. Then park the failure and
+  say so in the report.
+- **A skipped step is not a pass and not a failure.** The last line of the
+  gate lists the steps that ran and the steps that it skipped. Continue, and
+  put each skipped step on the `Fixed:` line of the chunk report.
+- **Reuse flags do not fail the gate.** Send them to the reviewer with the
+  snapshot. On a low-risk chunk, put them on the `Reuse:` line of the report.
+  A flag that the Reuse block of the implementer answers is not a finding.
+- **If the diff touches tests,** also run
+  `bash test-review/scripts/revert-check.sh "$WORKSPACE/chunk-$N.diff"`. The
+  gate does not run it for you. It names each new test that passes with the
+  change reversed. Each name is a failure of the gate: send it back in a
+  static round.
+
+**On a low-risk chunk, go to step 8 now.** There is no reviewer and no fix
+round after a review. The human reads the proof, the reuse flags and the diff.
+
+### Step 4. Review
+
+Dispatch one task reviewer against the snapshot `chunk-$N.diff`. The reviewer
+reads the snapshot file, does not run git again, and writes nothing. Add this
+line to the body of the SDD task-reviewer prompt:
+
+> If this project has a skill that maps changed paths to review rubrics, invoke
+> it first. Otherwise review on general code quality and say so in one line.
+
+- That skill (usually `review-routing`) owns the table of paths and rubrics.
+  Do not copy the table into the prompt.
+- The reviewer gets the Global Constraints through the `[GLOBAL_CONSTRAINTS]`
+  placeholder of the SDD prompt. This is the only approved path for project
+  rules to a reviewer.
+- A chunk reviewer does not get the acceptance criteria of the plan.
+- **One reviewer for each chunk is the default.** On a backend chunk, the
+  routing adds `observability-review` as a second pass in the same seat.
+- Use one reviewer for each rubric only if the diff has two or more domains
+  and is too large for one reviewer. Each of these reviewers gets only the
+  part for its rubric:
+  `git diff -- <paths> > "$WORKSPACE/chunk-$N-<rubric>.diff"`. Each one costs
+  a full seat. Record the reason.
+
+### Step 5. Fix rounds
+
+1. Send the findings to the implementer.
+2. Dispatch a scoped re-review. It gets the findings list and the fix diff,
+   as the SDD re-review prompt says. It gets no rubric line and no
+   `review-routing`.
+3. Tell the human in one line that fix rounds are in progress.
+4. Stop at three rounds on a medium-risk chunk and at five rounds on a
+   high-risk chunk.
+5. For the last round, dispatch the fix implementer on the next model up
+   from the model that wrote the task: Haiku to Sonnet, Sonnet to Opus. Opus
+   stays Opus. A model that did not correct a finding in two rounds rarely
+   corrects it in the third.
+6. Park the findings that stay open. Say so in the report. The human reads
+   the chunk next, thus a parked finding costs the human one minute.
+
+### Step 6. Verify
+
+Proof and review do not run the change. On a medium-risk or high-risk chunk,
+dispatch `delivery-skills:verifier` with:
+
+- the `exercise:` line of the chunk from the approved chunk list;
+- each acceptance criterion of the plan that the chunk completes, quoted;
+- the Proof block of the implementer. The verifier does each `ran` claim and
+  each `exercised` claim again;
+- each finding that is open after the fix rounds, quoted from the reviewer.
+
+The verifier gives one line for each item:
+
+| Line | Do |
+| --- | --- |
+| `pass` | Put it on the `Verified:` line |
+| `FAIL` | It is a finding. Do one more fix round, if the limit of the chunk permits one. Then verify only the lines that failed. If the limit does not permit one, park the `FAIL` and write `FAIL — parked` on the `Verified:` line |
+| `needs human` | Put the tap on the `Verified:` line. It is the first thing that the human does |
+| `confirmed`, `not reproduced` or `not runnable`, for a finding | Put the word on the `Parked:` line of that finding |
+
+A claim that the verifier cannot reproduce is a `FAIL` of the Proof block.
+Say so in the report.
+
+### Step 7. Cross-model review
+
+Only on a high-risk chunk. A different model family reads the same diff, after
+the fix rounds and the verify end and before the report. It runs also when
+findings are parked. Its output is a claim. You make
+a ruling on each item. Do not send it directly to a fix dispatch. Read
+`references/cross-model.md` before the first one.
+
+### Step 8. Report
+
+Stop and write the chunk report. The format is below.
+
+### Step 9. Wait
+
+Do not start the next chunk. Do not prepare it. Do not read the next tasks.
+
+| The human says | Do |
+| --- | --- |
+| `next` | Start the next chunk at step 1 |
+| `fix <thing>` | Dispatch a fix implementer and a scoped re-review. Write the report of the same chunk again. If a map exists, publish it again before the report. If the thing is a defect in a reviewed file, count it for `human_found`. Then offer one line for `docs/review/<rubric>.md` of that rubric, as a rule that a reviewer can examine. Write the line only if the human says yes |
+| `map` | Read `references/review-map.md`. Make and publish the map for this chunk. Answer with the link. Continue to wait |
+| `redo` | Get a confirmation first: there are no commits, thus the discarded work is a real loss. Then run `bash chunked-delivery/scripts/redo.sh "$WORKSPACE/chunk-$N-before.diff"`. It returns the tree to that snapshot and saves what it discards. Then start the chunk again at step 2, with the correction as added context. Not available in long-run mode |
+| `stop` | Stop. Report the chunks that are complete and the chunks that you did not start. Then run `bash chunked-delivery/scripts/run.sh stop` |
+| something else | It is a question about the chunk. Answer it and continue to wait. A question is not an approval |
+
+When the decision of the human is `next`, `redo` or `stop`, add the line to
+the run log ("The run log" below).
+
+Snapshots are cumulative, and fix rounds come after them. Thus `redo.sh` is
+the only way back. If the human asks you to discard work in a different way,
+say that there is no cheap restore point, and get a confirmation first.
+
+If a chunk becomes larger than the size limit during the work (300
+closer-look lines, 8 closer-look files, 20 files in total), stop at the end
+of the chunk. Say by how much and why. Offer a split.
 
 ## The chunk report
 
-The human reads this; the ledger is crash recovery and never appears in a
-report. Counts come from `git diff --stat`, the `Files` line from
-`git diff --name-only | bash scripts/risk.sh`, the `Changed` lines from the
-implementer and reviewer reports; the controller does not read the diff to
-write it.
+The human reads this report. The ledger is for crash recovery; do not put it
+in a report. Take the counts from `git diff --stat`. Take the `Files` line
+from `git diff --name-only | bash delivery-pipeline/scripts/risk.sh`. Take the
+`Changed` lines from the implementer reports and the reviewer reports. Do not
+read the diff to write the report. If `risk.sh` prints a `mixed:` line, put it
+on the `Rulings:` line: a dependency change shares the chunk with other work.
 
 ```
 Chunk N/M — <name>   [risk]
 <files> files changed, <added>/<removed> lines
 
 Files:   high: <each path> · medium: <each path> · low: <count> files
-         (from `scripts/risk.sh` on the after-snapshot; read high closely,
+         (from `risk.sh` on the after-snapshot; read high closely,
           skim medium, take low on its proof)
 
 Changed: <three to five lines. What it now does and why — not a file list.>
@@ -262,8 +420,8 @@ Verified: <one line per criterion and claim from the verify seat — pass with
           "not run — low risk">
 
 Fixed:   <"static: clean" or "static: <n> type/lint/test failures, fixed";
-          then one line per finding the review caught and the implementer
-          fixed, or "not reviewed — low risk">
+          then each gate step that was skipped; then one line per finding the
+          review caught and the implementer fixed, or "not reviewed — low risk">
 Parked:  <one line per finding left standing, each with its reason and the
           verifier's confirmed / not reproduced / not runnable>
 Reuse:   <"clean", or one line per reuse-scan flag the Reuse block did not
@@ -277,23 +435,30 @@ Map:      <link>   (only when a map was published)
 Next:     "next" · "fix <thing>" · "redo" · "stop"
 ```
 
-A report longer than the diff it describes has failed at its job.
+A report that is longer than its diff is a failure.
+
+Offer a review map when the chunk has more than approximately twenty files or
+more than one layer (backend, shared contracts, UI). To offer it, add
+`· "map"` to the `Next:` line. Do not publish a map unless the human says
+`map`. After a map exists, publish it again after each fix round and put the
+link on the `Map:` line.
 
 ### The Flow line
 
-A diagram of the chunk, not its files. Draw one when the `Changed` lines
-describe something moving through three or more steps or a branch. Skip it
-for one place edited, a rename, config, tests only, tooling, or arrows that
-would restate the file list; most chunks are one of those. Omit the line
-rather than draw a two-box diagram.
+The Flow line is a diagram of the behaviour of the chunk, not of its files.
 
-Draw it from the implementer reports, as with `Changed`, without opening the
-diff. Plain ASCII, since the report is read in a terminal: an indented tree,
-`─>` for a step, `├─`/`└─` for a fork, the outcome on the branch. No boxes,
-no mermaid, no alignment across lines beyond the indent. Five to ten steps;
-labels are behaviour (`validate`, `enqueue`, `notify`), not paths. Mark what
-the chunk added or changed with a suffix such as `(new)`. Several sources
-feeding one target go under it with `<─`. No file in the working tree.
+- Draw it when the `Changed` lines tell of three or more steps, or of a branch.
+- Omit it for one edited place, a rename, config, tests only, tooling, or
+  arrows that only repeat the file list. Most chunks are one of these. Omit
+  the line; do not draw a diagram of two boxes.
+- Draw it from the implementer reports. Do not open the diff.
+- Use plain ASCII: an indented tree, `─>` for a step, `├─` and `└─` for a
+  branch, the result on the branch. Several sources for one target go below
+  it with `<─`.
+- Do not use boxes or mermaid. Do not align across lines, apart from the
+  indent. Do not write a file to the working tree.
+- Use five to ten steps. A label is a behaviour (`validate`, `enqueue`), not
+  a path. Mark what the chunk added or changed with a suffix such as `(new)`.
 
 ```
 Flow:    POST /orders ─> validate ─> reserve stock (new)
@@ -301,73 +466,34 @@ Flow:    POST /orders ─> validate ─> reserve stock (new)
          └─ short ─> 409 + reason (new)
 ```
 
-## The review map
+## The run log
 
-Optional, and only on request. Once a chunk is reported, the human can say
-`map` and get a private page that sorts the chunk's files into read
-carefully, skim and trust, walks them in data-flow order, and lists what
-only they can decide. `references/review-map.md` specifies the page; load it
-when the human asks, not before.
+When the human gives the decision on a chunk, add one line:
 
-Offer it, never publish it unasked: over roughly twenty files, or more than
-one layer (backend, shared contracts, UI), add `· "map"` to the report's
-`Next:` line. Once a map exists, republish it after every fix round and link
-it on the `Map:` line. It never replaces the reviewer dispatch or the diff
-snapshot.
+```
+bash chunked-delivery/scripts/run-log.sh add plan=<path> chunk=N risk=<low|medium|high> \
+  mode=<gated|long> implementer=<model> reviewer=<model|none> fix_rounds=N \
+  findings=N verify=<pass|fail|none> decision=<accepted|edited|rejected> \
+  static=N human_found=N
+```
 
-## Resuming
-
-| Human says | Do |
+| Field | Value |
 | --- | --- |
-| `next` | Start the next chunk at step 1 |
-| `fix <thing>` | Dispatch a fix implementer plus a scoped re-review, re-report the same chunk. If a map exists, republish it before the report. When the thing is a defect in a reviewed file, count it for `human_found` and offer one line for that rubric's `docs/review/<rubric>.md`, worded as a rule a reviewer can check; write it only on a yes |
-| `map` | Build and publish the review map for this chunk, answer with the link, keep waiting |
-| `redo` | Confirm first — there are no commits, so discarding is a real loss. On confirmation, `bash scripts/redo.sh <workspace>/chunk-N-before.diff`, then re-dispatch with the correction as added context |
-| `stop` | Halt. Report which chunks are complete and which are untouched, then `bash scripts/run.sh stop` |
+| `static` | the number of failures that the static gate sent back |
+| `findings` | the number of findings from the review |
+| `human_found` | the number of defects that a `fix` of the human named, and that the gate and the review did not find |
+| `decision` | `accepted`: approved as shown. `edited`: a `fix` came first. `rejected`: `redo` |
 
-Anything else is a question about the chunk: answer it and keep waiting. A
-question is not approval.
-
-## What never happens without asking
-
-- Starting the next chunk, outside long-run mode
-- Publishing a review map
-- Committing, staging, pushing, merging, or opening a PR, at any point, for
-  any reason; while the run marker exists the plugin hook refuses these
-  outright.
-- Changing the plan. A chunk that proves the plan wrong stops the run and says
-  so; the plan is amended with a human, then the loop resumes.
+- In long-run mode, add the line for each chunk at the final `ok`. Use
+  `edited` for a chunk that got a `fix`.
+- A chunk that the run did not get to has no line.
+- An error from the log is one line in the report. It does not stop the run.
+- `bash chunked-delivery/scripts/run-log.sh stats` gives the totals for each
+  risk class. Use them to find a gate that catches nothing and a rubric that
+  needs a new rule.
 
 ## After the last chunk
 
-Approving the final chunk does not end the run: per-chunk review only ever
-saw one chunk's diff, and nothing has yet judged the work as a whole. Run
-all three, once, before handing off:
-
-1. **Verify the whole tree** — the verify seat over every acceptance
-   criterion in the plan. Its lines are the `Spec:` line below; a criterion
-   it did not run is not met.
-2. **Whole-tree review** — one reviewer against a snapshot of the entire
-   working tree, not the last chunk's, with the plan's goal, acceptance
-   criteria and the verifier's lines as input. Spec first, then code quality.
-   On the most capable model per `delivery-pipeline`.
-3. **Cross-model over the whole working tree**, regardless of risk class.
-
-Findings and `FAIL` lines follow the chunk rule: one line that rounds are
-running, then what survives is reported. Report once more, in the chunk
-format, named `Final — whole tree`, with one extra line after `Proof:`:
-
-```
-Spec:    met · or one line per acceptance criterion the tree does not meet
-```
-
-Merge-ready is not launch-ready: a `Spec:` line with gaps is a plan
-conversation with the human, not a fix round. If either pass finds something
-that changes an approved chunk, say so plainly rather than quietly re-opening it; approval
-was given on what was shown.
-
-## Handing off
-
-After the final report, run `bash scripts/run.sh stop` so git writes are
-allowed again. The working tree is yours: read it, commit what you want, then
-ship it however this project ships.
+The approval of the last chunk does not end the run. Each chunk review saw
+only one chunk, and nothing examined the work as a whole. Read
+`references/final.md` and do it.

@@ -49,13 +49,15 @@ is a script, and a model is asked only what is left.
 
 | Script | Decides | Runs |
 | --- | --- | --- |
-| `hooks/guard.sh` | No commit, add, push, merge, stash or PR during a run. Reviewer and verifier cannot write. An implementer report has its Proof block. | On every tool call |
-| `delivery-pipeline/scripts/static-gate.sh check` | Typecheck, lint, format and related tests pass | After each chunk, before any reviewer |
+| `hooks/guard.sh` | No commit, add, push, merge, stash or PR during a run, and no install of a package the registry does not vouch for. Reviewer and verifier cannot write. An implementer report has its Proof block. | On every tool call |
+| `delivery-pipeline/scripts/static-gate.sh check` | The commands your `docs/review/delivery.json` names for typecheck, lint, format and tests pass; a step with no command is reported as skipped | After each chunk, before any reviewer |
+| `delivery-pipeline/scripts/secret-scan.sh` | No line the change adds holds a credential | In the gate |
 | `test-review/scripts/test-lock.sh` | No existing test was deleted, skipped or had an assertion rewritten | In the gate |
 | `delivery-pipeline/scripts/drift.sh` | Two copies of one fact still agree: schema and migrations, API and generated client, native deps and SDK. You declare the pairs. | In the gate, when a matching path changed |
 | `test-review/scripts/revert-check.sh` | New tests fail when the change is reverted | In the gate, when tests changed |
 | `reuse-guardrails/scripts/reuse-scan.sh` | A new helper, export or dependency duplicates one the repo has | In the gate; flags, never fails |
-| `delivery-pipeline/scripts/risk.sh` | Risk class of a change, from its paths | At the cut and in each report |
+| `delivery-pipeline/scripts/dep-vet.sh` | A package exists in the registry, is not days old and is not reported as malware; flags install scripts and known advisories | In the hook before an install or `npx` during a run; in the reuse scan for changed dependencies |
+| `delivery-pipeline/scripts/risk.sh` | Risk class of a change, from its paths; says when a dependency change shares the chunk with other work | At the cut and in each report |
 | `<rubric>/scripts/scan.sh` | Mechanical smells in one file | Before a reviewer reads it |
 | `<rubric>/scripts/inventory.sh` | What the repo already has to reuse | Before an implementer writes |
 | `chunked-delivery/scripts/redo.sh` | Returns the tree to before a chunk, keeps what it discards | On `redo` |
@@ -66,7 +68,7 @@ is a script, and a model is asked only what is left.
 
 Paths are under `skills/`. Outside a run the hook does nothing, so other
 plugins that commit keep working. The scripts with logic worth breaking have
-tests, run in CI: `guard`, `emit`, `event`, `test-lock`, `drift`, `run-log`,
+tests, run in CI: `guard`, `emit`, `event`, `test-lock`, `drift`, `dep-vet`, `config`, `run-log`,
 `redo`, `risk-content`, `factory-floor`.
 
 No script decides whether the design is right or the code will age well. That
@@ -89,8 +91,7 @@ goes to the next model up.
 
 | Skill | Does |
 | --- | --- |
-| `chunked-delivery` | The loop above, a long-run mode that stops only when it must, and the run log. |
-| `delivery-pipeline` | Settings: model per role, risk classes, the static gate, what a report must prove. |
+| `chunked-delivery` | The run, in one file in run order: preflight, the loop, the model for each role, what each risk class gets, the reports. One reference file for each phase and for each thing only some runs need. |
 | `review-routing` | Maps changed files to rubrics; merges findings into one list. |
 | `react-review`, `angular-review`, `nestjs-service-review`, `prisma-schema-review`, `api-contract-review`, `test-review`, `observability-review` | Review rubrics, one kind of file each: a checklist, a list of things not to report, a scan script and an inventory script. |
 | `react-screen-authoring` | Read before a new screen is written. |
@@ -103,8 +104,24 @@ Three agents come along: `reviewer` and `verifier` (read-only) and
 `oneway-implementer`. The pipeline dispatches them. More diagrams in
 [`diagrams/`](diagrams).
 
+A `SKILL.md` holds what every use of the skill needs. What only some uses
+need is in a file next to it (`references/`, `CHECKLIST.md`) and
+is read when its condition is true. `bash scripts/token-budget.sh` shows the
+cost of each. `skills/delivery-pipeline/` holds the scripts of the gate and
+has no skill of its own.
+
 ## Your project
 
+- Say what the gate runs: `bash skills/delivery-pipeline/scripts/static-gate.sh init`
+  drafts `docs/review/delivery.json` from your `package.json` files: the stack,
+  one command per static step per workspace, and your own risk, secret,
+  dependency and shared-layer patterns. Correct it and commit it. The gate
+  runs what it names and refuses to run without it. Example in
+  [`templates/delivery.json`](templates/delivery.json).
+- A run writes to you in ASD-STE100 Simplified Technical English: short
+  sentences, one instruction each, active voice, one word for one thing. Code
+  and tool output stay as they are. `"writing": "free"` in the same file sets
+  it off.
 - Tell the rubrics about your codebase: one file per rubric at
   `docs/review/<rubric>.md`. Starting points in [`templates/`](templates/README.md).
 - `bash skills/delivery-pipeline/scripts/static-gate.sh coverage` lists which

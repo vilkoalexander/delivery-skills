@@ -103,3 +103,11 @@ command and never embeds it.
 
 Plain language, no emoji, no praise, no restating what the code does. A note
 on a file row says why the file is in that tier, not what it contains.
+
+## Where the rows come from
+
+Derive the map from the snapshots: file rows from the current
+`git diff --numstat`, less what `chunk-$N-before.diff` already held. Republish
+after each fix round from a fresh numstat, never by editing the old counts. The
+published link goes into the chunk's ledger entry, so a resumed run republishes
+to the same page.

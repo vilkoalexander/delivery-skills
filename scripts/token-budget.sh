@@ -10,7 +10,8 @@ t() { local b=0 f; for f in "$@"; do [ -f "$f" ] && b=$((b + $(wc -c < "$f"))); 
 row() { printf '  %-52s %6s\n' "$1" "$2"; }
 
 echo "Controller start (loaded once per run)"
-row "delivery-pipeline + chunked-delivery" "$(t skills/delivery-pipeline/SKILL.md skills/chunked-delivery/SKILL.md)"
+c=skills/chunked-delivery
+row "chunked-delivery: SKILL + writing + plan" "$(t $c/SKILL.md $c/references/writing.md $c/references/plan.md)"
 [ -n "$sdd" ] && row "+ superpowers SDD SKILL.md" "$(t "$sdd/SKILL.md")"
 echo
 echo "Task reviewer, fixed load before the diff (every task)"
@@ -31,6 +32,9 @@ row "react-screen-authoring: SKILL + CHECKLIST + react-review INVENTORY.md + tem
 echo
 echo "Loaded only when a comment cleanup is asked for"
 row "comment-cleanup: SKILL + RULES" "$(t skills/comment-cleanup/SKILL.md skills/comment-cleanup/RULES.md)"
+echo
+echo "Controller, loaded only when its condition is true"
+for f in $c/references/final.md $c/references/static-gate.md $c/references/cross-model.md $c/references/risk-content.md $c/references/long-run.md $c/references/models.md $c/references/review-map.md; do row "${f#skills/}" "$(t "$f")"; done
 echo
 echo "Loaded only when a tooling chunk is proposed"
 row "delivery-pipeline/STATIC-SETUP.md" "$(t skills/delivery-pipeline/STATIC-SETUP.md)"
