@@ -13,10 +13,10 @@ pass=0; fail=0
 ok()   { pass=$((pass+1)); echo "ok   - $1"; }
 nok()  { fail=$((fail+1)); echo "FAIL - $1"; printf '%s\n' "$2" | sed 's/^/       /'; }
 assert_contains() { # name haystack needle
-  if printf '%s' "$2" | grep -qF -- "$3"; then ok "$1"; else nok "$1" "expected to contain: $3"$'\n'"got:"$'\n'"$2"; fi
+  if grep -qF -- "$3" <<< "$2"; then ok "$1"; else nok "$1" "expected to contain: $3"$'\n'"got:"$'\n'"$2"; fi
 }
 assert_not_contains() {
-  if printf '%s' "$2" | grep -qF -- "$3"; then nok "$1" "expected NOT to contain: $3"$'\n'"got:"$'\n'"$2"; else ok "$1"; fi
+  if grep -qF -- "$3" <<< "$2"; then nok "$1" "expected NOT to contain: $3"$'\n'"got:"$'\n'"$2"; else ok "$1"; fi
 }
 
 # ---------------------------------------------------------------- fixtures

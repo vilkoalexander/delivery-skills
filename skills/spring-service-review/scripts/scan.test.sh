@@ -193,7 +193,6 @@ out=$(AUTHZ="" bash "$scan" $main/InvoiceController.java)
 unflags "Handler with no authorization annotation"
 out=$(AUTHZ='@OrgScoped' bash "$scan" $main/InvoiceController.java)
 sees  "AUTHZ names the project's annotation"   'Invoice> get' "$(under 'Handler with no authorization annotation')"
-sed -i.bak 's/^@RestController/@RestController\n@PreAuthorize("isAuthenticated()")/' $main/InvoiceController.java
 printf '%s\n' '@RestController' '@PreAuthorize("isAuthenticated()")' 'public class AdminController {' \
   '    @GetMapping' '    public List<Role> roles() {' '        return List.of();' '    }' '}' > $main/AdminController.java
 echo "class AdminControllerTest {}" > $test/AdminControllerTest.java

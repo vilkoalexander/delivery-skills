@@ -222,10 +222,11 @@ echo "create table b (id uuid);" >> $migrations/V1.001__init.sql
 out=$(bash "$scan" $migrations/V1.001__init.sql)
 flags "Versioned migration changed after HEAD"
 git checkout -q -- $migrations/V1.001__init.sql
+base=$(git rev-parse --abbrev-ref HEAD)
 git switch -q -c feature
 echo "create table b (id uuid);" >> $migrations/V1.001__init.sql
 commit_all edit
-has "MIGRATION_BASE names the base branch"     0 'Versioned migration changed after main' env MIGRATION_BASE=main bash "$scan" $migrations/V1.001__init.sql
+has "MIGRATION_BASE names the base branch"     0 "Versioned migration changed after $base" env MIGRATION_BASE="$base" bash "$scan" $migrations/V1.001__init.sql
 has "against HEAD the edit is not seen"        0 '^clean' bash "$scan" $migrations/V1.001__init.sql
 
 echo "create table c (id uuid);" > $migrations/V1.001__again.sql

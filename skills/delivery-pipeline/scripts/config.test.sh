@@ -17,13 +17,13 @@ has() {
   out=$("$@" 2>&1); code=$?
   if [ "$code" != "$want" ]; then nok "$name" "exit $code, wanted $want"$'\n'"$out"
   elif [ -z "$pat" ] && [ -n "$out" ]; then nok "$name" "expected silence"$'\n'"$out"
-  elif [ -n "$pat" ] && ! printf '%s' "$out" | grep -qE -- "$pat"; then nok "$name" "no match for $pat"$'\n'"$out"
+  elif [ -n "$pat" ] && ! grep -qE -- "$pat" <<< "$out"; then nok "$name" "no match for $pat"$'\n'"$out"
   else ok "$name"; fi
 }
 lacks() { # NAME PATTERN command...
   local name=$1 pat=$2 out; shift 2
   out=$("$@" 2>&1)
-  if printf '%s' "$out" | grep -qE -- "$pat"; then nok "$name" "$out"; else ok "$name"; fi
+  if grep -qE -- "$pat" <<< "$out"; then nok "$name" "$out"; else ok "$name"; fi
 }
 write() { mkdir -p docs/review; cat > docs/review/delivery.json; }
 

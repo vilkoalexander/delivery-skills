@@ -15,8 +15,8 @@ added() {
   code=$?
   rm -f "$file"
   if [ "$code" != "$want" ]; then nok "$name" "exit $code, wanted $want"$'\n'"$out"
-  elif ! printf '%s' "$out" | grep -qE -- "$pattern"; then nok "$name" "no match for $pattern"$'\n'"$out"
-  elif [ "$want" = 1 ] && printf '%s' "$out" | grep -qF -- "$content"; then nok "$name" "output repeats the secret"$'\n'"$out"
+  elif ! grep -qE -- "$pattern" <<< "$out"; then nok "$name" "no match for $pattern"$'\n'"$out"
+  elif [ "$want" = 1 ] && grep -qF -- "$content" <<< "$out"; then nok "$name" "output repeats the secret"$'\n'"$out"
   else ok "$name"; fi
 }
 # Split so this file never trips a scanner itself.

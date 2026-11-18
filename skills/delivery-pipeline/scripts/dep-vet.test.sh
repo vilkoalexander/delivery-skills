@@ -21,7 +21,7 @@ vet() {
   out=$(bash "$here/dep-vet.sh" "$@" 2>&1); code=$?
   if [ "$code" != "$want" ]; then nok "$name" "exit $code, wanted $want"$'\n'"$out"
   elif [ -z "$pat" ] && [ -n "$out" ]; then nok "$name" "expected silence"$'\n'"$out"
-  elif [ -n "$pat" ] && ! printf '%s' "$out" | grep -qE -- "$pat"; then nok "$name" "no match for $pat"$'\n'"$out"
+  elif [ -n "$pat" ] && ! grep -qE -- "$pat" <<< "$out"; then nok "$name" "no match for $pat"$'\n'"$out"
   else ok "$name"; fi
 }
 
@@ -63,7 +63,7 @@ echo '{"dependencies":{"lodash":"^4.17.21"},"devDependencies":{"young-pkg":"0.0.
 vet "diff: workspace package.json"    1 "^BLOCK young-pkg"                  --diff
 vet "diff: named file only"           0 ""                                  --diff package.json
 out=$(bash "$here/../../reuse-guardrails/scripts/reuse-scan.sh" apps/web/package.json 2>&1)
-printf '%s' "$out" | grep -q "## Dependency vetting (1)" && printf '%s' "$out" | grep -q "BLOCK young-pkg" && ok "reuse-scan carries the vetting" || nok "reuse-scan carries the vetting" "$out"
+grep -q "## Dependency vetting (1)" <<< "$out" && grep -q "BLOCK young-pkg" <<< "$out" && ok "reuse-scan carries the vetting" || nok "reuse-scan carries the vetting" "$out"
 git checkout -q apps/web/package.json
 
 echo

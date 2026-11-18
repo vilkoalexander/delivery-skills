@@ -64,11 +64,11 @@ out=$(cd "$repo/src" && bash "$run" start 2>&1); code=$?
 out=$(cd "$repo" && bash "$run" start 2>&1); code=$?
 [ "$code" = 0 ] && [ "$(ls "$DELIVERY_RUN_DIR" | wc -l | tr -d ' ')" = 1 ] && ok "start twice is idempotent" || nok "start twice is idempotent" "$out"
 out=$(cd "$repo" && bash "$run" status 2>&1); code=$?
-[ "$code" = 0 ] && printf '%s' "$out" | grep -qF "$repo" && ok "status names the repo" || nok "status names the repo" "$out"
+[ "$code" = 0 ] && grep -qF "$repo" <<< "$out" && ok "status names the repo" || nok "status names the repo" "$out"
 
 # ---------------------------------------------------------------- git writes, run active
 hook "commit blocked"            2 "$(bash_json 'git commit -m "x"')"
-printf '%s' "$last_err" | grep -qi "run.sh stop" && ok "reason says how to end the run" || nok "reason says how to end the run" "$last_err"
+grep -qi "run.sh stop" <<< "$last_err" && ok "reason says how to end the run" || nok "reason says how to end the run" "$last_err"
 hook "add blocked"               2 "$(bash_json 'git add .')"
 hook "add -N allowed"            0 "$(bash_json 'git add -N . && git diff > /tmp/w/chunk-1.diff')"
 hook "add --intent-to-add ok"    0 "$(bash_json 'git add --intent-to-add src/new.ts')"
@@ -96,7 +96,7 @@ hook "subagent commit blocked"   2 "$(bash_json 'git commit -m x' general-purpos
 # ---------------------------------------------------------------- package fetches, run active
 hook "install of a known package"        0 "$(bash_json 'npm install lodash')"
 hook "install of an unknown name blocked" 2 "$(bash_json 'npm install lodahs')"
-printf '%s' "$last_err" | grep -q "not in the registry" && printf '%s' "$last_err" | grep -q "DEP_VET_ALLOW" && ok "reason names the package and the way out" || nok "reason names the package and the way out" "$last_err"
+grep -q "not in the registry" <<< "$last_err" && grep -q "DEP_VET_ALLOW" <<< "$last_err" && ok "reason names the package and the way out" || nok "reason names the package and the way out" "$last_err"
 hook "npm i -D young package blocked"    2 "$(bash_json 'npm i -D young-pkg')"
 hook "pnpm add fresh version blocked"    2 "$(bash_json 'pnpm add --filter web fresh-version')"
 hook "pnpm add older pin allowed"        0 "$(bash_json 'pnpm add --filter web fresh-version@1.0.0')"
@@ -180,7 +180,7 @@ EOF
 full_report=$'Done.\n\n## Proof\n- ran: npm test — 12 passed\n- not verified: nothing\n\n## Reuse\n- reused: nothing'
 
 hook "report without Proof held"       2 "$(stop_json "$impl_t" 'Done, all tests pass.')"
-printf '%s' "$last_err" | grep -q "## Proof" && ok "reason names the block" || nok "reason names the block" "$last_err"
+grep -q "## Proof" <<< "$last_err" && ok "reason names the block" || nok "reason names the block" "$last_err"
 hook "report missing Reuse held"       2 "$(stop_json "$impl_t" $'Done.\n## Proof\n- ran: npm test — ok\n- not verified: nothing')"
 hook "full report passes"              0 "$(stop_json "$impl_t" "$full_report")"
 hook "array-content prompt enforced"   2 "$(stop_json "$arr_t" 'Done.')"

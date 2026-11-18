@@ -33,16 +33,21 @@ nok() {
   printf '%s\n' "$2" | sed 's/^/       /'
 }
 
+# A here-string, not a pipe: with pipefail, grep -q leaving early fails the writer and the match with it.
+matches() {
+  grep -qE -- "$1" <<< "$2"
+}
+
 eq() {
   if [ "$2" = "$3" ]; then ok "$1"; else nok "$1" "got '$2', wanted '$3'"; fi
 }
 
 sees() {
-  if printf '%s\n' "$3" | grep -qE -- "$2"; then ok "$1"; else nok "$1" "no match for $2"$'\n'"$3"; fi
+  if matches "$2" "$3"; then ok "$1"; else nok "$1" "no match for $2"$'\n'"$3"; fi
 }
 
 misses() {
-  if printf '%s\n' "$3" | grep -qE -- "$2"; then nok "$1" "unexpected match for $2"$'\n'"$3"; else ok "$1"; fi
+  if matches "$2" "$3"; then nok "$1" "unexpected match for $2"$'\n'"$3"; else ok "$1"; fi
 }
 
 has() {
@@ -54,7 +59,7 @@ has() {
     nok "$name" "exit $code, wanted $want"$'\n'"$out"
   elif [ -z "$pattern" ] && [ -n "$out" ]; then
     nok "$name" "expected silence"$'\n'"$out"
-  elif [ -n "$pattern" ] && ! printf '%s\n' "$out" | grep -qE -- "$pattern"; then
+  elif [ -n "$pattern" ] && ! matches "$pattern" "$out"; then
     nok "$name" "no match for $pattern"$'\n'"$out"
   else
     ok "$name"
