@@ -2,6 +2,8 @@
 set -euo pipefail
 
 log="${DELIVERY_LOG:-$HOME/.claude/delivery-skills/log.jsonl}"
+run_dir="${DELIVERY_RUN_DIR:-$HOME/.claude/delivery-skills/runs}"
+events_dir="${DELIVERY_EVENTS_DIR:-$(dirname "$run_dir")/events}"
 required=(plan chunk risk mode implementer reviewer fix_rounds findings verify decision)
 optional=(static human_found)
 numeric='chunk|fix_rounds|findings|static|human_found'
@@ -43,8 +45,83 @@ print_stats() {
   echo "static, review, human: defects each caught, in the order they run"
 }
 
+table() {
+  column -t | sed 's/ *$//'
+}
+
+print_paths() {
+  local files=("$events_dir"/*.jsonl) picked
+  if [ ! -e "${files[0]}" ]; then
+    echo "run-log: no event files in $events_dir"
+    return
+  fi
+  # The hook events are most of each file and none of them is a branch.
+  picked=$(cat "${files[@]}" | jq -cR '
+    fromjson? | select(.ev == "mark" or .ev == "gate_step" or .ev == "gate_end")
+  ')
+
+  local chunks='
+    def count(test): map(select(test)) | length;
+    # A mark with a name opens a chunk. A resumed run names the chunk again, thus the name joins the parts.
+    [ map(select(.ev == "mark" and .phase != "final"))
+      | group_by(.run)[]
+      | sort_by(.ts)
+      | reduce .[] as $mark ([];
+          if length == 0 or $mark.name != null or $mark.chunk != .[-1][-1].chunk
+          then . + [[$mark]]
+          else .[-1] += [$mark]
+          end)
+      | .[]
+    ]
+    | map({ key: (if .[0].name != null then [.[0].plan, .[0].name] else [.[0].run, .[0].chunk, .[0].ts] end | tostring),
+            marks: . })
+    | group_by(.key)
+    | map(map(.marks) | add | sort_by(.ts)
+        | (map(.phase) | index("report") // length) as $report
+        | { risk: (map(.risk // empty)[0] // "unknown"),
+            phases: (map(.phase) | unique),
+            rounds: (.[:$report] | map(select(.phase == "fix")) | to_entries
+                     | map(.value.round // (.key + 1)) | max // 0),
+            fix_after_report: (.[$report:] | any(.phase == "fix")) })
+    | group_by(.risk)[]'
+
+  echo
+  echo "paths taken, from ${#files[@]} event files"
+  jq -rs "
+    ([\"risk\", \"chunks\", \"review\", \"fix\", \"verify\", \"cross\", \"fix_after_report\"] | @tsv),
+    ($chunks
+      | [.[0].risk, length,
+         count(.phases | index(\"review\")), count(.phases | index(\"fix\")),
+         count(.phases | index(\"verify\")), count(.phases | index(\"cross\")),
+         count(.fix_after_report)]
+      | @tsv)
+  " <<<"$picked" | table
+  echo "chunks that got to each phase; fix_after_report: a fix that came after the report"
+
+  echo
+  echo "fix rounds before the report, chunks at each count"
+  jq -rs "
+    ([\"risk\", \"0\", \"1\", \"2\", \"3\", \"4\", \"5\", \"6+\"] | @tsv),
+    ($chunks
+      | [.[0].risk, (range(0; 6) as \$n | count(.rounds == \$n)), count(.rounds >= 6)]
+      | @tsv)
+  " <<<"$picked" | table
+
+  echo
+  jq -rs '
+    def count(test): map(select(test)) | length;
+    (["gate_step", "runs", "failed"] | @tsv),
+    (map(select(.ev == "gate_step")) | group_by(.step)[]
+      | [.[0].step, length, count(.ok == false)] | @tsv),
+    (map(select(.ev == "gate_end"))
+      | ["whole_gate", length, count(.ok == false)] | @tsv)
+  ' <<<"$picked" | table
+  echo "a step with no failures in many runs finds nothing, or its check is weak"
+}
+
 if [ "${1:-}" = stats ]; then
   print_stats
+  print_paths
   exit 0
 fi
 [ "${1:-}" = add ] || usage
