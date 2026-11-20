@@ -2,7 +2,7 @@
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 
-phases='implement|gate|review|fix|verify|cross|report|final'
+phases='test|implement|gate|review|fix|verify|cross|report|final'
 risks='low|medium|high'
 keys=(phase chunk of name risk plan round)
 
@@ -58,5 +58,61 @@ done
 
 [ -n "$phase" ] || die "missing phase"
 [ -n "$chunk" ] || [ "$phase" = final ] || die "missing chunk"
+
+fix_limit() {
+  case $1 in
+    medium) echo 3 ;;
+    high) echo 5 ;;
+  esac
+}
+
+# Refuses a mark that the loop does not permit. It judges only what this run's file shows.
+check_order() {
+  local file=$1 build risk limit
+  # A build is the marks of the chunk from the last test or implement mark that starts or restarts it.
+  build=$(jq -cR 'fromjson? | select(.ev == "mark")' "$file" | jq -cs --argjson chunk "$chunk" '
+    map(select(.chunk == $chunk)) as $marks
+    | ([range(0; $marks | length)
+        | select(($marks[.].phase | IN("test", "implement")) and (. == 0 or $marks[. - 1].phase == "report"))] | last) as $start
+    | ($marks[($start // 0):] | map(.phase)) as $phases
+    | { risk: ($marks | map(.risk // empty) | last // ""),
+        from_start: ($start != null),
+        reported: ($phases | index("report") != null),
+        verified: ($phases | index("verify") != null),
+        review_fixes: ($phases[($phases | index("review") // length):] | map(select(. == "fix")) | length),
+        last_phase: ($marks | last | .phase // ""),
+        last_at: ($marks | last | .ts // 0 | floor | todate) }')
+  field() { jq -r ".$1" <<< "$build"; }
+  risk=$(field risk)
+  limit=$(fix_limit "$risk")
+
+  case $phase in
+    fix)
+      if [ -n "$limit" ] && [ "$(field reported)" = false ] && [ "$(field review_fixes)" -ge "$limit" ]; then
+        die "chunk $chunk is $risk risk and is at its limit of $limit fix rounds: park the open findings and report"
+      fi
+      ;;
+    report)
+      if [[ $risk =~ ^(medium|high)$ ]] && [ "$(field from_start)" = true ] && [ "$(field verified)" = false ]; then
+        die "chunk $chunk is $risk risk and has no verify mark: dispatch the verifier before the report"
+      fi
+      ;;
+    test|implement)
+      [ "$(field last_phase)" = report ] || return 0
+      local log root logged
+      log="${DELIVERY_LOG:-$HOME/.claude/delivery-skills/log.jsonl}"
+      root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+      logged=$(jq -rs --arg project "$root" --arg since "$(field last_at)" --argjson chunk "$chunk" '
+        any(.[]; .project == $project and .chunk == $chunk and .ts >= $since)' "$log" 2>/dev/null || echo false)
+      [ "$logged" = true ] \
+        || die "chunk $chunk has a report and no run-log line after it: add the line (decision=rejected) before you build the chunk again"
+      ;;
+  esac
+}
+
+if [ -n "$chunk" ]; then
+  file=$(bash "$here/event.sh" file)
+  if [ -n "$file" ] && [ -f "$file" ]; then check_order "$file"; fi
+fi
 
 bash "$here/event.sh" mark mark "${fields[@]}" || true

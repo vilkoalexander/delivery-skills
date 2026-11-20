@@ -14,6 +14,10 @@ has "unknown command"               2 "usage: run.sh start\|stop\|status" bash "
 
 echo "# start"
 has "start reports the checkout"    0 "run active on $tmp/project" bash "$run" start
+has "start names the writing rule"  0 "^writing: ste100\. Read references/writing.md now" bash "$run" start
+mkdir -p docs/review && echo '{"stack":["node"],"writing":"free","workspaces":{".":{}}}' > docs/review/delivery.json
+has "start obeys a free setting"    0 "^writing: free$"          bash "$run" start
+rm -r docs
 eq  "one marker file"               "$(ls "$DELIVERY_RUN_DIR" | wc -l | tr -d ' ')" 1
 marker="$DELIVERY_RUN_DIR/$(ls "$DELIVERY_RUN_DIR")"
 eq  "marker names the project"      "$(jq -r .project "$marker")" "$tmp/project"

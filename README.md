@@ -28,9 +28,11 @@ to be built in chunks.
    looks up.
 2. **Approve the cut.** Chunks you can read in one sitting, each with a risk
    class, the criteria it completes and the one request or tap that proves it.
-3. **A chunk is built.** Scripts check it first. Then a reviewer reads it
-   against the rubrics and a verifier runs it. Failures go back to the
-   implementer, up to a cap.
+3. **A chunk is built.** One agent writes the tests from the criteria and
+   sees them fail. A different agent writes the code and cannot edit those
+   tests. When the two do not agree, the controller decides from the plan
+   which side is wrong. Scripts check the result. Then a reviewer reads it
+   against the rubrics and a verifier runs it. Failures go back, up to a cap.
 4. **Read the report and the diff.** Which files need a close read, what was
    run, what was fixed, what was left. Say `next`, `fix <thing>`, `redo` or
    `stop`.
@@ -49,7 +51,7 @@ is a script, and a model is asked only what is left.
 
 | Script | Decides | Runs |
 | --- | --- | --- |
-| `hooks/guard.sh` | No commit, add, push, merge, stash or PR during a run, and no install of a package the registry does not vouch for. Reviewer and verifier cannot write. An implementer report has its Proof block. | On every tool call |
+| `hooks/guard.sh` | No commit, add, push, merge, stash or PR during a run, and no install of a package the registry does not vouch for. Reviewer and verifier cannot write. An implementer report has its Proof block. A chunk task completes only after your decision is in the run log. | On every tool call |
 | `delivery-pipeline/scripts/static-gate.sh check` | The commands your `docs/review/delivery.json` names for typecheck, lint, format and tests pass; a step with no command is reported as skipped | After each chunk, before any reviewer |
 | `delivery-pipeline/scripts/secret-scan.sh` | No line the change adds holds a credential | In the gate |
 | `test-review/scripts/test-lock.sh` | No existing test was deleted, skipped or had an assertion rewritten | In the gate |
@@ -63,7 +65,9 @@ is a script, and a model is asked only what is left.
 | `chunked-delivery/scripts/redo.sh` | Returns the tree to before a chunk, keeps what it discards | On `redo` |
 | `hooks/emit.sh` | Nothing: records every tool call, agent start and stop, and refusal of a run, in the background | On every tool call during a run |
 | `chunked-delivery/scripts/mark.sh` | Which chunk and step the run is on, the one fact nothing else can observe | At each step of the loop |
-| `chunked-delivery/scripts/run-log.sh` | One line per chunk; `stats` totals what each gate caught | At each decision |
+| `chunked-delivery/scripts/run-log.sh` | One line per chunk; `stats` totals what each gate caught and counts the paths the runs took | At each decision |
+| `chunked-delivery/scripts/test-first.sh` | A test author changed a file that is not a test; an implementer changed a test | After the test authors, and after the implementers |
+| `run-retro/scripts/sources.sh` | What one run left behind: chunks, decisions, what you typed, refusals, gate failures, transcript paths | At the start of a retro |
 | `comment-cleanup/scripts/verify.sh` | A cleanup changed comment lines only | After a comment cleanup |
 
 Paths are under `skills/`. Outside a run the hook does nothing, so other
@@ -98,6 +102,7 @@ goes to the next model up.
 | `comment-cleanup` | Removes comments a reader does not need. |
 | `reuse-guardrails` | Audits whether the project stops agents rewriting what already exists. |
 | `memory-dash` | Dashboard and audit of Claude Code auto-memory across projects. |
+| `run-retro` | Looks back at one run: what you had to fix or decide late, and the check, rubric line or glossary term that prevents it next time. |
 | `factory-floor` | Local page that shows a run live: stations, gate steps, agents, tokens, refusals. |
 
 Three agents come along: `reviewer` and `verifier` (read-only) and
@@ -134,10 +139,14 @@ has no skill of its own.
 - `bash skills/reuse-guardrails/scripts/audit.sh <repo>` lists which of the
   thirteen reuse guardrails you have.
 - `bash skills/chunked-delivery/scripts/run-log.sh stats` shows what the
-  static gate, review and you each caught, per risk class.
+  static gate, review and you each caught, per risk class. Below that it
+  counts, from the event files, the chunks that got to each phase, the fix
+  rounds of each chunk, and the runs and failures of each gate step.
 - `node skills/factory-floor/scripts/serve.ts --open` shows runs live on
   a local page. It reads event files and transcripts; nothing leaves the machine.
 - `bash scripts/token-budget.sh` shows what each dispatch loads.
+- Set `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` to see the chunks of a run in the
+  task list of Claude Code. Without it the run works the same.
 - Set `TYPESAFE_API_KEY` and `risk.sh` classifies from the diff content, not
   only from paths. Classes are only ever raised.
 

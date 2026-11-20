@@ -35,6 +35,12 @@ case $action in
       event run_start project="$root" branch="$branch"
     fi
     echo "run active on $root"
+    writing=$(node "$here/../../delivery-pipeline/scripts/config.mjs" get writing 2>/dev/null || echo ste100)
+    if [ "$writing" = free ]; then
+      echo "writing: free"
+    else
+      echo "writing: $writing. Read references/writing.md now. All text for a person obeys it."
+    fi
     ;;
   stop)
     event run_stop

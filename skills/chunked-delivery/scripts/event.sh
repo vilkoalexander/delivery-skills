@@ -3,12 +3,14 @@ set -uo pipefail
 
 source=${1:-}
 event=${2:-}
-if [ -z "$source" ] || [ -z "$event" ]; then
+if [ -z "$source" ] || { [ -z "$event" ] && [ "$source" != file ]; }; then
   echo "usage: event.sh <src> <ev> [key=value | key:=json]..." >&2
   echo "       appends one line to the active run's event file; does nothing outside a run" >&2
+  echo "       event.sh file    prints the path of that file; prints nothing outside a run" >&2
   exit 2
 fi
-shift 2
+shift
+[ $# -eq 0 ] || shift
 
 run_dir="${DELIVERY_RUN_DIR:-$HOME/.claude/delivery-skills/runs}"
 events_dir="${DELIVERY_EVENTS_DIR:-$(dirname "$run_dir")/events}"
@@ -26,6 +28,11 @@ if [[ $(< "$marker") =~ \"run\":\"([^\"]+)\" ]]; then
   run=${BASH_REMATCH[1]}
 else
   run="$checkout_id-0"
+fi
+
+if [ "$source" = file ] && [ -z "$event" ]; then
+  printf '%s\n' "$events_dir/$run.jsonl"
+  exit 0
 fi
 
 # key=value is a string field, key:=value a JSON one (a number, true, an object).

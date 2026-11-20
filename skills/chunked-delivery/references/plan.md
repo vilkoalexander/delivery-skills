@@ -27,7 +27,10 @@ Write the block one time and put it in the plan file. Its sources are:
 2. A review procedure of the project, if there is one (`docs/PR-REVIEW.md`,
    `CONTRIBUTING.md`).
 3. The two lines from `static-gate.sh coverage` (below).
-4. These rules, which apply to all projects:
+4. If the project has `GLOSSARY.md`, this line: `- A domain thing has the
+   name that GLOSSARY.md gives it. A thing with no term there is a BLOCKED
+   report, not a new name.`
+5. These rules, which apply to all projects:
 
 ```
 ## Global Constraints
@@ -107,6 +110,11 @@ rules:
 A question that you can see in the plan before the first dispatch is a round
 question, even a small one. A ruling is only for a question that first appears
 inside a chunk.
+
+A ruling cannot reverse a decision that the human made or that the plan
+states. If you think that such a decision is wrong, stop. Ask one question,
+alone in the message. Quote the decision and where it comes from. Do not put
+the reversal in a list of calls that the human can overrule.
 
 ## 3. Classify the files
 
@@ -215,11 +223,15 @@ Before the first dispatch:
    - a `criteria:` line with the acceptance criteria of the plan that it
      completes;
    - an `exercise:` line: the one request or tap that proves it. The verifier
-     runs it.
+     runs it;
+   - a `tests:` line: the behaviours that the test author asserts before
+     there is code, one for each criterion. Write `none — <reason>` only for
+     a task with no behaviour: a rename, config, copy, docs, tooling, or a
+     task that is tests only.
 4. Add each `unsure:` line and each `Assumed:` line.
 5. End the list with `Approve: "go" · "long" (no stop after a clean chunk)`.
-6. **Wait for the approval.** A list without the sizes and the two lines is
-   not ready for approval.
+6. **Wait for the approval.** A list without the sizes and the three lines
+   is not ready for approval.
 
 `go` starts the loop with a stop after each chunk. `long` starts long-run
 mode: read `references/long-run.md`. The end of the questions and the approval
