@@ -75,6 +75,9 @@ hook "add --intent-to-add ok"    0 "$(bash_json 'git add --intent-to-add src/new
 hook "push after tests blocked"  2 "$(bash_json 'npm test && git push origin HEAD')"
 hook "push via ; blocked"        2 "$(bash_json 'echo done; git push')"
 hook "stash blocked"             2 "$(bash_json 'git stash')"
+hook "stash pop blocked"         2 "$(bash_json 'git stash pop')"
+hook "stash list allowed"        0 "$(bash_json 'npm test; git stash list | head -1 >/dev/null')"
+hook "stash show allowed"        0 "$(bash_json 'git stash show -p')"
 hook "reset --hard blocked"      2 "$(bash_json 'git reset --hard HEAD')"
 hook "reset (soft) allowed"      0 "$(bash_json 'git reset')"
 hook "checkout -- blocked"       2 "$(bash_json 'git checkout -- src/a.ts')"
@@ -139,6 +142,10 @@ hook "subagent cat snapshot allowed"       0 "$(bash_json 'cat /tmp/w/chunk-3.di
 for agent in delivery-skills:reviewer reviewer delivery-skills:verifier verifier; do
   hook "$agent: sed -i blocked"        2 "$(bash_json "sed -i 's/a/b/' src/a.ts" $agent)"
   hook "$agent: redirect blocked"      2 "$(bash_json 'echo hi > notes.txt' $agent)"
+  hook "$agent: heredoc to a file blocked" 2 "$(bash_json "cat > probe.cjs <<'EOF'" $agent)"
+  hook "$agent: arrow function is no redirect" 0 "$(bash_json 'node -e "const ids = rows.map((row) => row.id); console.log(ids.filter(id=>id))"' $agent)"
+  hook "$agent: stash list allowed"    0 "$(bash_json 'git stash list' $agent)"
+  hook "$agent: stash drop blocked"    2 "$(bash_json 'git stash drop' $agent)"
   hook "$agent: append blocked"        2 "$(bash_json 'echo hi >> notes.txt' $agent)"
   hook "$agent: tee blocked"           2 "$(bash_json 'cat a | tee b' $agent)"
   hook "$agent: rm blocked"            2 "$(bash_json 'rm -rf dist' $agent)"
@@ -185,8 +192,50 @@ hook "report missing Reuse held"       2 "$(stop_json "$impl_t" $'Done.\n## Proo
 hook "full report passes"              0 "$(stop_json "$impl_t" "$full_report")"
 hook "array-content prompt enforced"   2 "$(stop_json "$arr_t" 'Done.')"
 hook "explore agent not held"          0 "$(stop_json "$explore_t" 'It is guarded at class level.')"
+handback_t="$tmp/handback.jsonl"
+{
+  cat "$impl_t"
+  jq -cn --arg report "$full_report" '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",name:"SubagentHandback",input:{message:"first try, no blocks"}}]}}'
+  echo 'a line cut off in the mid'
+  jq -cn --arg report "$full_report" '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",name:"SubagentHandback",input:{message:$report}}]}}'
+} > "$handback_t"
+partial_t="$tmp/partial.jsonl"
+{
+  cat "$impl_t"
+  jq -cn '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",name:"SubagentHandback",input:{message:"Done.\n## Proof\n- ran: npm test"}}]}}'
+} > "$partial_t"
+hook "report in a hand-back call passes"  0 "$(stop_json "$handback_t" '' | jq -c 'del(.last_assistant_message)')"
+hook "hand-back missing Reuse held"       2 "$(stop_json "$partial_t" '' | jq -c 'del(.last_assistant_message)')"
 hook "second stop passes through"      0 "$(stop_json "$impl_t" 'Done.' true)"
 hook "missing transcript passes"       0 "$(stop_json "$tmp/nope.jsonl" 'Done.')"
+
+# ---------------------------------------------------------------- chunk tasks
+task_json() { # subject
+  jq -cn --arg cwd "$repo" --arg subject "$1" '
+    {session_id:"s1", cwd:$cwd, hook_event_name:"TaskCompleted", task_id:"1", task_subject:$subject}'
+}
+log_decision() { # chunk decision
+  (cd "$repo" && bash "$root/skills/chunked-delivery/scripts/run-log.sh" add plan=p.md chunk="$1" risk=low \
+    mode=gated implementer=haiku reviewer=none fix_rounds=0 findings=0 verify=none decision="$2")
+}
+export DELIVERY_LOG="$tmp/log.jsonl" DELIVERY_EVENTS_DIR="$tmp/events"
+
+log_decision 1 accepted
+hook "no run: chunk task completes"        0 "$(task_json 'Chunk 2/3 — add login [low]')"
+sleep 1
+(cd "$repo" && bash "$run" start > /dev/null)
+hook "decision from before the run held"   2 "$(task_json 'Chunk 1/3 — schema [high]')"
+grep -q "Chunk 1 has no accepted decision" <<< "$last_err" && ok "reason names the chunk" || nok "reason names the chunk" "$last_err"
+hook "other task completes"                0 "$(task_json 'Update the README')"
+sleep 1
+log_decision 1 accepted
+log_decision 2 rejected
+hook "accepted chunk completes"            0 "$(task_json 'Chunk 1/3 — schema [high]')"
+hook "rejected chunk held"                 2 "$(task_json 'Chunk 2/3 — add login [low]')"
+log_decision 2 edited
+hook "chunk edited after a redo completes" 0 "$(task_json 'Chunk 2/3 — add login [low]')"
+hook "chunk with no line held"             2 "$(task_json 'Chunk 3/3 — screens [medium]')"
+(cd "$repo" && bash "$run" stop > /dev/null)
 
 echo
 echo "$pass passed, $fail failed"
