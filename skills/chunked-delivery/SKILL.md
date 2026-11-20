@@ -18,10 +18,14 @@ SDD leaves to the project.
 - **Change 1.** The SDD rule "do not pause to check in between tasks" does not
   apply. You stop at the end of each chunk.
 - **Change 2.** The SDD implementer step "Commit your work" does not apply.
+- **Change 3.** The SDD implementer step "Write tests" does not apply. A
+  different agent writes the tests first (step 2a). The implementer makes
+  them pass and does not edit them.
 - All other SDD rules apply. This includes rulings: decide a question that
   first appears inside a chunk. Do not stop for it. Record it as
   `Ruling: <decision> — <why> — <cost if wrong>` and put it on the `Rulings:`
-  line of the report.
+  line of the report. A ruling cannot reverse a decision of the human or of
+  the plan: stop and ask.
 
 If the project has its own copy of this skill or of `delivery-pipeline`, the
 copy of the project wins.
@@ -47,7 +51,9 @@ copy of the project wins.
      redirects, `sed -i`, `tee`, `rm`, `mv`, installs, `git apply`;
    - the stop of an implementer whose dispatch named the `## Proof` block or
      the `## Reuse` block, when the report does not have it, one time;
-   - an install or an `npx` of a package that `dep-vet.sh` gives a `BLOCK`.
+   - an install or an `npx` of a package that `dep-vet.sh` gives a `BLOCK`;
+   - the completion of a chunk task before the run log has an `accepted` or
+     `edited` line for that chunk.
 
    The hook reads shell text and cannot see everything. The rules apply where
    the hook does not see.
@@ -63,6 +69,7 @@ copy of the project wins.
 
 | Phase | Do | Text |
 | --- | --- | --- |
+| 0. Intake | Only when there is no approved plan: grill, then write the plan | `references/intake.md` |
 | 1. Preflight | Make the checkout and the session ready | "Preflight" below |
 | 2. Plan | Ask the questions, cut the chunks, get the approval | `references/plan.md` |
 | 3. Loop | Build each chunk and stop | "The loop" below |
@@ -74,6 +81,9 @@ Read each of these files when its condition is true, not before.
 | File | Read when |
 | --- | --- |
 | `references/writing.md` | at the start, unless the setting is `free` |
+| `references/intake.md` | the human gives a problem or a feature, and there is no approved plan file |
+| `references/chunk-tasks.md` | the session has the `TaskCreate` tool |
+| `references/test-first.md` | the tests and the code do not agree, or `test-first.sh` names a file |
 | `references/plan.md` | at the start of phase 2 |
 | `references/static-gate.md` | a gate step fails and its output is not sufficient, or a step needs an allowance |
 | `references/risk-content.md` | `risk.sh` ends with `escalators: jev` |
@@ -108,6 +118,8 @@ role.
 | Role | Model | Dispatch as |
 | --- | --- | --- |
 | Controller | Opus 5.5. Fable 5.2 for a run of more than six chunks | the session |
+| Test author, low or medium risk | Sonnet 5.5 | `model: sonnet` |
+| Test author, high risk | Opus 5.5 | `model: opus` |
 | Implementer, low or medium risk | Haiku 5.5. Sonnet 5.5 for a medium-risk task that touches more than two files | `model: haiku` or `model: sonnet` |
 | Implementer, high risk | Opus 5.5 | `subagent_type: delivery-skills:oneway-implementer`, `model: opus` |
 | Task reviewer, medium risk | Sonnet 5.5 | `subagent_type: delivery-skills:reviewer`, `model: sonnet` |
@@ -148,7 +160,8 @@ whole-tree review at the end includes it.
    Make one if necessary. Do not make or enter a git worktree unless the human
    asks for one in the message. A worktree hides the diff and needs its own
    install and `.env`.
-2. Make sure that the plan file exists.
+2. Make sure that the plan file exists and that the human approved it. If
+   not, stop the preflight and do phase 0.
 3. Make sure that `docs/review/delivery.json` exists. It names the stack and
    the command for each static step in each workspace. The gate refuses to
    run without it. If it does not exist,
@@ -157,12 +170,14 @@ whole-tree review at the end includes it.
    change its commands during a run to make a chunk pass.
 4. Read the `writing` setting.
 5. Run `bash chunked-delivery/scripts/run.sh start`. This marks the checkout.
+   It prints the `writing` setting on each start. Obey that line, also when
+   you resume a run in an old session.
    The hook now applies the refusals of rule 3. The marker stays after a
    crash: `run.sh status` shows it and `run.sh stop` removes it.
 6. Record each step of the loop at the start of the step:
 
    ```
-   bash chunked-delivery/scripts/mark.sh phase=<implement|gate|review|fix|verify|cross|report> chunk=N of=M
+   bash chunked-delivery/scripts/mark.sh phase=<test|implement|gate|review|fix|verify|cross|report> chunk=N of=M
    ```
 
    Add `name=<chunk name> risk=<class> plan=<path>` on the first call of a
@@ -170,6 +185,10 @@ whole-tree review at the end includes it.
    chunk. The hooks and scripts record all other events, and the
    `factory-floor` page shows them. Do not write the event file by hand. Do
    not report progress in a different way.
+
+   `mark.sh` refuses a mark that the loop does not permit: a fix round above
+   the limit, a report with no verify, a rebuild with no run-log line. Its
+   message tells you what to do.
 
 Then do phase 2: read `references/plan.md`.
 
@@ -188,9 +207,52 @@ git diff > "$WORKSPACE/chunk-$N-before.diff"
 the only change that this process makes to the index. This snapshot is the
 only undo of the run.
 
-### Step 2. Implement
+### Step 2a. Tests first
 
-Dispatch one implementer for each task. Dispatch in parallel only when the
+A test author writes the tests before there is code. A different agent
+writes the code. Skip this step only for a task whose `tests:` line in the
+approved chunk list is `none`.
+
+```bash
+bash chunked-delivery/scripts/test-first.sh open "$WORKSPACE/chunk-$N-tests.lock"
+# dispatch the test authors of the chunk, one for each task
+bash chunked-delivery/scripts/test-first.sh lock "$WORKSPACE/chunk-$N-tests.lock"
+```
+
+`lock` fails if a test author changed a file that is not a test.
+
+The dispatch of a test author contains the task text, each acceptance
+criterion that the task completes (quoted), the `tests:` line and the
+`exercise:` line of the chunk, the Global Constraints, the `## Inventory`
+section of `test-review`, and these rules:
+
+> Write tests only. Do not write or change code that is not a test, a fixture
+> or a test helper. Write one test or more for each criterion. Assert the
+> behaviour that the criterion states, through the public interface that the
+> task names. Do not assert how the code does it.
+>
+> Run the tests. Each new test must fail on its assertion or on the symbol
+> that does not exist yet. A test that fails on a syntax error or on the test
+> setup is not ready.
+>
+> If a criterion is not clear enough for an assertion, stop with status
+> BLOCKED and quote the criterion. Do not guess what it means.
+>
+> End the report with:
+> ## Tests
+> - wrote: <test file> — <number> tests
+> - covers: <criterion, in short> — <test name>   (one line each)
+> - red: <exact command> — <the output line that shows the failure>
+> - not covered: <criterion> — <why no test can hold it>   (or "nothing")
+
+- A `covers` line with no `red` line is not a test yet. Send the report back.
+- Each `not covered` item goes to the verifier in step 6.
+- A `BLOCKED` report is a question for the human: the plan has a criterion
+  that nobody can assert.
+
+### Step 2b. Implement
+
+Dispatch one implementer for each task, after the lock. Dispatch in parallel only when the
 tasks touch different files. Use the model from the table. The work stays
 uncommitted and unstaged.
 
@@ -203,6 +265,11 @@ Add these two paragraphs to the body of the SDD implementer prompt:
 > If an existing test or the task text looks wrong, or the task cannot be done
 > as written, stop with status BLOCKED and say what you found. Do not edit the
 > test, and do not build around the task. No change is a valid result.
+>
+> The tests in <the files of the `wrote` lines> are the specification. They
+> fail now. Make them pass. Do not edit them and do not add a test. If one of
+> them looks wrong, stop with status BLOCKED: name the test, quote its
+> assertion, and quote the line of the task text that it does not agree with.
 
 Do not copy the rules of an authoring skill into the prompt. A copy is
 different from its source after two edits. `react-screen-authoring` is an
@@ -257,8 +324,15 @@ Rules for the blocks:
 ```bash
 git add -N .
 git diff > "$WORKSPACE/chunk-$N.diff"
+bash chunked-delivery/scripts/test-first.sh check "$WORKSPACE/chunk-$N-tests.lock"
 git diff --name-only | bash delivery-pipeline/scripts/static-gate.sh check
 ```
+
+If `test-first.sh check` names a file, a test of a test author fails, or an
+implementer stops with `BLOCKED` on a test, you decide which side is wrong.
+The plan is the authority. Read `references/test-first.md` and do it before a
+reviewer starts. The implementer never edits a test. The test author never
+edits code.
 
 Run the gate after each after-snapshot, before a reviewer, on each risk class.
 The gate runs the commands that the config names for the workspace of each
@@ -277,6 +351,11 @@ changed path. A reviewer sees only a diff that the tools accept.
   does not count against the fix-round limit, because no reviewer worked. Do
   two static rounds at most, on each risk class. Then park the failure and
   say so in the report.
+- **A failed step is never a known failure.** Do not continue to a reviewer
+  with a step that fails. If the command in the config is wrong, stop and
+  tell the human. The human corrects `docs/review/delivery.json`. If the
+  human tells you to continue, write the failed step on the `Fixed:` line of
+  each report until it passes.
 - **A skipped step is not a pass and not a failure.** The last line of the
   gate lists the steps that ran and the steps that it skipped. Continue, and
   put each skipped step on the `Fixed:` line of the chunk report.
@@ -317,7 +396,8 @@ line to the body of the SDD task-reviewer prompt:
 
 ### Step 5. Fix rounds
 
-1. Send the findings to the implementer.
+1. Send each finding about code to the implementer. Send each finding about
+   a test to the test author: `test-first.sh open` before it, `lock` after.
 2. Dispatch a scoped re-review. It gets the findings list and the fix diff,
    as the SDD re-review prompt says. It gets no rubric line and no
    `review-routing`.
@@ -340,6 +420,7 @@ dispatch `delivery-skills:verifier` with:
 - each acceptance criterion of the plan that the chunk completes, quoted;
 - the Proof block of the implementer. The verifier does each `ran` claim and
   each `exercised` claim again;
+- each `not covered` item of the test author;
 - each finding that is open after the fix rounds, quoted from the reviewer.
 
 The verifier gives one line for each item:
@@ -375,8 +456,9 @@ Do not start the next chunk. Do not prepare it. Do not read the next tasks.
 | `next` | Start the next chunk at step 1 |
 | `fix <thing>` | Dispatch a fix implementer and a scoped re-review. Write the report of the same chunk again. If a map exists, publish it again before the report. If the thing is a defect in a reviewed file, count it for `human_found`. Then offer one line for `docs/review/<rubric>.md` of that rubric, as a rule that a reviewer can examine. Write the line only if the human says yes |
 | `map` | Read `references/review-map.md`. Make and publish the map for this chunk. Answer with the link. Continue to wait |
-| `redo` | Get a confirmation first: there are no commits, thus the discarded work is a real loss. Then run `bash chunked-delivery/scripts/redo.sh "$WORKSPACE/chunk-$N-before.diff"`. It returns the tree to that snapshot and saves what it discards. Then start the chunk again at step 2, with the correction as added context. Not available in long-run mode |
+| `redo` | Get a confirmation first: there are no commits, thus the discarded work is a real loss. Then run `bash chunked-delivery/scripts/redo.sh "$WORKSPACE/chunk-$N-before.diff"`. It returns the tree to that snapshot and saves what it discards. Then start the chunk again at step 2a, with the correction as added context. Not available in long-run mode |
 | `stop` | Stop. Report the chunks that are complete and the chunks that you did not start. Then run `bash chunked-delivery/scripts/run.sh stop` |
+| words that reject the design of the chunk | It is a `redo`. Say so and get the confirmation. Add the run-log line with `decision=rejected` before you build the chunk again |
 | something else | It is a question about the chunk. Answer it and continue to wait. A question is not an approval |
 
 When the decision of the human is `next`, `redo` or `stop`, add the line to
@@ -409,7 +491,13 @@ Files:   high: <each path> · medium: <each path> · low: <count> files
 
 Changed: <three to five lines. What it now does and why — not a file list.>
 
+Example: <high risk only, when the chunk adds a mechanism: one real request
+          through the new code, one line for each step, with the real names>
+
 Flow:    <an ASCII flow, or omit the line — see below>
+
+Tests:   <one line per task — number of tests, the criteria they cover,
+          "not covered: <items>" — or "none — <reason from the chunk list>">
 
 Proof:   <one line per task — ran · shows · exercised, condensed from the
           implementer's block — then "not verified: <items>" or
@@ -436,6 +524,10 @@ Next:     "next" · "fix <thing>" · "redo" · "stop"
 ```
 
 A report that is longer than its diff is a failure.
+
+Name a chunk by its number and its name only. Do not use a task label of the
+plan file (`2e`, `3a`) in text for the human. If the cut changes during a
+run, show the full new chunk list immediately and say what changed.
 
 Offer a review map when the chunk has more than approximately twenty files or
 more than one layer (backend, shared contracts, UI). To offer it, add
@@ -487,9 +579,12 @@ bash chunked-delivery/scripts/run-log.sh add plan=<path> chunk=N risk=<low|mediu
 - In long-run mode, add the line for each chunk at the final `ok`. Use
   `edited` for a chunk that got a `fix`.
 - A chunk that the run did not get to has no line.
+- A chunk that you build again gets a `rejected` line first. Each build that
+  the human saw has one line.
 - An error from the log is one line in the report. It does not stop the run.
 - `bash chunked-delivery/scripts/run-log.sh stats` gives the totals for each
-  risk class. Use them to find a gate that catches nothing and a rubric that
+  risk class. Then it counts the paths that the runs took: the chunks that
+  got to each phase, the fix rounds, and the failures of each gate step. Use them to find a gate that catches nothing and a rubric that
   needs a new rule.
 
 ## After the last chunk

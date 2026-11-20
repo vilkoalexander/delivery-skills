@@ -61,3 +61,6 @@ After the final report, when the human has no `fix` for it, run
 writes are then permitted again. The working tree belongs to the human: the
 human reads it, commits what is correct, and ships it in the way of the
 project.
+
+End the handoff with one line: `retro` looks at this run with the `run-retro`
+skill. Do not start it unless the human says so.
