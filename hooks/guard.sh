@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Plugin hook for PreToolUse (Bash, Read) and SubagentStop. Turns five rules of
+# Plugin hook for PreToolUse (Bash, Read), SubagentStop and TaskCompleted. Turns six rules of
 # the delivery run from prose into refusals:
 #   - while a run is active (scripts/run.sh start), nobody runs a git write
 #   - a reviewer or verifier agent never writes, run or no run
@@ -7,6 +7,8 @@
 #   - an implementer whose dispatch asked for a Proof block ends with one
 #   - while a run is active, nobody installs or runs a package the registry
 #     does not know, one published days ago, or one reported as malware
+#   - while a run is active, a chunk task completes only after the run log
+#     holds the human's decision on that chunk
 # Exit 2 refuses; stderr is the reason the model sees. Anything unexpected
 # exits 0 so a hook bug never blocks work.
 set -uo pipefail
@@ -203,6 +205,7 @@ refuse_untrusted_fetch() {
 refuse_git_write() {
   local git=$1 segment=$2
   case "$git" in
+    stash\ list*|stash\ show*) ;;
     commit*|push*|merge*|rebase*|cherry-pick*|stash*|clean*|restore*)
       deny_during_run "git ${git%% *} is not run during a run"
       ;;
@@ -238,7 +241,8 @@ refuse_snapshot_print() {
 refuse_reviewer_write() {
   local tool=$1 git=$2 segment=$3 without_safe_redirects
 
-  without_safe_redirects=$(printf '%s' "$segment" | sed -E 's/[0-9]*>&[0-9]+//g; s/[0-9]*>[[:space:]]*\/dev\/null//g')
+  # "=>" is an arrow function in a node -e probe far more often than a redirect.
+  without_safe_redirects=$(printf '%s' "$segment" | sed -E 's/[0-9]*>&[0-9]+//g; s/[0-9]*>[[:space:]]*\/dev\/null//g; s/=>//g')
   case "$without_safe_redirects" in
     *\>*) deny_read_only "no redirect to a file" ;;
   esac
@@ -260,6 +264,7 @@ refuse_reviewer_write() {
   esac
 
   case "$git" in
+    stash\ list*|stash\ show*) ;;
     apply*|checkout*|restore*|stash*|reset*|clean*|commit*|add*|push*|merge*|rebase*|cherry-pick*|am*)
       deny_read_only "git ${git%% *} changes the tree"
       ;;
@@ -311,7 +316,12 @@ check_stop() {
   ' "$transcript" 2>/dev/null | head -c 60000)
   [ -n "$dispatch" ] || exit 0
 
-  report=$(field .last_assistant_message)
+  # A report can arrive as a hand-back call. The hook input then has no last message.
+  report=$(field .last_assistant_message)$'\n'$(jq -rnR '
+    [inputs | fromjson? | select(.type == "assistant") | .message.content[]?
+     | select(.type == "tool_use" and .name == "SubagentHandback") | .input.message // empty]
+    | last // empty
+  ' "$transcript" 2>/dev/null)
   for block in "## Proof" "## Reuse"; do
     [[ $dispatch == *"$block"* ]] || continue
     [[ $report == *"$block"* ]] || missing="$missing $block"
@@ -321,7 +331,28 @@ check_stop() {
   deny "Your report is missing:$missing. The dispatch asked for it. Append the block(s) now — ## Proof with ran / shows / exercised / not verified, ## Reuse with reused / searched / new shared / new dependency — and stop. Do not re-implement anything."
 }
 
+# A chunk task is "Chunk N/M — name [risk]". It completes after the human decided on the chunk.
+check_task_done() {
+  run_active || exit 0
+  [[ $(field .task_subject) =~ ^Chunk\ ([0-9]+)/ ]] || exit 0
+
+  local chunk=${BASH_REMATCH[1]} log started decision
+  log="${DELIVERY_LOG:-$HOME/.claude/delivery-skills/log.jsonl}"
+  started=$(jq -r '.started // empty' "$marker" 2>/dev/null)
+  decision=$(jq -rs --arg project "$root" --arg started "$started" --argjson chunk "$chunk" '
+    map(select(.project == $project and .chunk == $chunk and .ts >= $started)) | last | .decision // empty
+  ' "$log" 2>/dev/null)
+  case $decision in
+    accepted|edited) exit 0 ;;
+  esac
+
+  deny "Chunk $chunk has no accepted decision in the run log of this run. Complete the task after the human decides on the chunk and you add the run-log line."
+}
+
 case "$event" in
+  TaskCompleted)
+    check_task_done
+    ;;
   PreToolUse)
     case "$(field .tool_name)" in
       Bash) check_bash ;;
