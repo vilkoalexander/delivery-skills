@@ -99,7 +99,7 @@ goes to the next model up.
 | --- | --- |
 | `chunked-delivery` | The run, in one file in run order: preflight, the loop, the model for each role, what each risk class gets, the reports. One reference file for each phase and for each thing only some runs need. |
 | `review-routing` | Maps changed files to rubrics; merges findings into one list. |
-| `react-review`, `angular-review`, `nestjs-service-review`, `prisma-schema-review`, `spring-service-review`, `jpa-schema-review`, `api-contract-review`, `test-review`, `observability-review` | Review rubrics, one kind of file each: a checklist, a list of things not to report, a scan script and an inventory script. |
+| `react-review`, `angular-review`, `nestjs-service-review`, `prisma-schema-review`, `spring-service-review`, `jpa-schema-review`, `api-contract-review`, `test-review`, `observability-review`, `security-review` | Review rubrics, one kind of file each: a checklist, a list of things not to report, a scan script and an inventory script. |
 | `react-screen-authoring` | Read before a new screen is written. |
 | `comment-cleanup` | Removes comments a reader does not need. |
 | `reuse-guardrails` | Audits whether the project stops agents rewriting what already exists. |
@@ -150,6 +150,9 @@ has no skill of its own.
   static gate, review and you each caught, per risk class. Below that it
   counts, from the event files, the chunks that got to each phase, the fix
   rounds of each chunk, and the runs and failures of each gate step.
+  Each log line carries the plugin version, and the last table of the log
+  counts by version: defects that you found and chunks that you rejected
+  should fall after a change to a gate or a rubric.
 - `node skills/factory-floor/scripts/serve.ts --open` shows runs live on
   a local page. It reads event files and transcripts; nothing leaves the machine.
 - `bash scripts/token-budget.sh` shows what each dispatch loads.

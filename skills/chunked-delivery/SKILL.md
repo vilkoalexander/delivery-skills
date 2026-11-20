@@ -602,8 +602,9 @@ bash chunked-delivery/scripts/run-log.sh add plan=<path> chunk=N risk=<low|mediu
 - A chunk that you build again gets a `rejected` line first. Each build that
   the human saw has one line.
 - An error from the log is one line in the report. It does not stop the run.
+- The script adds the version of this plugin to each line. Do not give it.
 - `bash chunked-delivery/scripts/run-log.sh stats` gives the totals for each
-  risk class. Then it counts the paths that the runs took: the chunks that
+  risk class and for each plugin version. Then it counts the paths that the runs took: the chunks that
   got to each phase, the fix rounds, and the failures of each gate step. Use them to find a gate that catches nothing and a rubric that
   needs a new rule.
 

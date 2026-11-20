@@ -34,11 +34,13 @@ directory depth: backend units nest.
 | `*.component.ts`, `*.directive.ts`, `*.pipe.ts` with an `@Component`/`@Directive`/`@Pipe` decorator, and their `.html` templates, under an Angular app | `angular-review` |
 | `*.spec.ts`, `*.test.ts`, `*.test.tsx`, anything under `__tests__/`, `test/`, `tests/`, `e2e/` | `test-review` |
 | Any backend runtime file — the NestJS row above plus `*.gateway.ts`, `*.processor.ts`, `*.consumer.ts`, `*.job.ts`, `*.middleware.ts`, `*.resolver.ts` — **in addition to** its own row | `observability-review` |
+| A file that takes outside input, decides who may act, or handles a secret — `*.controller.ts`, `*.resolver.ts`, `*.gateway.ts`, `*.guard.ts`, `*.strategy.ts`, `*.middleware.ts`, `*Controller.java`, a Spring security configuration, anything under `auth/`, `security/`, `webhooks/`, `uploads/` or `payments/` — and any other changed source file where `security-review/scripts/scan.sh` prints a flag — **in addition to** its own row | `security-review` |
 
 The two Java rows are routed by content when the name does not say: open the
 first thirty lines and route on `@Entity` or `extends …Repository`. The other
 rubrics are written for TypeScript: a Java file is not routed to
-`test-review`, `observability-review` or `api-contract-review`. A request or
+`test-review`, `observability-review` or `api-contract-review`.
+`security-review` reads both languages. A request or
 response class that a TypeScript client mirrors by hand is a contract change
 all the same; name the client file that must change with it.
 
@@ -126,6 +128,14 @@ non-test hunks too; a revert-check result handed to you is the first set of
 findings. `observability-review` is a second pass over the backend rows, never
 a replacement for `nestjs-service-review`; given its own seat, that reviewer
 runs only this row.
+
+`security-review` is a second pass in the same way, over the files of its
+row. Run its `scripts/scan.sh` on each changed source file that is not a
+test: a file with a flag joins the row, a file with none and outside the row
+does not. It does not repeat what the service and schema rubrics report:
+tenant scoping, a role where an object check is needed, a body with no
+validation. On a high-risk chunk that touches auth, money or a public route
+it is worth its own seat.
 
 A change with an entity or a migration and the service that uses it is a
 schema change first. Run `jpa-schema-review` before `spring-service-review`;

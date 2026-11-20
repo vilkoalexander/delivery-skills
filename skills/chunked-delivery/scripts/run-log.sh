@@ -43,6 +43,30 @@ print_stats() {
       | @tsv)
   ' "$log" | column -t
   echo "static, review, human: defects each caught, in the order they run"
+
+  echo
+  jq -rs '
+    def total(field): map(field // 0) | add;
+    def order: if . == "unknown" then [-1] else split(".") | map(tonumber? // 0) end;
+    (["version", "chunks", "static", "review", "human", "rejected"] | @tsv),
+    (map(.version //= "unknown") | group_by(.version) | sort_by(.[0].version | order)[]
+      | [.[0].version, length, total(.static), total(.findings), total(.human_found),
+         (map(select(.decision == "rejected")) | length)]
+      | @tsv)
+  ' "$log" | column -t
+  echo "by plugin version: human and rejected per chunk should fall after a change to a gate or a rubric"
+}
+
+plugin_version() {
+  local manifest
+  manifest="$(dirname "$0")/../../../.claude-plugin/plugin.json"
+  if [ -n "${DELIVERY_PLUGIN_VERSION:-}" ]; then
+    echo "$DELIVERY_PLUGIN_VERSION"
+  elif [ -f "$manifest" ]; then
+    jq -r '.version // "unknown"' "$manifest" 2>/dev/null || echo unknown
+  else
+    echo unknown
+  fi
 }
 
 table() {
@@ -157,7 +181,8 @@ done
 root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 base=$(git rev-parse HEAD 2>/dev/null || echo none)
 entry=$(jq -cn "${fields[@]}" \
-  --arg ts "$(date -u +%FT%TZ)" --arg project "$root" --arg base "$base" '
+  --arg ts "$(date -u +%FT%TZ)" --arg project "$root" --arg base "$base" \
+  --arg version "$(plugin_version)" '
   $ARGS.named
   | with_entries(
       if (.key | IN("chunk", "fix_rounds", "findings", "static", "human_found")) then .value |= tonumber else . end

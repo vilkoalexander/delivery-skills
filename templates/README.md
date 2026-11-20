@@ -30,6 +30,7 @@ will skim both.
 | `api-contract-review.md` | `docs/review/api-contract-review.md` |
 | `test-review.md` | `docs/review/test-review.md` |
 | `observability-review.md` | `docs/review/observability-review.md` |
+| `security-review.md` | `docs/review/security-review.md` |
 | `react-screen-authoring.md` | `docs/review/react-screen-authoring.md` |
 | `verify.md` | `docs/review/verify.md` — not a rubric layer: how an agent starts, drives and cleans up the app. The `verify-recipe` skill writes it |
 | `verify-feature.md` | `docs/review/features/<feature>.md` — one per user-facing feature, with a `README.md` index beside them |
@@ -67,6 +68,7 @@ The rubric scripts take project-specific names from the environment:
 | `INVENTORY_DOCS` | react, angular | `1` adds each module's first doc-comment line |
 | `REVIEW_FILES` | nestjs, spring | space-separated files under review; limits the missing-spec check to them |
 | `LOG_CALL`, `SECRETS` | observability | regex for the project's log call; extra field names that must never be logged |
+| `INPUT`, `GUARD` | security | extra names that hold outside input; regex for what authorizes a handler or marks it public, `""` when a global guard or URL rules decide |
 | `AUTHZ` | spring | regex for the annotations that authorize a handler; `""` when the project authorizes by URL |
 | `REMOTE_CALL` | spring | regex for calls that leave the process: HTTP, object store, bot, mail |
 | `MIGRATION_BASE` | jpa | git ref a merged migration is compared with (default `HEAD`; the base branch in a branch review) |

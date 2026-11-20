@@ -32,6 +32,7 @@ eq "chunk is a number" "$(last '.chunk | type')" number
 eq "fix_rounds is a number" "$(last '.fix_rounds | type')" number
 eq "findings value" "$(last .findings)" 3
 eq "decision kept" "$(last .decision)" edited
+eq "version is the plugin's" "$(last .version)" "$(jq -r .version "$here/../../../.claude-plugin/plugin.json")"
 eq "timestamp set" "$(last '.ts | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T")')" true
 
 with() { # replaces one valid field with the given key=value
@@ -72,6 +73,15 @@ eq "optional counts are numbers" "$(last '.human_found | type')" number
 reject "bad optional" human_found=some "human_found must be"
 stats=$(bash "$script" stats)
 eq "stats sums what each gate caught" "$(awk '$1 == "medium" { print $2, $3, $4, $5 }' <<<"$stats")" "4 3 12 1"
+old='{"risk":"low","decision":"rejected","human_found":2}'
+echo "$old" >> "$DELIVERY_LOG"
+DELIVERY_PLUGIN_VERSION=0.9.0 bash "$script" add "${valid[@]}" human_found=1 >/dev/null
+DELIVERY_PLUGIN_VERSION=0.10.0 with decision=rejected >/dev/null
+stats=$(bash "$script" stats)
+byversion=$(awk '$1 == "version" { on = 1; next } on && !NF { on = 0 } on && $1 != "by" { print $1, $2, $5, $6 }' <<<"$stats" | head -3 | tr '\n' ';')
+eq "stats by version, an entry with none first, then in number order" "$byversion" "unknown 1 2 1;0.9.0 1 1 0;0.10.0 1 0 1;"
+sed -i.bak '$d' "$DELIVERY_LOG"; sed -i.bak '$d' "$DELIVERY_LOG"; sed -i.bak '$d' "$DELIVERY_LOG"; rm -f "$DELIVERY_LOG.bak"
+stats=$(bash "$script" stats)
 eq "stats on an empty log exits 0" "$(DELIVERY_LOG="$tmp/none.jsonl" bash "$script" stats >/dev/null; echo $?)" 0
 
 mkdir -p "$DELIVERY_EVENTS_DIR"
