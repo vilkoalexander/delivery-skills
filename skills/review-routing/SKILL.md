@@ -99,6 +99,14 @@ primitives and ceilings.
   `searched: … none found` line is an answer only when the inventory agrees.
   Rank a reinvention above a style finding; the human would otherwise catch it
   by hand.
+- **Read the escape flags once over the whole diff.** `bash
+  ${CLAUDE_PLUGIN_ROOT}/skills/delivery-pipeline/scripts/escape-scan.sh` with
+  the changed paths (or `ESCAPE_DIFF_RANGE=base..head`), or read the output
+  the dispatch already carries from the static gate. Every flag is a finding
+  unless the line silences a rule that is wrong for that line and says why,
+  or names a workaround for a cause outside the code with its removal
+  condition. The finding names the cause to fix, never a better comment. A
+  comment that keeps two copies in sync is a finding for a drift check.
 - **Cross-file risk is in scope when you can name it.** A changed service
   method signature, a renamed shared type, an altered delete action: check the
   call sites and name both the risk and the check in your report. Browsing

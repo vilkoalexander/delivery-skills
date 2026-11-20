@@ -328,7 +328,7 @@ check_stop() {
   done
   [ -z "$missing" ] && exit 0
 
-  deny "Your report is missing:$missing. The dispatch asked for it. Append the block(s) now — ## Proof with ran / shows / exercised / not verified, ## Reuse with reused / searched / new shared / new dependency — and stop. Do not re-implement anything."
+  deny "Your report is missing:$missing. The dispatch asked for it. Append the block(s) now — ## Proof with ran / shows / exercised / safe because (high risk) / not verified, ## Reuse with reused / searched / new shared / new dependency — and stop. Do not re-implement anything."
 }
 
 # A chunk task is "Chunk N/M — name [risk]". It completes after the human decided on the chunk.

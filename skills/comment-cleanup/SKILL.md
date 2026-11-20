@@ -32,6 +32,10 @@ goes, and what is never touched.
    with the blank line it would leave doubled. A trailing comment goes and
    the code before it stays byte for byte. A comment that a rename would
    replace is not renamed here: leave it and list it under `Rename instead`.
+   A comment that asks the next editor to hold a rule ("must run before",
+   "do not remove", "keep in sync with") stays, and goes under
+   `Enforce instead` with the test, type, lint rule or drift check that
+   would hold it: nothing fails when a comment is ignored.
 7. **`bash scripts/verify.sh <scope>`** — exits non-zero when a changed line
    is not a comment. Then the project's lint and typecheck. Either failing
    means a code line moved: restore it, do not explain it.
@@ -55,6 +59,7 @@ Comment cleanup — <scope>
 
 Unsure:         <file:line> — <what could not be judged>
 Rename instead: <file:line> — <name> → <name that needs no comment>
+Enforce instead: <file:line> — <the rule the comment asks for> → <what would hold it>
 No reason:      <file:line> — suppression with no reason given
 TODO:           <file:line> — <its text>
 Verify:  <the last line of verify.sh> · <lint and typecheck result, or "none set up">

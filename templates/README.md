@@ -31,6 +31,8 @@ will skim both.
 | `test-review.md` | `docs/review/test-review.md` |
 | `observability-review.md` | `docs/review/observability-review.md` |
 | `react-screen-authoring.md` | `docs/review/react-screen-authoring.md` |
+| `verify.md` | `docs/review/verify.md` — not a rubric layer: how an agent starts, drives and cleans up the app. The `verify-recipe` skill writes it |
+| `verify-feature.md` | `docs/review/features/<feature>.md` — one per user-facing feature, with a `README.md` index beside them |
 | `drift.checks` | `docs/review/drift.checks` — not a rubric layer: the drift checks the static gate runs |
 | `delivery.json` | `docs/review/delivery.json` — not a rubric layer: the stack, the command each static step runs per workspace, and the project's patterns. `static-gate.sh init` drafts it |
 
@@ -43,11 +45,12 @@ will skim both.
 | `workspaces.<dir>.<step>` | `static-gate.sh check` | the command for `typecheck`, `lint`, `format`, `test` or any step you name, run in `<dir>`. A string runs whenever the workspace changed; `{ "run", "files" }` runs only when a changed path matches `files`; `false` says the workspace has none. `{files}` becomes the changed paths that still exist, relative to `<dir>`. A changed path belongs to the longest `<dir>` that contains it; `.` is the root |
 | `risk.high`, `risk.medium` | `risk.sh` | patterns for paths that are always that class |
 | `secrets.allow` | `secret-scan.sh` | patterns over `path:line:text` for added lines that are not credentials |
+| `escapes.allow` | `escape-scan.sh` | patterns over `path:line:text` for added lines that are not escapes: a suppression or a cast the project accepts |
 | `deps.allow`, `deps.minAgeDays`, `deps.minVersionDays` | `dep-vet.sh` | package names never vetted (private scopes); youngest package and version an agent may fetch (30, 7) |
 | `shared` | `reuse-scan.sh` | patterns for shared-layer directories |
 
 Patterns are POSIX ERE. An environment variable of the matching name
-(`RISK_HIGH`, `SECRET_ALLOW`, `DEP_VET_ALLOW`, `REUSE_SHARED`) overrides the
+(`RISK_HIGH`, `SECRET_ALLOW`, `ESCAPE_ALLOW`, `DEP_VET_ALLOW`, `REUSE_SHARED`) overrides the
 file for one call.
 
 ## Script variables
@@ -69,7 +72,7 @@ The rubric scripts take project-specific names from the environment:
 | `MIGRATION_BASE` | jpa | git ref a merged migration is compared with (default `HEAD`; the base branch in a branch review) |
 | `MIGRATION_NAME` | jpa | regex for a valid migration file name, when the project does not use Flyway's |
 | `TEST_CMD` | test `revert-check.sh` | command that runs the test files passed to it, when detection from `package.json` is wrong |
-| `STATIC_SKIP` | `static-gate.sh` | steps to skip for one call: `test-lock`, `drift`, `secrets`, `reuse`, or any step name from `delivery.json` |
+| `STATIC_SKIP` | `static-gate.sh` | steps to skip for one call: `test-lock`, `drift`, `secrets`, `reuse`, `escapes`, or any step name from `delivery.json` |
 
 ## The other way: fork the rubric into the project
 

@@ -58,6 +58,7 @@ is a script, and a model is asked only what is left.
 | `delivery-pipeline/scripts/drift.sh` | Two copies of one fact still agree: schema and migrations, API and generated client, native deps and SDK. You declare the pairs. | In the gate, when a matching path changed |
 | `test-review/scripts/revert-check.sh` | New tests fail when the change is reverted | In the gate, when tests changed |
 | `reuse-guardrails/scripts/reuse-scan.sh` | A new helper, export or dependency duplicates one the repo has | In the gate; flags, never fails |
+| `delivery-pipeline/scripts/escape-scan.sh` | A line the change adds silences a checker, casts to `any`, defers the fix in a comment, or keeps two copies in sync by a comment | In the gate; flags, never fails |
 | `delivery-pipeline/scripts/dep-vet.sh` | A package exists in the registry, is not days old and is not reported as malware; flags install scripts and known advisories | In the hook before an install or `npx` during a run; in the reuse scan for changed dependencies |
 | `delivery-pipeline/scripts/risk.sh` | Risk class of a change, from its paths; says when a dependency change shares the chunk with other work | At the cut and in each report |
 | `<rubric>/scripts/scan.sh` | Mechanical smells in one file | Before a reviewer reads it |
@@ -68,6 +69,7 @@ is a script, and a model is asked only what is left.
 | `chunked-delivery/scripts/run-log.sh` | One line per chunk; `stats` totals what each gate caught and counts the paths the runs took | At each decision |
 | `chunked-delivery/scripts/test-first.sh` | A test author changed a file that is not a test; an implementer changed a test | After the test authors, and after the implementers |
 | `run-retro/scripts/sources.sh` | What one run left behind: chunks, decisions, what you typed, refusals, gate failures, transcript paths | At the start of a retro |
+| `verify-recipe/scripts/check.sh` | The verify recipe and the feature map are whole: every section filled, every feature in the index, no placeholder, no path that is gone | After the recipe is written, and at the cut |
 | `comment-cleanup/scripts/verify.sh` | A cleanup changed comment lines only | After a comment cleanup |
 
 Paths are under `skills/`. Outside a run the hook does nothing, so other
@@ -102,6 +104,7 @@ goes to the next model up.
 | `comment-cleanup` | Removes comments a reader does not need. |
 | `reuse-guardrails` | Audits whether the project stops agents rewriting what already exists. |
 | `memory-dash` | Dashboard and audit of Claude Code auto-memory across projects. |
+| `verify-recipe` | Writes how an agent starts the app, drives it and shows what happened, and a feature map with one file per feature. The verifier reads both and does not rediscover the project each chunk. |
 | `run-retro` | Looks back at one run: what you had to fix or decide late, and the check, rubric line or glossary term that prevents it next time. |
 | `factory-floor` | Local page that shows a run live: stations, gate steps, agents, tokens, refusals. |
 
@@ -130,6 +133,11 @@ has no skill of its own.
   it off.
 - Tell the rubrics about your codebase: one file per rubric at
   `docs/review/<rubric>.md`. Starting points in [`templates/`](templates/README.md).
+- Write the verify recipe once: ask for one and the `verify-recipe` skill
+  writes `docs/review/verify.md` (launch, doctor, drive, evidence, cleanup)
+  and `docs/review/features/`, then proves them by running one feature.
+  Starting points in [`templates/verify.md`](templates/verify.md) and
+  [`templates/verify-feature.md`](templates/verify-feature.md).
 - `bash skills/delivery-pipeline/scripts/static-gate.sh coverage` lists which
   analyzers you enforce and which you lack. What lint enforces never reaches
   a reviewer.

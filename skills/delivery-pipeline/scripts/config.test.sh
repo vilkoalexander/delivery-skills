@@ -110,7 +110,7 @@ unset STATIC_SKIP
 
 echo "# config feeds the other scripts"
 write <<'JSON'
-{ "workspaces": { ".": {} }, "risk": { "high": ["src/reports/"], "medium": ["\\.cfg$"] }, "secrets": { "allow": ["^src/legacy/"] }, "shared": ["(^|/)kit/"] }
+{ "workspaces": { ".": {} }, "risk": { "high": ["src/reports/"], "medium": ["\\.cfg$"] }, "secrets": { "allow": ["^src/legacy/"] }, "escapes": { "allow": ["^src/legacy/"] }, "shared": ["(^|/)kit/"] }
 JSON
 risk() { env -u TYPESAFE_API_KEY bash "$here/risk.sh" "$@"; }
 has "risk.high from the config"        0 "^high +src/reports/a.md" risk src/reports/a.md
@@ -119,6 +119,9 @@ RISK_HIGH='nothing-matches' has "the env var still wins" 0 "^low +src/reports/a.
 mkdir -p src/legacy src/kit && echo "const k = 'AKIA""ABCDEFGHIJKLMNOP'" > src/legacy/a.ts && cp src/legacy/a.ts src/b.ts
 has "secrets.allow from the config"    0 "SECRETS: 0 hits" bash "$here/secret-scan.sh" src/legacy/a.ts
 has "and only for what it names"       1 "src/b.ts:1" bash "$here/secret-scan.sh" src/b.ts
+echo "// @ts-ignore" > src/legacy/c.ts && cp src/legacy/c.ts src/d.ts
+has "escapes.allow from the config"    0 "ESCAPES: 0 flags" bash "$here/escape-scan.sh" src/legacy/c.ts
+has "and only for what it names"       0 "src/d.ts:1 — checker silenced" bash "$here/escape-scan.sh" src/d.ts
 echo "export const x = 1" > src/kit/x.ts
 has "shared from the config"           0 "src/kit/x.ts — new file in a shared layer" bash "$here/../../reuse-guardrails/scripts/reuse-scan.sh" src/kit/x.ts
 

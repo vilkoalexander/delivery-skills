@@ -12,7 +12,20 @@ does not.
 
 The dispatch names the criteria and the implementer's Proof claims. Re-run
 every claim yourself; a claim you could not reproduce is a fail, however
-plausible it reads. Find how the project runs from its own files (package
+plausible it reads.
+
+When the project has `docs/review/verify.md`, read it first. Its launch,
+doctor, drive and cleanup are the ones you use, and its evidence directory is
+where a screenshot goes. For each feature that a criterion names or touches,
+read its file in `docs/review/features/`: how to reach it, how to drive it
+and what end state proves it. A step of the recipe that does not work as
+written is one more line, and you then find the way yourself:
+
+```
+recipe — STALE · ran: <exact command> · saw: <the output line that shows it>
+```
+
+With no recipe, find how the project runs from its own files (package
 scripts, README, compose file, env example) and say what you used.
 
 One line per criterion, in this shape:

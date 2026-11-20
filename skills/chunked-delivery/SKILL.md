@@ -297,6 +297,8 @@ implementer `## Report Format`:
   (only when the diff touches a rendered file)
 - exercised: <the output itself, pasted — a log line, a response body, a
   CLI result — of the changed path running>   (medium and high risk)
+- safe because: <the one fact that makes this change safe> — <exact
+  command> — <the output line that shows the fact>   (high risk)
 - not verified: <one line per thing you did not run or see, or "nothing">
 
 ## Reuse
@@ -312,6 +314,10 @@ Rules for the blocks:
   below `not verified`.
 - `exercised` holds output. A sentence such as "manually verified N cases" is
   not proof. Send the report back for the output.
+- `safe because` names one fact and the run that shows it: "the migration
+  only adds a nullable column", "no caller outside this module reads the
+  field". A list of callers is not the fact. A fact with no command goes
+  below `not verified`, and the reviewer gets it as a focus.
 - A `new shared` line needs a `searched` line above it. If there is none, send
   the report back.
 - If a block is missing, send the report back for the block. Do not ask for a
@@ -345,6 +351,7 @@ changed path. A reviewer sees only a diff that the tools accept.
 | secrets | an added line holds a credential |
 | typecheck, lint, format, test | the command from the config fails |
 | reuse scan (`reuse-scan.sh`) | never. It gives flags |
+| escape scan (`escape-scan.sh`) | never. It gives flags |
 
 - **A failure is a static round.** Send the tool output to the implementer.
   Then take the after-snapshot again and run the gate again. A static round
@@ -362,6 +369,11 @@ changed path. A reviewer sees only a diff that the tools accept.
 - **Reuse flags do not fail the gate.** Send them to the reviewer with the
   snapshot. On a low-risk chunk, put them on the `Reuse:` line of the report.
   A flag that the Reuse block of the implementer answers is not a finding.
+- **Escape flags do not fail the gate.** Each one is an added line that got
+  past a check and did not correct the cause: a silenced checker, a cast to
+  `any`, a comment that defers the fix. Send them to the reviewer with the
+  snapshot. On a low-risk chunk, put them on the `Escapes:` line of the
+  report.
 - **If the diff touches tests,** also run
   `bash test-review/scripts/revert-check.sh "$WORKSPACE/chunk-$N.diff"`. The
   gate does not run it for you. It names each new test that passes with the
@@ -369,7 +381,8 @@ changed path. A reviewer sees only a diff that the tools accept.
   static round.
 
 **On a low-risk chunk, go to step 8 now.** There is no reviewer and no fix
-round after a review. The human reads the proof, the reuse flags and the diff.
+round after a review. The human reads the proof, the reuse flags, the escape
+flags and the diff.
 
 ### Step 4. Review
 
@@ -418,10 +431,14 @@ dispatch `delivery-skills:verifier` with:
 
 - the `exercise:` line of the chunk from the approved chunk list;
 - each acceptance criterion of the plan that the chunk completes, quoted;
-- the Proof block of the implementer. The verifier does each `ran` claim and
-  each `exercised` claim again;
+- the Proof block of the implementer. The verifier does each `ran` claim,
+  each `exercised` claim and each `safe because` claim again;
 - each `not covered` item of the test author;
 - each finding that is open after the fix rounds, quoted from the reviewer.
+
+The verifier reads `docs/review/verify.md` and the feature map in
+`docs/review/features/` when the project has them. Do not copy them into the
+dispatch.
 
 The verifier gives one line for each item:
 
@@ -431,6 +448,7 @@ The verifier gives one line for each item:
 | `FAIL` | It is a finding. Do one more fix round, if the limit of the chunk permits one. Then verify only the lines that failed. If the limit does not permit one, park the `FAIL` and write `FAIL — parked` on the `Verified:` line |
 | `needs human` | Put the tap on the `Verified:` line. It is the first thing that the human does |
 | `confirmed`, `not reproduced` or `not runnable`, for a finding | Put the word on the `Parked:` line of that finding |
+| `recipe — STALE` | `docs/review/verify.md` or the feature map is wrong. Put the line on the `Verified:` line. Do not correct the recipe during the run: the `verify-recipe` skill does it after the handoff |
 
 A claim that the verifier cannot reproduce is a `FAIL` of the Proof block.
 Say so in the report.
@@ -499,8 +517,8 @@ Flow:    <an ASCII flow, or omit the line — see below>
 Tests:   <one line per task — number of tests, the criteria they cover,
           "not covered: <items>" — or "none — <reason from the chunk list>">
 
-Proof:   <one line per task — ran · shows · exercised, condensed from the
-          implementer's block — then "not verified: <items>" or
+Proof:   <one line per task — ran · shows · exercised · safe because,
+          condensed from the implementer's block — then "not verified: <items>" or
           "not verified: nothing">
 
 Verified: <one line per criterion and claim from the verify seat — pass with
@@ -515,6 +533,8 @@ Parked:  <one line per finding left standing, each with its reason and the
 Reuse:   <"clean", or one line per reuse-scan flag the Reuse block did not
           answer and per "new shared" / "new dependency" line it did —
           what was added and why the inventory had nothing>
+Escapes: <"clean", or one line per escape-scan flag that stays in the tree:
+          path:line, what it silences or defers, and why the cause stays>
 Cross:   <one line verdict, or "not run — low risk">
 Rulings: <only decisions that could have gone the other way. Omit if none.>
 

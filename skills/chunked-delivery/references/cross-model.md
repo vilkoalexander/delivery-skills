@@ -30,6 +30,16 @@ These facts are from codex 1.0.4:
 - `--scope` accepts `auto`, `working-tree` or `branch`. The two subcommands do
   not support staged-only or unstaged-only.
 
+## The focus text
+
+Give the goal of the chunk in one line, then this:
+
+> For each finding, give the command that shows it and the output that it
+> printed. Mark a finding that you did not run with `not run`.
+
+A finding with a command is cheap to rule on: run the command. A `not run`
+finding is a claim about how the code reads.
+
 The review gate at session stop (`/codex:setup --enable-review-gate`) is a
 third, separate layer. It runs when the session stops, not at the end of a
 task. It does not replace the two points above.
@@ -42,7 +52,7 @@ you. Do not send it directly to a fix dispatch.
 | Who has the finding | Do |
 | --- | --- |
 | The two reviews | Correct it in a normal fix round |
-| Only the cross-model review | Compare it with the Global Constraints and the rubrics of the project first. The other model cannot see them. Some of its findings are real, and some are things that the project decided against |
+| Only the cross-model review | If it has a command, run the command first: output that does not show the failure ends the finding. Then compare it with the Global Constraints and the rubrics of the project first. The other model cannot see them. Some of its findings are real, and some are things that the project decided against |
 | Only the rubric reviewer | Correct it. A finding that the other model did not see can still be real |
 | The two reviews disagree | You decide. Record `Ruling: <decision> — <why> — <cost if wrong>` and continue |
 

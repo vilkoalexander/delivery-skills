@@ -44,6 +44,10 @@ Write the block one time and put it in the plan file. Its sources are:
   behaviour the change adds, or leave the test out.
 - A test that existed before the run is not edited, skipped or deleted to make
   a change pass, unless the plan task names that test file.
+- A check that fails is corrected at its cause. No `eslint-disable`,
+  `@ts-ignore`, `as any` or "for now" comment to get past it. A rule that is
+  wrong for one line is silenced with the reason on that line, and the report
+  names it.
 - Comments: none by default; rename, extract or type it first. One line, and
   only for why this and not the obvious alternative, an outside constraint, a
   warning about what breaks if edited, or a workaround with its removal
@@ -223,12 +227,17 @@ Before the first dispatch:
    - a `criteria:` line with the acceptance criteria of the plan that it
      completes;
    - an `exercise:` line: the one request or tap that proves it. The verifier
-     runs it;
+     runs it. When the project has a feature map in `docs/review/features/`,
+     the line names the feature by its file name;
    - a `tests:` line: the behaviours that the test author asserts before
      there is code, one for each criterion. Write `none — <reason>` only for
      a task with no behaviour: a rename, config, copy, docs, tooling, or a
      task that is tests only.
 4. Add each `unsure:` line and each `Assumed:` line.
+   If `bash verify-recipe/scripts/check.sh` does not end with `ok`, add its
+   last line. With no recipe, each verifier finds again how to start the
+   project. The `verify-recipe` skill writes or corrects the recipe, not
+   during a run.
 5. End the list with `Approve: "go" · "long" (no stop after a clean chunk)`.
 6. **Wait for the approval.** A list without the sizes and the three lines
    is not ready for approval.

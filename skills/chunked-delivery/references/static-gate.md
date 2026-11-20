@@ -3,7 +3,7 @@
 Read when a gate step fails and its output does not tell you what to do, or
 when a step needs an allowance. Script paths start at `skills/` of this plugin.
 
-The gate runs steps 1, 2, 3, 4 and 6 in this order. You run step 5.
+The gate runs steps 1, 2, 3, 4, 6 and 7 in this order. You run step 5.
 `STATIC_SKIP` skips steps for one call.
 
 ## 1. Test lock
@@ -95,3 +95,31 @@ refuses on `BLOCK`. Put private scopes in `deps.allow` in
 The flags go to the reviewer with the snapshot. On a low-risk chunk they go
 directly to the `Reuse:` line of the chunk report. A flag that the Reuse block
 of the implementer answers is not a finding.
+
+## 7. Escape scan
+
+`delivery-pipeline/scripts/escape-scan.sh` runs after the reuse scan, on the
+same paths. It gives flags and does not fail the gate. It reads the added
+lines of source files that are not tests. It flags:
+
+- a silenced checker: `eslint-disable`, `@ts-ignore`, `@ts-expect-error`,
+  `@SuppressWarnings`, a coverage `ignore`;
+- a type escape: `as any`, `as unknown as`;
+- a comment that defers the fix: "for now", "temporary", "workaround",
+  `TODO`;
+- a comment that keeps two copies in sync by hand.
+
+Each flag is a line that got past a check and did not correct the cause. The
+flags go to the reviewer with the snapshot. A flag is a finding unless its
+line is one of these:
+
+- a silenced rule that is wrong for that line, with the reason on the line;
+- a workaround for a cause outside the code, with its removal condition.
+
+The correction is the cause. A shorter comment is not a correction. Two
+copies that a comment keeps in sync become one line in
+`docs/review/drift.checks`.
+
+On a low-risk chunk the flags go directly to the `Escapes:` line of the chunk
+report. For a flag that the project accepts, add a regex for `path:line:text`
+to `escapes.allow` in `docs/review/delivery.json`.

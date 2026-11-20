@@ -16,8 +16,9 @@
 # step with no command is printed as skipped, never counted as passing.
 #
 #   RISK_HIGH / RISK_MEDIUM are not read here; see risk.sh.
-#   STATIC_SKIP   space-separated steps to skip for this call: test-lock drift secrets reuse, or any step name from the config
+#   STATIC_SKIP   space-separated steps to skip for this call: test-lock drift secrets reuse escapes, or any step name from the config
 #   SECRET_ALLOW  regex over `path:line:text` for added lines secret-scan.sh must not count
+#   ESCAPE_ALLOW  the same for escape-scan.sh
 #   DRIFT_FILE   the project's drift checks (default docs/review/drift.checks); see drift.sh
 #   TEST_LOCK_ALLOW  regex of existing test paths a plan task names as changing
 set -uo pipefail
@@ -458,6 +459,18 @@ check_reuse() {
   emit gate_step step=reuse ok:=true s:=0
 }
 
+# Escape flags ride along the same way: a silenced checker or a deferred fix
+# is for a reviewer to judge (ESCAPE_STRICT=1 on the scan itself fails).
+check_escapes() {
+  skip escapes && return 0
+  [ ${#existing[@]} -gt 0 ] || return 0
+
+  printf '== escape scan\n'
+  emit gate_step_start step=escapes
+  ESCAPE_STRICT= bash "$here/escape-scan.sh" "${existing[@]}" | sed 's/^/   /'
+  emit gate_step step=escapes ok:=true s:=0
+}
+
 check() {
   cd "$root"
   changed=("$@")
@@ -485,6 +498,7 @@ check() {
   check_project_steps
   rm -f "$step_log"
   check_reuse
+  check_escapes
 
   local summary="ran: ${steps_run[*]:-nothing}"
   [ ${#steps_skipped[@]} -gt 0 ] && summary="$summary; skipped: ${steps_skipped[*]}"

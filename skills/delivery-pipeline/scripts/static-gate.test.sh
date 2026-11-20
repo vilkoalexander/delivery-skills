@@ -113,4 +113,13 @@ sees "with the hit"             'src/new.ts:1 — AWS' "$out"
 sees "and the verdict"          '^static gate: FAILED' "$out"
 has  "STATIC_SKIP=secrets skips it" 0 '^-- secrets: skipped — STATIC_SKIP' env DELIVERY_CONFIG="$tmp/gate.json" STATIC_SKIP="secrets test-lock drift reuse" bash "$gate" check src/new.ts
 
+echo "# check runs the escape scan and does not fail on a flag"
+echo "export const row = input as any" > src/cast.ts
+out=$(DELIVERY_CONFIG="$tmp/gate.json" STATIC_SKIP="test-lock drift secrets reuse" bash "$gate" check src/cast.ts 2>&1); code=$?
+eq   "a flag does not fail the gate" "$code" 0
+sees "under the escape scan"         '^== escape scan' "$out"
+sees "with the flag"                 'src/cast.ts:1 — type escape' "$out"
+sees "and a clean verdict"           '^static gate: clean' "$out"
+lacks "STATIC_SKIP=escapes skips it" 'escape scan' env DELIVERY_CONFIG="$tmp/gate.json" STATIC_SKIP="escapes test-lock drift secrets reuse" bash "$gate" check src/cast.ts
+
 finish

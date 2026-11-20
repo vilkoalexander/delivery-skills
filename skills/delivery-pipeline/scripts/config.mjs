@@ -22,7 +22,7 @@ import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const STEPS = ['typecheck', 'lint', 'format', 'test'];
-const KEYS = ['stack', 'workspaces', 'writing', 'risk', 'secrets', 'deps', 'shared'];
+const KEYS = ['stack', 'workspaces', 'writing', 'risk', 'secrets', 'escapes', 'deps', 'shared'];
 const WRITING = ['ste100', 'free'];
 const DEFAULTS = { writing: 'ste100' };
 const CODE = '\\.[cm]?[jt]sx?$';
@@ -97,6 +97,7 @@ export function load({ optional = false } = {}) {
   checkPatternList(path, 'risk.high', config.risk?.high);
   checkPatternList(path, 'risk.medium', config.risk?.medium);
   checkPatternList(path, 'secrets.allow', config.secrets?.allow);
+  checkPatternList(path, 'escapes.allow', config.escapes?.allow);
   checkPatternList(path, 'deps.allow', config.deps?.allow);
   if (config.writing !== undefined && !WRITING.includes(config.writing)) {
     invalid(`${path}: writing must be one of: ${WRITING.join(', ')}`);

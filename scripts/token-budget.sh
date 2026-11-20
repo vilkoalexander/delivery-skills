@@ -68,6 +68,10 @@ echo "Loaded only when a comment cleanup is asked for"
 row "comment-cleanup: SKILL + RULES" $cleanup/SKILL.md $cleanup/RULES.md
 
 echo
+echo "Loaded only when a verify recipe is written or updated"
+row "verify-recipe: SKILL + both templates" skills/verify-recipe/SKILL.md templates/verify.md templates/verify-feature.md
+
+echo
 echo "Controller, loaded only when its condition is true"
 for reference in final static-gate cross-model risk-content long-run models review-map; do
   row "chunked-delivery/references/$reference.md" "$references/$reference.md"

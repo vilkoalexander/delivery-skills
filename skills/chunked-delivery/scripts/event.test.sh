@@ -88,7 +88,7 @@ eq "gate_end: src" "$(last .src)" gate
 echo "export const a = 1" > a.mjs
 before=$(lines)
 gate_cfg false
-STATIC_SKIP="secrets test-lock drift reuse" bash "$gate" check a.mjs >/dev/null 2>&1
+STATIC_SKIP="secrets test-lock drift reuse escapes" bash "$gate" check a.mjs >/dev/null 2>&1
 eq "failing gate exits 1" "$?" 1
 eq "failing gate: events" "$(jq -r '.ev + (if .step then ":" + .step else "" end)' "$(file)" | tail -n $(( $(lines) - before )) | tr '\n' ' ')" "gate_start gate_step_start:test gate_step:test gate_end "
 eq "failing gate: end not ok" "$(last .ok)" false
