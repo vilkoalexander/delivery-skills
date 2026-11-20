@@ -33,6 +33,23 @@ run() { bash "$script" "$@" > "$tmp/out" 2>&1; echo $?; }
 
 for f in a b c d e; do spec "src/$f.spec.ts"; done
 echo 'export const total = (n) => n.reduce((x, y) => x + y, 0);' > src/total.ts
+java_test() {
+  mkdir -p "$(dirname "$1")"
+  cat > "$1" <<'EOF'
+class OrderServiceTest {
+  @Test
+  void adds() {
+    assertEquals(3, service.total(List.of(1, 2)));
+  }
+  @Test
+  void savesTheOrder() {
+    verify(repository).save(order);
+  }
+}
+EOF
+}
+java_test api/src/test/java/shop/OrderServiceTest.java
+java_test api/src/main/java/shop/RefundIT.java
 git add . && git -c user.name=t -c user.email=t@t commit -qm base
 
 eq "untouched tests pass" "$(run src/a.spec.ts src/total.ts)" 0
@@ -75,6 +92,27 @@ eq "allowed path passes" "$(TEST_LOCK_ALLOW='src/a\.spec' run src/a.spec.ts)" 0
 has "allowed path is still listed" "allowed by TEST_LOCK_ALLOW"
 eq "allow does not cover other paths" "$(TEST_LOCK_ALLOW='src/b\.spec' run src/a.spec.ts)" 1
 eq "paths come from stdin too" "$(git diff --name-only | bash "$script" >/dev/null 2>&1; echo $?)" 1
+reset
+
+junit=api/src/test/java/shop/OrderServiceTest.java
+sed -i.bak 's/assertEquals(3,/assertEquals(4,/' $junit && rm $junit.bak
+eq "JUnit: rewritten assertion fails" "$(run $junit)" 1
+has "JUnit: names the assertion" "OrderServiceTest.java — 1 assertion line(s) removed or rewritten"
+reset
+sed -i.bak '/verify(repository)/d' $junit && rm $junit.bak
+eq "JUnit: removed verify fails" "$(run $junit)" 1
+reset
+sed -i.bak '6,9d' $junit && rm $junit.bak
+eq "JUnit: removed test method fails" "$(run $junit)" 1
+has "JUnit: names the removed block" "1 test block(s) removed"
+reset
+sed -i.bak 's/  void adds/  @Disabled void adds/' $junit && rm $junit.bak
+eq "JUnit: @Disabled fails" "$(run $junit)" 1
+has "JUnit: names the disabled test" "1 skip/only/todo added"
+reset
+named=api/src/main/java/shop/RefundIT.java
+sed -i.bak 's/assertEquals(3,/assertEquals(4,/' $named && rm $named.bak
+eq "a Java test outside a test directory is locked by its name" "$(run $named)" 1
 reset
 
 eq "no paths is a usage error" "$(bash "$script" </dev/null >/dev/null 2>&1; echo $?)" 2

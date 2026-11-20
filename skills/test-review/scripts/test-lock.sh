@@ -16,10 +16,10 @@ set -uo pipefail
 
 base="${TEST_LOCK_BASE:-HEAD}"
 allow="${TEST_LOCK_ALLOW:-}"
-test_path='(\.(spec|test)\.[cm]?[jt]sx?$|(^|/)(__tests__|test|tests|e2e)/)'
-assertion='\b(expect|assert)[.(]'
-test_block='\b(it|test|describe)(\.(each|skip|only|todo))?\('
-disabled_test='\b(it|test|describe)\.(skip|only|todo)\(|\bx(it|test|describe)\(|\bf(it|describe)\('
+test_path='(\.(spec|test)\.[cm]?[jt]sx?$|(Test|Tests|IT)\.(java|kt)$|(^|/)(__tests__|test|tests|e2e)/)'
+assertion='\b(expect|assert[A-Za-z]*|verify)[.(]'
+test_block='\b(it|test|describe)(\.(each|skip|only|todo))?\(|@(Test|ParameterizedTest|RepeatedTest|TestFactory)\b'
+disabled_test='\b(it|test|describe)\.(skip|only|todo)\(|\bx(it|test|describe)\(|\bf(it|describe)\(|@(Disabled|Ignore)\b'
 
 paths=("$@")
 if [ ${#paths[@]} -eq 0 ]; then
