@@ -6,6 +6,7 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 export DELIVERY_LOG="$tmp/state/log.jsonl"
+export DELIVERY_RUN_DIR="$tmp/state/runs" DELIVERY_EVENTS_DIR="$tmp/events"
 repo="$tmp/repo"
 mkdir -p "$repo" && git -C "$repo" init -q
 git -C "$repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m base
@@ -72,6 +73,57 @@ reject "bad optional" human_found=some "human_found must be"
 stats=$(bash "$script" stats)
 eq "stats sums what each gate caught" "$(awk '$1 == "medium" { print $2, $3, $4, $5 }' <<<"$stats")" "4 3 12 1"
 eq "stats on an empty log exits 0" "$(DELIVERY_LOG="$tmp/none.jsonl" bash "$script" stats >/dev/null; echo $?)" 0
+
+mkdir -p "$DELIVERY_EVENTS_DIR"
+ts=0
+ev() { # ev RUN JSON-FIELDS — appends one event with a rising timestamp
+  ts=$((ts + 1))
+  printf '{"ts":%s,"run":"%s",%s}\n' "$ts" "$1" "$2" >> "$DELIVERY_EVENTS_DIR/$1.jsonl"
+}
+mark() { # mark RUN CHUNK PHASE [EXTRA-FIELDS]
+  ev "$1" "\"ev\":\"mark\",\"chunk\":$2,\"phase\":\"$3\"${4:+,$4}"
+}
+step() { # step RUN NAME OK
+  ev "$1" "\"ev\":\"gate_step\",\"step\":\"$2\",\"ok\":$3"
+}
+section() { # the rows below the header TITLE (single spaces), up to the next blank line
+  awk -v title="$1" '{ line = $0; gsub(/ +/, " ", line) }
+    index(line, title) == 1 { on = 1; next } on && !NF { on = 0 } on' <<<"$stats"
+}
+row() { # row TITLE FIRST-COLUMN — the remaining columns of that row
+  section "$1" | awk -v key="$2" '$1 == key { $1 = ""; sub(/^ /, ""); print }'
+}
+
+eq "stats with no event files exits 0" "$(bash "$script" stats >/dev/null; echo $?)" 0
+
+named='"name":"orders","risk":"high","plan":"p.md"'
+mark r1 1 implement "$named"
+step r1 lint false; step r1 test true; ev r1 '"ev":"gate_end","ok":false'
+step r1 lint true;  step r1 test true; ev r1 '"ev":"gate_end","ok":true'
+mark r1 1 gate; mark r1 1 review
+mark r1 1 fix '"round":1'; mark r1 1 fix '"round":2'
+mark r1 1 verify; mark r1 1 cross; mark r1 1 report
+mark r1 2 implement '"name":"copy","risk":"low","plan":"p.md"'
+mark r1 2 gate; mark r1 2 report
+mark r1 3 implement '"name":"mail","risk":"medium","plan":"p.md"'
+mark r1 3 review; mark r1 3 verify; mark r1 3 report
+mark r1 3 final
+# The same chunk continues in a resumed run: one chunk, and its fix came after the report.
+mark r2 1 report "$named"
+mark r2 1 fix '"round":3'
+mark r2 1 report
+echo 'not json' >> "$DELIVERY_EVENTS_DIR/r2.jsonl"
+
+stats=$(bash "$script" stats)
+eq "a chunk resumed in a second run counts once" "$(row "risk chunks review" high)" "1 1 1 1 1 1"
+eq "a low-risk chunk reaches no review"          "$(row "risk chunks review" low)" "1 0 0 0 0 0"
+eq "a clean review reaches no fix round"         "$(row "risk chunks review" medium)" "1 1 0 1 0 0"
+eq "fix rounds stop at the first report"         "$(row "risk 0 1" high)" "0 0 1 0 0 0 0"
+eq "a chunk with no fix is in column 0"          "$(row "risk 0 1" medium)" "1 0 0 0 0 0 0"
+eq "a gate step counts its runs and failures"    "$(row "gate_step" lint)" "2 1"
+eq "a step that never fails shows 0"             "$(row "gate_step" test)" "2 0"
+eq "the whole gate has its own row"              "$(row "gate_step" whole_gate)" "2 1"
+eq "the log table is still first"                "$(awk '$1 == "medium" { print $2; exit }' <<<"$stats")" 4
 
 if bash "$script" nonsense >/dev/null 2>&1; then nok "unknown command" "exited 0"; else ok "unknown command"; fi
 
