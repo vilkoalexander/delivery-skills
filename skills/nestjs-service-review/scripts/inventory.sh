@@ -30,7 +30,7 @@ count_files() {
 # Prints the names a file exports, comma-separated. $2 is the alternation of declaration kinds.
 exported_names() {
   local declaration="export (async )?($2) "
-  grep -rhoE "${declaration}[A-Za-z0-9_]+" "$1" 2>/dev/null | sed -E "s/^$declaration//" | sort -u
+  grep -rhoE "${declaration}[A-Za-z0-9_]+" "$1" 2>/dev/null | sed -E "s/^$declaration//" | LC_ALL=C sort -u
 }
 
 root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
