@@ -37,6 +37,17 @@ will skim both.
 | `drift.checks` | `docs/review/drift.checks` — not a rubric layer: the drift checks the static gate runs |
 | `delivery.json` | `docs/review/delivery.json` — not a rubric layer: the stack, the command each static step runs per workspace, and the project's patterns. `static-gate.sh init` drafts it |
 
+## The `As of:` line
+
+`bash delivery-pipeline/scripts/stamp.sh set <file>` writes ``As of: `<commit>` ``
+below the title of a document here: the commit of HEAD, at which somebody
+last confirmed the document against the code. Do it after you fill a layer
+or read it through again. `stamp.sh check` compares each file and directory
+that the document names in backticks with that commit and prints `DRIFT`
+for a document whose code changed, and `UNSTAMPED` for one with no line. A
+document that names no path never drifts. After a squash or a rebase the
+commit is gone; the check then uses the last commit of the document.
+
 ## delivery.json
 
 | Key | Read by | Meaning |

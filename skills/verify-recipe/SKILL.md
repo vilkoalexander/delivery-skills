@@ -77,7 +77,12 @@ nothing left as a placeholder.
    evidence is still there after cleanup. Fix what fails and run the cleanup
    after every failed attempt. A recipe nobody executed is a draft.
 8. **`bash scripts/check.sh <root>`** until it ends with `ok`.
-9. **Report** in the format below and stop.
+9. **Stamp what step 7 proved.**
+   `bash ../delivery-pipeline/scripts/stamp.sh set docs/review/verify.md <the feature files driven>`
+   writes the commit of HEAD below the title of each, as an `As of:` line.
+   Do not stamp a file that nobody drove. `DIRTY` means that a path the file
+   names has uncommitted changes: do not stamp, say so in the report.
+10. **Report** in the format below and stop.
 
 ## Keeping it true
 
@@ -87,11 +92,16 @@ it. Run this when `check.sh` reports a problem, when a verifier line says
 
 1. `bash scripts/check.sh <root>`. A `STALE` line is a path a feature file
    names that is gone: find where the feature went and correct the file.
+   `bash ../delivery-pipeline/scripts/stamp.sh check`. A `DRIFT` line is a
+   file whose code changed since the commit on its `As of:` line: the file
+   can be wrong, and step 3 drives it. An `UNSTAMPED` line is a file that
+   nobody proved.
 2. Compare the index with the routes, navigators or commands of today. A
    feature the app has and the map does not gets a file; a feature the app
    dropped loses its file and its index line.
-3. One live pass over the features whose files changed: drive, capture,
-   clean up. Correct only what the pass proved wrong.
+3. One live pass over the features whose files changed and the features
+   with a `DRIFT` line: drive, capture, clean up. Correct only what the pass
+   proved wrong. Then `stamp.sh set` on each file that the pass drove.
 4. Report.
 
 ## Output format
@@ -105,6 +115,7 @@ Features: <n> mapped — <their names>
 Not mapped: <features found and left for later, or "nothing">
 Asked:    <each thing the human must supply: a test account, an env value>
 Check:    <the last line of check.sh>
+Stamps:   <the last line of stamp.sh check>
 
 Read it: git diff
 ```

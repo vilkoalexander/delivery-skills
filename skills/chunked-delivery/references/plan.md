@@ -238,6 +238,9 @@ Before the first dispatch:
    last line. With no recipe, each verifier finds again how to start the
    project. The `verify-recipe` skill writes or corrects the recipe, not
    during a run.
+   Add each `DRIFT` line of `bash delivery-pipeline/scripts/stamp.sh check`.
+   The code changed after that document was last confirmed, thus a verifier
+   or a reviewer that reads it can be wrong.
 5. End the list with `Approve: "go" · "long" (no stop after a clean chunk)`.
 6. **Wait for the approval.** A list without the sizes and the three lines
    is not ready for approval.
