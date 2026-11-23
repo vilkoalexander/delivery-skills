@@ -39,7 +39,7 @@ will skim both.
 
 ## The `As of:` line
 
-`bash delivery-pipeline/scripts/stamp.sh set <file>` writes ``As of: `<commit>` ``
+`bash skills/delivery-pipeline/scripts/stamp.sh set <file>` writes ``As of: `<commit>` ``
 below the title of a document here: the commit of HEAD, at which somebody
 last confirmed the document against the code. Do it after you fill a layer
 or read it through again. `stamp.sh check` compares each file and directory
