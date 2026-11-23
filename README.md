@@ -69,6 +69,7 @@ is a script, and a model is asked only what is left.
 | `chunked-delivery/scripts/run-log.sh` | One line per chunk; `stats` totals what each gate caught and counts the paths the runs took | At each decision |
 | `chunked-delivery/scripts/test-first.sh` | A test author changed a file that is not a test; an implementer changed a test | After the test authors, and after the implementers |
 | `run-retro/scripts/sources.sh` | What one run left behind: chunks, decisions, what you typed, refusals, gate failures, transcript paths | At the start of a retro |
+| `delivery-pipeline/scripts/stamp.sh` | Which project-layer documents name code that changed since the commit on their `As of:` line; `set` writes the commit | After the recipe is proved, and at the cut; flags, never fails |
 | `verify-recipe/scripts/check.sh` | The verify recipe and the feature map are whole: every section filled, every feature in the index, no placeholder, no path that is gone | After the recipe is written, and at the cut |
 | `comment-cleanup/scripts/verify.sh` | A cleanup changed comment lines only | After a comment cleanup |
 
