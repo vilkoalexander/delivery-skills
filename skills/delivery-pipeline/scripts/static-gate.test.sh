@@ -122,4 +122,15 @@ sees "with the flag"                 'src/cast.ts:1 — type escape' "$out"
 sees "and a clean verdict"           '^static gate: clean' "$out"
 lacks "STATIC_SKIP=escapes skips it" 'escape scan' env DELIVERY_CONFIG="$tmp/gate.json" STATIC_SKIP="escapes test-lock drift secrets reuse" bash "$gate" check src/cast.ts
 
+echo "# check runs the erosion scan and does not fail on a flag"
+{ echo "export function route(a) {"; for n in $(seq 1 10); do echo "  if (a === $n) return $n;"; done; echo "}"; } > src/route.ts
+commit_all route
+sed -i.bak 's/^}$/  if (a === 99) return 99;\n}/' src/route.ts && rm src/route.ts.bak
+out=$(DELIVERY_CONFIG="$tmp/gate.json" STATIC_SKIP="test-lock drift secrets reuse escapes" bash "$gate" check src/route.ts 2>&1); code=$?
+eq   "a flag does not fail the gate" "$code" 0
+sees "under the erosion scan"        '^== erosion scan' "$out"
+sees "with the flag"                 'src/route.ts:1 — complex function grew — route: 11 → 12' "$out"
+sees "and a clean verdict"           '^static gate: clean' "$out"
+lacks "STATIC_SKIP=erosion skips it" 'erosion scan' env DELIVERY_CONFIG="$tmp/gate.json" STATIC_SKIP="erosion escapes test-lock drift secrets reuse" bash "$gate" check src/route.ts
+
 finish

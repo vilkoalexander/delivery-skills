@@ -352,6 +352,7 @@ changed path. A reviewer sees only a diff that the tools accept.
 | typecheck, lint, format, test | the command from the config fails |
 | reuse scan (`reuse-scan.sh`) | never. It gives flags |
 | escape scan (`escape-scan.sh`) | never. It gives flags |
+| erosion scan (`erosion-scan.sh`) | never. It gives flags |
 
 - **A failure is a static round.** Send the tool output to the implementer.
   Then take the after-snapshot again and run the gate again. A static round
@@ -374,6 +375,10 @@ changed path. A reviewer sees only a diff that the tools accept.
   `any`, a comment that defers the fix. Send them to the reviewer with the
   snapshot. On a low-risk chunk, put them on the `Escapes:` line of the
   report.
+- **Erosion flags do not fail the gate.** Each one is a function that was
+  complex before the chunk and is more complex after it, or that the chunk
+  took past the limit. Send them to the reviewer with the snapshot. On each
+  risk class, put them on the `Erosion:` line of the report.
 - **If the diff touches tests,** also run
   `bash test-review/scripts/revert-check.sh "$WORKSPACE/chunk-$N.diff"`. The
   gate does not run it for you. It names each new test that passes with the
@@ -382,7 +387,7 @@ changed path. A reviewer sees only a diff that the tools accept.
 
 **On a low-risk chunk, go to step 8 now.** There is no reviewer and no fix
 round after a review. The human reads the proof, the reuse flags, the escape
-flags and the diff.
+flags, the erosion flags and the diff.
 
 ### Step 4. Review
 
@@ -535,6 +540,8 @@ Reuse:   <"clean", or one line per reuse-scan flag the Reuse block did not
           what was added and why the inventory had nothing>
 Escapes: <"clean", or one line per escape-scan flag that stays in the tree:
           path:line, what it silences or defers, and why the cause stays>
+Erosion: <"clean", or one line per erosion-scan flag that stays in the tree:
+          path:line, the function, before → after, and why it was not split>
 Cross:   <one line verdict, or "not run — low risk">
 Rulings: <only decisions that could have gone the other way. Omit if none.>
 

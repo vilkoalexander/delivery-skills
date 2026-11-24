@@ -110,7 +110,7 @@ unset STATIC_SKIP
 
 echo "# config feeds the other scripts"
 write <<'JSON'
-{ "workspaces": { ".": {} }, "risk": { "high": ["src/reports/"], "medium": ["\\.cfg$"] }, "secrets": { "allow": ["^src/legacy/"] }, "escapes": { "allow": ["^src/legacy/"] }, "shared": ["(^|/)kit/"] }
+{ "workspaces": { ".": {} }, "risk": { "high": ["src/reports/"], "medium": ["\\.cfg$"] }, "secrets": { "allow": ["^src/legacy/"] }, "escapes": { "allow": ["^src/legacy/"] }, "erosion": { "threshold": 3, "allow": ["^src/legacy/"] }, "shared": ["(^|/)kit/"] }
 JSON
 risk() { env -u TYPESAFE_API_KEY bash "$here/risk.sh" "$@"; }
 has "risk.high from the config"        0 "^high +src/reports/a.md" risk src/reports/a.md
@@ -122,6 +122,11 @@ has "and only for what it names"       1 "src/b.ts:1" bash "$here/secret-scan.sh
 echo "// @ts-ignore" > src/legacy/c.ts && cp src/legacy/c.ts src/d.ts
 has "escapes.allow from the config"    0 "ESCAPES: 0 flags" bash "$here/escape-scan.sh" src/legacy/c.ts
 has "and only for what it names"       0 "src/d.ts:1 — checker silenced" bash "$here/escape-scan.sh" src/d.ts
+echo "function f(a) { if (a) return 1; if (!a) return 2; }" > src/legacy/e.js && cp src/legacy/e.js src/f.js
+git add -A && git -c user.name=test -c user.email=test@test commit -qm erosion
+echo "function f(a) { if (a) return 1; if (!a) return 2; if (a > 1) return 3; }" > src/legacy/e.js && cp src/legacy/e.js src/f.js
+has "erosion.threshold from the config" 0 "src/f.js:1 — complex function grew — f: 3 → 4" bash "$here/erosion-scan.sh" src/f.js
+has "erosion.allow from the config"    0 "EROSION: 0 flags \\(limit 3\\)" bash "$here/erosion-scan.sh" src/legacy/e.js
 echo "export const x = 1" > src/kit/x.ts
 has "shared from the config"           0 "src/kit/x.ts — new file in a shared layer" bash "$here/../../reuse-guardrails/scripts/reuse-scan.sh" src/kit/x.ts
 
