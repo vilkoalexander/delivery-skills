@@ -63,6 +63,7 @@ is a script, and a model is asked only what is left.
 | `delivery-pipeline/scripts/risk.sh` | Risk class of a change, from its paths; says when a dependency change shares the chunk with other work | At the cut and in each report |
 | `<rubric>/scripts/scan.sh` | Mechanical smells in one file | Before a reviewer reads it |
 | `<rubric>/scripts/inventory.sh` | What the repo already has to reuse | Before an implementer writes |
+| `delivery-pipeline/scripts/erosion-scan.sh` | A function that was complex already got more complex, or the change took it past the limit | In the gate; flags, never fails |
 | `chunked-delivery/scripts/redo.sh` | Returns the tree to before a chunk, keeps what it discards | On `redo` |
 | `hooks/emit.sh` | Nothing: records every tool call, agent start and stop, and refusal of a run, in the background | On every tool call during a run |
 | `chunked-delivery/scripts/mark.sh` | Which chunk and step the run is on, the one fact nothing else can observe | At each step of the loop |

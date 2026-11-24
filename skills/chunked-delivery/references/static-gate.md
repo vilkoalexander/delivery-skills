@@ -123,3 +123,30 @@ copies that a comment keeps in sync become one line in
 On a low-risk chunk the flags go directly to the `Escapes:` line of the chunk
 report. For a flag that the project accepts, add a regex for `path:line:text`
 to `escapes.allow` in `docs/review/delivery.json`.
+
+## 8. Erosion scan
+
+`delivery-pipeline/scripts/erosion-scan.sh` runs after the escape scan, on the
+same paths. It gives flags and does not fail the gate. It compares each
+function of a source file that is not a test with the function of the same
+name before the change. The complexity of a function is one plus its
+branches: `if`, a loop, `case`, `catch`, `&&`, `||`, `??`, a ternary. It
+flags a function when both of these are true:
+
+- the complexity is higher than before the change;
+- the complexity is at the limit or above it. The limit is 10.
+
+A new function is not a flag. The linter of the project owns the size of new
+code. The scan reads the text and not a syntax tree, so a callback counts
+toward the function around it. The scan names each file that it cannot read.
+
+One branch more in one chunk is small. The same function in each chunk is how
+a codebase goes bad while each diff looks fine. The flags go to the reviewer
+with the snapshot. A flag is a finding unless the new branch cannot live
+apart from the others. The correction moves the new branch into a function
+with a name, or splits the function.
+
+On each risk class the flags that stay go to the `Erosion:` line of the chunk
+report. For a function that the project accepts as it is, add a regex for
+`path:function` to `erosion.allow` in `docs/review/delivery.json`. Set
+`erosion.threshold` there to change the limit.
