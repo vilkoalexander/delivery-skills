@@ -42,12 +42,13 @@ Scripts live next to this file; installed as a plugin, under
 ## Effort
 
 Default **medium**: 🔴 and 🟡 only, and **zero findings is a valid outcome**
-— say so and stop. **high** adds ⚪ nits, still ranked.
+— say so and stop. **high** adds ⚪ nits, still ranked. A short report of
+real defects beats an exhaustive one.
 
 ## Output format
 
 ```
-### <ComponentName> review
+### <file> review
 
 Project generation: <signals + standalone + control flow | decorators + modules | mixed — see §2>
 
@@ -64,5 +65,6 @@ Project generation: <signals + standalone + control flow | decorators + modules 
 Verdict: <SHIP | FIX FIRST> — <one line>
 ```
 
-Most-severe first. `<file:line>` names the template or stylesheet when the
-finding lives there. A clean category gets one line.
+Most-severe first. One finding per defect. `<file:line>` names the template or stylesheet when the
+finding lives there. Every finding names the why. A clean category gets one
+line.

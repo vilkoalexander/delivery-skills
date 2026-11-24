@@ -35,7 +35,7 @@ Everything in `<angle brackets>` is a placeholder — replace it or delete the r
 - `<Model.column>` — `<nullable + unique; written for a feature with no UI yet>`.
 - `<Model.column>` — `<written, not yet read>`.
 
-## Known ceilings
+## Known ceilings — do not recommend past these
 
 - `<CREATE INDEX CONCURRENTLY is out-of-band only>`
 - `<no varchar(n) — lengths capped at the DTO>`

@@ -2,7 +2,7 @@
 
 Eight categories. Walk them in order. Each rule is tagged **[hard]** (always
 report), **[prefer]** (report unless the file gives a reason not to) or
-**[context]** (report only with a concrete consequence in this file). For each finding, name the
+**[context]** (report only with a concrete consequence in this file). Name the
 consequence: "this is wrong" without "because X breaks" is not a finding.
 
 ## Before you start
@@ -166,26 +166,34 @@ in one line.
 
 ## 3. Comment quality
 
+<!-- comment-rules:start — the short form of comment-cleanup/RULES.md, the same text in each checklist -->
 The default is no comment; a rename, an extracted function or a type comes
 first.
 
 - **[hard] Delete comments that restate the code or describe the change** —
-  `// set loading to true`, `// map over items`, "now uses", "added",
-  "fixed", a banner, a step number, JSDoc repeating the prop types.
+  "now uses", "added", "fixed", a banner, a step number, a doc comment that
+  repeats the signature or the types.
 - **[hard] Delete commented-out code** — git remembers it.
 - **[hard] No ticket, PR, SHA, date or link in a comment** — the code does
   not know the outside world; those live in commit messages and PR bodies.
 - **[prefer] A comment that stays is one line and one of four kinds** — why
   this and not the obvious alternative, an outside constraint, a warning
   about what breaks if edited, a workaround with its removal condition. On a
-  constant or a prop type: only units, where a number comes from, a domain
-  term, or what null means, and only when a rename cannot say it.
+  constant or a field: only units, where a number comes from, a domain term,
+  or what null means, and only when a rename cannot say it.
 - **[context] A missing comment** is a finding only for one of those four
-  kinds, with the consequence named. The project layer names the files that
-  set the bar.
+  kinds, with the consequence named.
 - **[context] A comment the diff removed** that was still true and one of the
   four kinds — restore it.
-- **[hard] A lint or type suppression states its reason.**
+- **[hard] A lint, type or check suppression states its reason.**
+<!-- comment-rules:end -->
+
+In this stack:
+
+- A restated line reads like `// set loading to true` or `// map over items`,
+  or is JSDoc that repeats the prop types.
+- The project layer names the files that set the bar for a comment that must
+  be there.
 - **[context] Mandated TODOs** — a project may require a specific TODO shape
   (for example a label-localisation marker). Check the project layer before
   flagging a TODO as a smell; the finding may be the TODO that is *missing*.

@@ -1,7 +1,8 @@
 # Memory audit rubric
 
 What the audit calls a defect, and what it never flags. The score table at
-the bottom is the only place the weights live; `render.py` copies it.
+the bottom and `PENALTIES` in `render.py` hold the same weights; a test fails
+when they differ.
 
 ## Read everything
 
@@ -49,7 +50,8 @@ indexed, typed. 4: minor gap. 3: several facts in one file or missing the why.
 
 ## Never flagged
 
-- A memory that is merely old. Age is a signal only with another defect.
+- A memory that is merely old. Age is a signal only with another defect:
+  `stale_180` appears only on a project memory that has another flag.
 - A `user` or `feedback` memory for being long; those earn their length.
 - Non-English content, mixed languages, informal wording.
 - The same fact across two different projects. Cross-project duplication is
@@ -80,10 +82,11 @@ Start at 100. Per project. Each line is a penalty per item with a cap.
 | no_description | 2 | 10 | inventory |
 | relative_date | 1 | 5 | inventory |
 | thin | 1 | 5 | inventory |
-| unresolved conflict | 8 | 24 | audit |
-| confirmed duplicate | 5 | 20 | audit |
+| conflict, unresolved | 8 | 24 | audit |
+| duplicate, confirmed | 5 | 20 | audit |
 | superseded pair | 3 | 12 | audit |
 | stale | 1 | 5 | audit |
 
 Without an audit the last four lines are skipped and the score is labelled
-"stats only". The previous score of the same label is shown as a delta.
+"stats only". The previous score of the same label is shown as a delta;
+`render.py` keeps it in `score.prev.json`.

@@ -5,10 +5,19 @@ on:
   pull_request:
 jobs:
   scripts:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # macOS ships bash 3.2 and BSD tools; the scripts must run on both.
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - run: bash scripts/test.sh
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: git ls-files '*.sh' | xargs shellcheck --severity=error

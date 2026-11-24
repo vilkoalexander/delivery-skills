@@ -7,8 +7,9 @@ each finding, name who can do what: "validate this" without "otherwise any
 signed-in user reads another user's invoice by changing the id" is not a
 finding.
 
-This is a second pass. Tenant scoping, role-versus-object checks on a
-service method, `@Valid` on a body and secrets in log lines belong to
+This is a second pass. Tenant scoping, a handler with no authorization,
+role-versus-object checks on a controller or a service method, a request
+bound onto an entity, `@Valid` on a body and secrets in log lines belong to
 `nestjs-service-review`, `spring-service-review`, `prisma-schema-review` and
 `observability-review`. Do not repeat their findings; add what they do not
 look for.
@@ -43,8 +44,8 @@ npx eslint --print-config <file> | grep -E '"(no-eval|no-implied-eval|security/|
 
 A rule at `"error"` is the build's job: skip it. `secret-scan.sh` already
 fails the gate on a credential in an added line, and `dep-vet.sh` vets each
-new dependency: neither is repeated here. When the dispatch handed you a
-coverage table from the static gate, use that and skip the command.
+new dependency: neither is repeated here. When the dispatch handed you the static
+gate's coverage lines, use them and skip the command.
 
 ## Severity floor
 
@@ -112,6 +113,13 @@ Always 🔴, regardless of effort:
   unknown account, when the project layer says enumeration matters.
 
 ## 3. Who may act
+
+On a controller or a service that `nestjs-service-review` or
+`spring-service-review` owns, that rubric reports a handler with no guard, a
+role check used as an object check, and a body that sets a server-owned
+field. Do not report them again. Apply the first three rules below to the
+files those rubrics do not own: a gateway, a resolver, a webhook, a filter, a
+job, a server action.
 
 - **[hard] Every new handler is behind the guard, or public on purpose** —
   with a global guard, a new route is covered and only `@Public()` /

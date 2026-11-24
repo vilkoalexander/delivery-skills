@@ -56,7 +56,7 @@ report "Array index as key — breaks on reorder/insert" \
   'key=\{(i|idx|index)\}'
 report "useEffect — check it against the anti-pattern table in CHECKLIST §2" \
   'useEffect\('
-report "Hook after an early return or inside a condition — verify rules-of-hooks by hand" \
+report "Hook on the line of an if, for or while — verify rules-of-hooks by hand; a hook after an early return is not detected" \
   '^[[:space:]]*(if|for|while)[[:space:]]*\(.*\buse[A-Z]'
 
 # --- typescript --------------------------------------------------------------
@@ -69,7 +69,7 @@ report "Non-null assertion — handle the null instead" \
 report "console.* left in" \
   'console\.(log|warn|debug|info)'
 report "Deep relative import — use the project's path alias" \
-  "from '\.\./\.\./"
+  "from ['\"]\.\./\.\./"
 report "TODO/FIXME — confirm intentional (a project may mandate some TODO shapes)" \
   '(TODO|FIXME|XXX)'
 
@@ -80,7 +80,7 @@ fi
 if has '<(Pressable|TouchableOpacity|TouchableHighlight)' && ! has 'accessibilityRole'; then
   flag "Interactive element with no accessibilityRole anywhere in the file"
 fi
-if has "Platform\.OS *===? *'(ios|android)'"; then
+if has "Platform\.OS *===? *['\"](ios|android)['\"]"; then
   flag "Platform.OS branch — confirm the other platform has a path too"
 fi
 

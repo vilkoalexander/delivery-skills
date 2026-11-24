@@ -57,7 +57,7 @@ deploy. Schema and client cannot ship together.
 | Validation library and pin | Decides §3's strictness mechanics and what not to propose |
 | Deliberate decisions — uncapped `limit`, no versioning, no codegen | So they are not "fixed" |
 
-## Known ceilings — don't recommend past these
+## Known ceilings — do not recommend past these
 
 - **No API versioning** until the project builds it. "This is breaking" is
   the finding; choosing to break it is the human's call.

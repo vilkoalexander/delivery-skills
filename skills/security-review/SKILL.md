@@ -23,7 +23,9 @@ observability rubrics; this one does not repeat them.
 
 1. **Target.** One file that receives outside input, decides who may act,
    or handles a secret. None given — ask which.
-2. **Project layer.** `docs/review/security-review.md` if the repository has
+2. **Project layer.** [INVARIANTS.md](INVARIANTS.md), which says what the
+   project layer must supply and which rules are one-way doors. Then
+   `docs/review/security-review.md` if the repository has
    one: the global guard and its public marker, the public routes, how the
    caller is identified, the fields a client may never set or see, the hash
    and token helpers, the throttler, the hosts the server may call. If it is
@@ -31,8 +33,6 @@ observability rubrics; this one does not repeat them.
    line. Then one sibling file in the same directory as the consistency
    baseline.
 3. **`scripts/inventory.sh [root]`** — what security plumbing exists.
-   [INVARIANTS.md](INVARIANTS.md) says what the project layer must supply
-   and which rules are one-way doors.
 4. **`scripts/scan.sh <file>`** — mechanical pre-scan. Flags, not a verdict:
    a flag is a finding only when outside input reaches the line.
 5. **Walk CHECKLIST.md** top to bottom, the trust-boundary questions first.
@@ -65,6 +65,6 @@ real defects beats an exhaustive one.
 Verdict: <SHIP | FIX FIRST> — <one line>
 ```
 
-Most-severe first. Every finding names the caller and the request. A
+Most-severe first. One finding per defect. Every finding names the caller and the request. A
 finding with no path from outside input is not one. A clean category gets
 one line.

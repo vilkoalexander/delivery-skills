@@ -48,7 +48,8 @@ default `schemas|types|utils`) from the environment.
 ## Effort
 
 Default **medium**: 🔴 and 🟡 only, and **zero findings is a valid outcome**
-— say so and stop. **high** adds ⚪ nits, still ranked.
+— say so and stop. **high** adds ⚪ nits, still ranked. A short report of
+real defects beats an exhaustive one.
 
 ## Output format
 
@@ -68,5 +69,5 @@ Default **medium**: 🔴 and 🟡 only, and **zero findings is a valid outcome**
 Verdict: <SHIP | FIX FIRST> — <one line>
 ```
 
-Most-severe first. For a contract the why names **which side breaks**. A clean
+Most-severe first. One finding per defect. For a contract the why names **which side breaks**. A clean
 category gets one line.

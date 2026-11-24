@@ -90,7 +90,7 @@ generation() {
 
 echo "=== API generation across scanned roots (counts of files)"
 generation "@Input()/@Output() decorators"      '@(Input|Output)\('
-generation "input()/output()/model() signals"   '\b(input|output|model)(\.required)?<'
+generation "input()/output()/model() signals"   '=[[:space:]]*(input|output|model)(\.required)?(<|\()'
 generation "constructor(private …) injection"   'constructor\([^)]*(private|public|protected|readonly)[[:space:]]'
 generation "inject() function"                  '= inject\('
 generation "*ngIf/*ngFor structural directives" '\*ng(If|For)'

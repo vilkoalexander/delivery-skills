@@ -35,7 +35,7 @@ Everything in `<angle brackets>` is a placeholder — replace it or delete the r
 - `<Button>` — `variant`: `<default · destructive · outline · ghost>`. `size`: `<default · sm · lg>`.
 - `<Text>` — `variant`: `<default · h1 · h2 · h3 · muted · small>`.
 
-## Known ceilings — don't recommend past these
+## Known ceilings — do not recommend past these
 
 - `<Checkbox is presentational; the wrapping Pressable owns the role and state>`
 - `<Screen owns padding; a screen that sets its own p-* on top is fighting it>`

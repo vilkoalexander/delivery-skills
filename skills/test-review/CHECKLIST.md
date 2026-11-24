@@ -38,7 +38,8 @@ Rules that resolve to `"error"` are the build's job — skip them. `"warn"`
 does not fail the build — still report. Absent rules (`expect-expect`,
 `no-focused-tests`, `no-conditional-expect`) have zero automated coverage
 and are this skill's job. `scripts/scan.sh` targets the absent set. When the
-dispatch handed you a coverage table from the static gate, use that and skip
+dispatch handed you the static
+gate's coverage lines, use them and skip
 the command.
 
 For the full picture — every analyzer the repository has or lacks, and the

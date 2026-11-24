@@ -111,4 +111,25 @@ sees  "the root can be passed"                 "^root: $tmp/shop$" "$(cd / && ba
 mkdir -p "$tmp/empty" && cd "$tmp/empty" || exit 1
 has "no build file"                            1 'build root not found' bash "$inventory"
 
+echo "# a single-module project, with a space in a directory name"
+new_repo "single app"
+mkdir -p src/main/java/shop/util src/main/java/shop/web src/test/java/shop
+echo "plugins { id 'java' }"                        > build.gradle
+echo "public class MoneyUtils {}"                   > src/main/java/shop/util/MoneyUtils.java
+echo "public class CartController { WebClient c; }" > src/main/java/shop/web/CartController.java
+echo "class OtherTest {}"                           > src/test/java/shop/OtherTest.java
+out=$(bash "$inventory")
+sees   "the root module is counted"             '^  \. +controllers:1 +services:0 +repositories:0 +entities:0 +tests:1$' "$(under modules)"
+sees   "its shared primitives are listed"       '^  shop/util +MoneyUtils$' "$(under 'shared primitives')"
+sees   "its clients are read"                   '^ +1 WebClient$' "$(under 'remote clients in use')"
+sees   "its untested unit is named"             'CartController.java$' "$(under 'no test class')"
+misses "a test is not a main source"            'OtherTest' "$(under 'no test class')"
+
+echo "# no main sources: stdin is not read as a source"
+new_repo bare
+echo "plugins { id 'java' }" > build.gradle
+out=$(printf '    @GetMapping("/x")\n' | bash "$inventory")
+sees   "handlers are zero"                      '^  handlers: 0   authorization annotations: 0$' "$out"
+sees   "ends with its last section"             'no test class' "$out"
+
 finish

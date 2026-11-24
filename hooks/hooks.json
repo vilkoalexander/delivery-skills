@@ -1,5 +1,5 @@
 {
-  "description": "Delivery-run guard: no git writes while a run is active, reviewer seats read-only, the controller never reads a chunk snapshot, implementer reports end with their Proof block, no install of a package the registry does not know or that is days old; a chunk task completes only after the human decided on the chunk; while a run is active, every tool call and agent start or stop is appended to the run's event file",
+  "description": "Delivery-run guard and event log. hooks/guard.sh refuses and its header lists every rule; hooks/tree-check.sh compares the working tree before and after a read-only seat; hooks/emit.sh appends each tool call and agent start or stop to the event file of the active run.",
   "hooks": {
     "PreToolUse": [
       {
@@ -8,7 +8,7 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/guard.sh\"",
-            "timeout": 10
+            "timeout": 20
           }
         ]
       },
@@ -18,18 +18,28 @@
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/emit.sh\"",
             "async": true,
-            "timeout": 10
+            "timeout": 5
           }
         ]
       }
     ],
     "SubagentStop": [
       {
+        "matcher": "delivery-skills:reviewer|delivery-skills:verifier",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/tree-check.sh\"",
+            "timeout": 20
+          }
+        ]
+      },
+      {
         "hooks": [
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/guard.sh\"",
-            "timeout": 10
+            "timeout": 20
           }
         ]
       },
@@ -39,7 +49,7 @@
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/emit.sh\"",
             "async": true,
-            "timeout": 10
+            "timeout": 5
           }
         ]
       }
@@ -50,7 +60,7 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/guard.sh\"",
-            "timeout": 10
+            "timeout": 20
           }
         ]
       }
@@ -62,7 +72,7 @@
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/emit.sh\"",
             "async": true,
-            "timeout": 10
+            "timeout": 5
           }
         ]
       }
@@ -74,19 +84,29 @@
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/emit.sh\"",
             "async": true,
-            "timeout": 10
+            "timeout": 5
           }
         ]
       }
     ],
     "SubagentStart": [
       {
+        "matcher": "delivery-skills:reviewer|delivery-skills:verifier",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/tree-check.sh\"",
+            "timeout": 20
+          }
+        ]
+      },
+      {
         "hooks": [
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/emit.sh\"",
             "async": true,
-            "timeout": 10
+            "timeout": 5
           }
         ]
       }
@@ -98,7 +118,7 @@
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/emit.sh\"",
             "async": true,
-            "timeout": 10
+            "timeout": 5
           }
         ]
       }
@@ -110,7 +130,7 @@
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/emit.sh\"",
             "async": true,
-            "timeout": 10
+            "timeout": 5
           }
         ]
       }
@@ -122,7 +142,7 @@
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/emit.sh\"",
             "async": true,
-            "timeout": 10
+            "timeout": 5
           }
         ]
       }
@@ -134,7 +154,7 @@
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/emit.sh\"",
             "async": true,
-            "timeout": 10
+            "timeout": 5
           }
         ]
       }

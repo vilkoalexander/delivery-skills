@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Fails when a line the change adds holds a credential. Reads added lines only,
-# so a secret already in the repo is not this chunk's failure.
+# Fails when a line the change adds holds a credential. Not a gate step: the
+# project's CI owns credentials. risk.sh runs it before the content pass, so
+# no added line with a credential leaves the machine.
 #
 #   bash secret-scan.sh [path...]              default: every changed path
 #   git diff --name-only | bash secret-scan.sh
 #
-# Prints `path:line — rule` per hit, never the matched text, and exits 1 on
-# any hit. Vendor key formats are checked everywhere; the generic rules
+# Prints `path:line — rule` per hit, never the matched text. Exits 1 on any
+# hit and 2 when it could not scan (bad pattern, bad range, invalid config). Vendor key formats are checked everywhere; the generic rules
 # (password in a URL, a literal assigned to a secret-named key) skip tests,
 # fixtures, docs and *.example files, and values that read as placeholders.
 #
@@ -15,40 +16,19 @@
 #                      (default: secrets.allow in docs/review/delivery.json)
 set -uo pipefail
 
-range="${SECRET_DIFF_RANGE:-}"
-allow="${SECRET_ALLOW:-$(node "$(dirname "$0")/config.mjs" get secrets.allow 2>/dev/null)}"
+here=$(cd "$(dirname "$0")" && pwd)
 if ! root=$(git rev-parse --show-toplevel 2>/dev/null); then
   echo "secret-scan: not a git repository" >&2
   exit 2
 fi
 cd "$root"
+source "$here/lib/changes.sh"
 
-# ------------------------------------------------------------- which paths
-paths=("$@")
-
-# A harness can hand a pipe that never closes; wait one second for each line.
-read_paths_from_stdin() {
-  local line
-  [ -t 0 ] && return 0
-  while IFS= read -r -t 1 line; do
-    [ -n "$line" ] && paths+=("$line")
-  done
-}
-
-changed_paths() {
-  if [ -n "$range" ]; then
-    git diff --name-only "$range"
-  else
-    { git diff --name-only HEAD; git ls-files --others --exclude-standard; } | sort -u
-  fi
-}
-
-[ ${#paths[@]} -gt 0 ] || read_paths_from_stdin
-if [ ${#paths[@]} -eq 0 ]; then
-  while IFS= read -r path; do
-    paths+=("$path")
-  done < <(changed_paths)
-fi
+range="${SECRET_DIFF_RANGE:-}"
+allow="${SECRET_ALLOW:-}"
+[ -n "$allow" ] || allow=$(config_get secrets.allow) || exit 2
+valid_ere "SECRET_ALLOW (secrets.allow)" "$allow" || exit 2
+load_paths "$range" "$@" || exit 2
 
 scannable=()
 for path in ${paths[@]+"${paths[@]}"}; do
@@ -64,41 +44,9 @@ if [ ${#scannable[@]} -eq 0 ]; then
   exit 0
 fi
 
-# ------------------------------------------------------------- added lines
-is_tracked() {
-  git ls-files --error-unmatch "$1" > /dev/null 2>&1
-}
-
-# A diff of the paths; an untracked file counts as added whole.
-diff_of() {
-  local file
-  if [ -n "$range" ]; then
-    git diff -U0 "$range" -- "$@"
-    return
-  fi
-  git diff -U0 HEAD -- "$@"
-  for file in "$@"; do
-    [ -f "$file" ] || continue
-    is_tracked "$file" && continue
-    printf '+++ b/%s\n' "$file"
-    sed 's/^/+/' "$file"
-  done
-}
-
-# Turns a -U0 diff into "path:line:text", one line per added line.
-number_added_lines() {
-  awk '
-    /^\+\+\+ b\// { file = substr($0, 7); line = 0; next }
-    /^@@/         { split($3, hunk, /[,+]/); line = hunk[2] - 1; next }
-    /^\+/         { line++; print file ":" line ":" substr($0, 2); next }
-    /^-/          { next }
-                  { line++ }
-  '
-}
-
-added=$(diff_of "${scannable[@]}" 2>/dev/null | number_added_lines | LC_ALL=C grep -a . || true)
+added=$(added_lines "$range" "${scannable[@]}") || exit 2
 if [ -n "$allow" ]; then
-  added=$(printf '%s\n' "$added" | grep -vE -- "$allow" || true)
+  added=$(printf '%s\n' "$added" | LC_ALL=C grep -avE -- "$allow" || true)
 fi
 
 # ------------------------------------------------------------------- rules
@@ -125,25 +73,46 @@ rule "Stripe live key"      "$added" '(sk|rk)_live_[A-Za-z0-9]{16,}'
 rule "API key (sk- format)" "$added" '(^|[^A-Za-z0-9_-])sk-(ant-|proj-)?[A-Za-z0-9_-]{32,}'
 rule "Google API key"       "$added" '(^|[^A-Za-z0-9_-])AIza[0-9A-Za-z_-]{35}([^A-Za-z0-9_-]|$)'
 rule "npm token"            "$added" '(^|[^A-Za-z0-9])npm_[A-Za-z0-9]{36}'
+rule "GitLab token"         "$added" '(^|[^A-Za-z0-9])gl(pat|dt|rt|cbt)-[A-Za-z0-9_-]{20,}'
+rule "SendGrid key"         "$added" '(^|[^A-Za-z0-9])SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}'
+rule "Twilio key"           "$added" '(^|[^A-Za-z0-9])SK[0-9a-f]{32}([^0-9a-f]|$)'
+rule "Hugging Face token"   "$added" '(^|[^A-Za-z0-9])hf_[A-Za-z0-9]{30,}'
+rule "Stripe webhook secret" "$added" '(^|[^A-Za-z0-9])whsec_[A-Za-z0-9]{24,}'
+rule "Slack webhook URL"    "$added" 'hooks\.slack\.com/services/T[A-Za-z0-9]+/B[A-Za-z0-9]+/[A-Za-z0-9]{16,}'
+rule "Google OAuth token"   "$added" '(^|[^A-Za-z0-9])ya29\.[A-Za-z0-9_-]{20,}'
+rule "DigitalOcean token"   "$added" '(^|[^A-Za-z0-9])do[opr]_v1_[a-f0-9]{64}'
+rule "Azure storage key"    "$added" 'AccountKey=[A-Za-z0-9+/]{40,}={0,2}'
 
 # The generic rules guess, so they skip tests, fixtures, docs, examples and placeholder values.
 test_or_doc_file='^[^:]*(\.(spec|test)\.[a-z]+|\.example|\.sample|\.mdx?|\.txt):'
 test_or_doc_dir='^[^:]*(^|/)(__tests__|tests?|e2e|fixtures|__fixtures__|__mocks__|mocks|docs|cypress|playwright)/'
-placeholder='(example|changeme|change-me|placeholder|dummy|sample|your[-_ ]|xxxx|\*\*\*|<[^>]+>|\$\{|\{\{|process\.env|import\.meta\.env|localhost|127\.0\.0\.1)'
-generic=$(printf '%s\n' "$added" \
-  | grep -vE "$test_or_doc_file" \
-  | grep -vE "$test_or_doc_dir" \
-  | grep -viE -- "$placeholder" || true)
+placeholder='(example|changeme|change-me|placeholder|dummy|sample|your[-_ ]|xxxx|\*\*\*|<[^>]+>|\{\{|localhost|127\.0\.0\.1)'
+env_reference='(\$\{|process\.env|import\.meta\.env)'
+outside_tests=$(printf '%s\n' "$added" \
+  | LC_ALL=C grep -avE "$test_or_doc_file" \
+  | LC_ALL=C grep -avE "$test_or_doc_dir" \
+  | LC_ALL=C grep -aviE -- "$placeholder" || true)
+generic=$(printf '%s\n' "$outside_tests" | LC_ALL=C grep -avE -- "$env_reference" || true)
 
 rule "password in a URL" "$generic" "[a-z][a-z0-9+.-]*://[^/[:space:]:@$url_quote]+:[^@/[:space:]$url_quote]{3,}@"
 
 secret_name='(password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|private[_-]?key)'
 # 16+ characters with a digit: long enough and mixed enough not to be a label or a config path.
-with_mixed_literal=$(printf '%s\n' "$generic" | grep -E "${quote}[A-Za-z_+/=.-]*[0-9][A-Za-z0-9_+/=.-]*$quote" || true)
+with_mixed_literal=$(printf '%s\n' "$generic" | LC_ALL=C grep -aE "${quote}[A-Za-z_+/=.-]*[0-9][A-Za-z0-9_+/=.-]*$quote" || true)
 rule "literal assigned to a secret-named key" "$with_mixed_literal" \
   "${secret_name}[$url_quote]?[[:space:]]*[:=][[:space:]]*${quote}[A-Za-z0-9_+/=.-]{16,}$quote" i
 
-in_env_file=$(printf '%s\n' "$generic" | grep -E '^[^:]*(^|/)\.env[^/:]*:' || true)
+# A value with no quotes is how YAML, .properties, .toml and .ini files write one.
+in_config_file=$(printf '%s\n' "$generic" | LC_ALL=C grep -aE '^[^:]*\.(ya?ml|properties|toml|ini|conf|cfg):' || true)
+rule "value of a secret-named key in a config file" "$in_config_file" \
+  "^[^:]*:[0-9]+:[[:space:]-]*[A-Za-z0-9_.-]*${secret_name}[A-Za-z0-9_.-]*[[:space:]]*[:=][[:space:]]*[A-Za-z_+/=.-]*[0-9][A-Za-z0-9_+/=.-]{15,}[[:space:]]*(#.*)?\$" i
+
+# A line that reads the environment can still carry the real value as its fallback.
+with_env_reference=$(printf '%s\n' "$outside_tests" | LC_ALL=C grep -aE -- "$env_reference" || true)
+rule "literal fallback next to an env reference" "$with_env_reference" \
+  "${secret_name}.*(\|\||\?\?|:-)[[:space:]]*${quote}?[A-Za-z_+/=.-]*[0-9][A-Za-z0-9_+/=.-]{15,}" i
+
+in_env_file=$(printf '%s\n' "$generic" | LC_ALL=C grep -aE '^[^:]*(^|/)\.env[^/:]*:' || true)
 rule "value in a committed env file" "$in_env_file" \
   "^[^:]*:[0-9]+:[[:space:]]*(export[[:space:]]+)?[A-Z0-9_]*(SECRET|TOKEN|PASSWORD|PASSWD|KEY)[A-Z0-9_]*=[$url_quote]?[^[:space:]$url_quote]{8,}" i
 

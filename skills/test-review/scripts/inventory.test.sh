@@ -43,6 +43,11 @@ eq     "builders exported anywhere" "$(under 'Factories and builders exported an
 eq     "network fixtures"          "$(under 'Network fixtures (msw, nock)' | tr -d ' ')" "./src/test-utils/setup.ts"
 sees   "focused tests"             "^  ./src/cart/cart.test.ts:1:it.only\('adds'" "$(under 'Focused or skipped tests across the suite')"
 
+echo "# a suite with nothing focused"
+rm src/cart/cart.test.ts
+has "exits 0 when the last section is empty" 0 '^## Focused or skipped tests across the suite$' bash "$inventory"
+echo "it.only('adds', () => {});" > src/cart/cart.test.ts
+
 echo "# options"
 has "INVENTORY_LIMIT caps a section" 0 '… \+2 more lines \(raise INVENTORY_LIMIT=1' env INVENTORY_LIMIT=1 bash "$inventory"
 has "takes a root"                   0 "^root: $tmp/project/src$" bash "$inventory" "$tmp/project/src"

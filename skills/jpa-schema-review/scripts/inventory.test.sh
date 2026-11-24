@@ -123,6 +123,12 @@ sees  "repeatable migrations"                  '^    repeatable: 1$' "$migration
 sees  "a file that is not a migration"         'not a migration name: add_table.sql' "$migrations"
 misses "nothing modified yet"                  'modified in the working tree' "$migrations"
 
+echo "# MIGRATION_NAME sets what a migration name is"
+out=$(MIGRATION_NAME='^[a-z_]+\.sql$' bash "$inventory")
+migrations=$(under migrations)
+misses "a name the project accepts"            'not a migration name: add_table.sql' "$migrations"
+sees   "a name it does not"                    'not a migration name: .*V1.001__init.sql' "$migrations"
+
 echo "# an edited migration"
 echo "select 2;" >> $resources/db/migration/V1.001__init.sql
 out=$(bash "$inventory")

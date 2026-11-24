@@ -41,12 +41,13 @@ reads `TENANT_FIELD` (default `tenantId`; `""` for single-tenant) and
 ## Effort
 
 Default **medium**: 🔴 and 🟡 only, and **zero findings is a valid outcome**
-— say so and stop. **high** adds ⚪ nits, still ranked.
+— say so and stop. **high** adds ⚪ nits, still ranked. A short report of
+real defects beats an exhaustive one.
 
 ## Output format
 
 ```
-### <FileName> review
+### <file> review
 
 🔴 <file:line> — <one-sentence defect>
    why: <what breaks, concretely>
@@ -61,5 +62,5 @@ Default **medium**: 🔴 and 🟡 only, and **zero findings is a valid outcome**
 Verdict: <SHIP | FIX FIRST> — <one line>
 ```
 
-Most-severe first. Every finding names the why. Before/after is the two lines
+Most-severe first. One finding per defect. Every finding names the why. Before/after is the two lines
 that change. A clean category gets one line.

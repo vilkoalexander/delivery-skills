@@ -32,6 +32,8 @@
 #   RISK_P_ACT              default 0.7   probability that counts as yes
 #   RISK_P_UNSURE           default 0.5   below this counts as no
 #   RISK_CONTENT_MAX_CHARS  default 100000 per file; longer hunks are cut and the file marked unsure
+#   RISK_CONTENT_TIMEOUT    seconds for one request, default 20
+#   RISK_CONTENT_PARALLEL   requests at one time, default 4
 #   RISK_CONTENT_DRY=1      print the requests as JSON lines, call nothing
 #
 # Exit 0 on a verdict, 1 when any request failed (the file is listed unsure
@@ -44,7 +46,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --floor) floor="${2:-}"; shift 2;;
     --floors) floors="${2:-}"; shift 2;;
-    -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2;;
+    -h|--help) sed -n '2,/^set -uo pipefail/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//' >&2; exit 2;;
     *) echo "risk-content.sh: unknown argument $1" >&2; exit 2;;
   esac
 done
@@ -68,6 +70,8 @@ const MODEL = env.RISK_CONTENT_MODEL || 'jev-latest';
 const P_ACT = Number(env.RISK_P_ACT || 0.7);
 const P_UNSURE = Number(env.RISK_P_UNSURE || 0.5);
 const MAX_CHARS = Number(env.RISK_CONTENT_MAX_CHARS || 100000);
+const TIMEOUT_MS = Number(env.RISK_CONTENT_TIMEOUT || 20) * 1000;
+const PARALLEL = Number(env.RISK_CONTENT_PARALLEL || 4);
 
 // Literal yes/no questions. Jev answers what is written, so each names the
 // exact condition and the criteria say what yes and no mean.
@@ -137,10 +141,11 @@ function request(file) {
 async function ask(body) {
   const res = await fetch(ENDPOINT, {
     method: 'POST',
+    signal: AbortSignal.timeout(TIMEOUT_MS),
     headers: { authorization: `Bearer ${env.TYPESAFE_API_KEY}`, 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const json = await res.json();
   const out = {};
   for (const k of Object.keys(QUESTIONS)) {
@@ -188,7 +193,7 @@ async function main() {
   }
 
   let failed = false;
-  const results = await Promise.all(reqs.map(async (r, i) => {
+  const evaluate = async (r, i) => {
     try {
       const p = await ask(r.body);
       return judge(files[i].path, p, r.truncated, files[i].isNew);
@@ -196,7 +201,12 @@ async function main() {
       failed = true;
       return { path: files[i].path, rank: Math.max(2, RANK[floorOf(files[i].path)]), rule: 'not evaluated', unsure: [`error: ${e.message}`] };
     }
-  }));
+  };
+  const results = [];
+  for (let from = 0; from < reqs.length; from += PARALLEL) {
+    const batch = reqs.slice(from, from + PARALLEL).map((r, offset) => evaluate(r, from + offset));
+    results.push(...(await Promise.all(batch)));
+  }
 
   let top = Math.max(RANK[floor], ...results.map(r => RANK[floorOf(r.path)]), 1);
   for (const r of results) {

@@ -51,7 +51,7 @@ through `where`.
 If the project has none of these, the finding is "this should be the first
 one" — once. Not on every file.
 
-## Known ceilings — don't recommend past these
+## Known ceilings — do not recommend past these
 
 - **A guard runs before the request-scoped context exists.** Its own lookup is
   unscoped by design. Do not flag it; do not copy it.

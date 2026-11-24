@@ -28,9 +28,9 @@ reaches both through `review-routing` and never loads this file.
    derive the same from `CLAUDE.md` / `AGENTS.md` and say so in one line. Then
    the file under review, **its test** if one exists, and one sibling of the
    same kind as the consistency baseline.
-3. **`bash scripts/inventory.sh [root]`** — versions, analyzers, modules,
+3. **`scripts/inventory.sh [root]`** — versions, analyzers, modules,
    shared primitives, authorization expressions in use, test bases.
-4. **`bash scripts/scan.sh <file>`** — mechanical pre-scan. Flags, not a verdict.
+4. **`scripts/scan.sh <file>`** — mechanical pre-scan. Flags, not a verdict.
 5. **Walk CHECKLIST.md** top to bottom.
 6. **Report** in the format below.
 
@@ -43,12 +43,13 @@ environment; the project layer says what to set.
 ## Effort
 
 Default **medium**: 🔴 and 🟡 only, and **zero findings is a valid outcome**
-— say so and stop. **high** adds ⚪ nits, still ranked.
+— say so and stop. **high** adds ⚪ nits, still ranked. A short report of
+real defects beats an exhaustive one.
 
 ## Output format
 
 ```
-### <ClassName> review
+### <file> review
 
 🔴 <file:line> — <one-sentence defect>
    why: <what breaks, concretely>

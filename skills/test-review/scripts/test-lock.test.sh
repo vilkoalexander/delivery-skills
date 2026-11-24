@@ -1,19 +1,7 @@
 #!/usr/bin/env bash
-set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
+source "$here/../../../scripts/test-lib.sh"
 script="$here/test-lock.sh"
-tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
-
-repo="$tmp/repo"
-mkdir -p "$repo/src" && git -C "$repo" init -q
-cd "$repo" || exit 1
-
-pass=0; fail=0
-ok()  { pass=$((pass+1)); echo "ok   - $1"; }
-nok() { fail=$((fail+1)); echo "FAIL - $1: $2"; }
-eq()  { if [ "$2" = "$3" ]; then ok "$1"; else nok "$1" "got '$2', wanted '$3'"; fi; }
-has() { if grep -q "$2" "$tmp/out"; then ok "$1"; else nok "$1" "no '$2' in: $(cat "$tmp/out")"; fi; }
 
 spec() {
   cat > "$1" <<'EOF'
@@ -23,16 +11,14 @@ describe('total', () => {
     expect(total([1, 2])).toBe(3);
   });
   it('handles empty', () => {
-    expect(total([])).toBe(0);
+    expect(
+      total([]),
+    ).toBe(0);
   });
 });
 EOF
 }
-reset() { git checkout -q -- . && git clean -qfd; }
-run() { bash "$script" "$@" > "$tmp/out" 2>&1; echo $?; }
 
-for f in a b c d e; do spec "src/$f.spec.ts"; done
-echo 'export const total = (n) => n.reduce((x, y) => x + y, 0);' > src/total.ts
 java_test() {
   mkdir -p "$(dirname "$1")"
   cat > "$1" <<'EOF'
@@ -44,79 +30,114 @@ class OrderServiceTest {
   @Test
   void savesTheOrder() {
     verify(repository).save(order);
+    mvc.perform(get("/orders"))
+      .andExpect(status().isOk());
   }
 }
 EOF
 }
+
+new_repo project
+mkdir -p src
+for f in a b c d e; do spec "src/$f.spec.ts"; done
+echo 'export const total = (n) => n.reduce((x, y) => x + y, 0);' > src/total.ts
 java_test api/src/test/java/shop/OrderServiceTest.java
 java_test api/src/main/java/shop/RefundIT.java
-git add . && git -c user.name=t -c user.email=t@t commit -qm base
+commit_all
 
-eq "untouched tests pass" "$(run src/a.spec.ts src/total.ts)" 0
+reset() {
+  git reset -q --hard && git clean -qfd
+}
 
-sed -i.bak 's/toBe(3)/toBe(4)/' src/a.spec.ts && rm src/a.spec.ts.bak
-eq "rewritten assertion fails" "$(run src/a.spec.ts)" 1
-has "names the rewritten assertion" "src/a.spec.ts — 1 assertion line(s) removed or rewritten"
-reset
+# edit FILE PERL — rewrites the file in place
+edit() {
+  perl -0pi -e "$2" "$1"
+}
 
-sed -i.bak "s/it('handles empty'/it.skip('handles empty'/" src/b.spec.ts && rm src/b.spec.ts.bak
-eq "added skip fails" "$(run src/b.spec.ts)" 1
-has "names the skip" "1 skip/only/todo added"
-reset
-
-sed -i.bak '6,8d' src/c.spec.ts && rm src/c.spec.ts.bak
-eq "removed test fails" "$(run src/c.spec.ts)" 1
-has "names the removed block" "1 test block(s) removed"
-reset
-
-rm src/d.spec.ts
-eq "deleted test file fails" "$(run src/d.spec.ts)" 1
-has "names the deletion" "src/d.spec.ts — deleted"
-reset
-
-sed -i.bak "s/^});$/  it('adds three', () => {\n    expect(total([1, 2, 3])).toBe(6);\n  });\n});/" src/e.spec.ts && rm src/e.spec.ts.bak
-printf "it('one more', () => { expect(1).toBe(1); });\n" >> src/e.spec.ts
-eq "added tests pass" "$(run src/e.spec.ts)" 0
-reset
-
-spec src/new.spec.ts
-eq "new test file is not locked" "$(run src/new.spec.ts)" 0
-reset
-
-sed -i.bak 's/x + y/x - y/' src/total.ts && rm src/total.ts.bak
-eq "source changes are ignored" "$(run src/total.ts)" 0
-reset
-
-sed -i.bak 's/toBe(3)/toBe(4)/' src/a.spec.ts && rm src/a.spec.ts.bak
-eq "allowed path passes" "$(TEST_LOCK_ALLOW='src/a\.spec' run src/a.spec.ts)" 0
-has "allowed path is still listed" "allowed by TEST_LOCK_ALLOW"
-eq "allow does not cover other paths" "$(TEST_LOCK_ALLOW='src/b\.spec' run src/a.spec.ts)" 1
-eq "paths come from stdin too" "$(git diff --name-only | bash "$script" >/dev/null 2>&1; echo $?)" 1
-reset
-
+clean="no existing test was weakened"
+spec=src/a.spec.ts
 junit=api/src/test/java/shop/OrderServiceTest.java
-sed -i.bak 's/assertEquals(3,/assertEquals(4,/' $junit && rm $junit.bak
-eq "JUnit: rewritten assertion fails" "$(run $junit)" 1
-has "JUnit: names the assertion" "OrderServiceTest.java — 1 assertion line(s) removed or rewritten"
+
+echo "# what passes"
+has "untouched tests" 0 "$clean" bash "$script" $spec src/total.ts
+edit $spec 's/^\}\);$/  it("adds three", () => {\n    expect(total([1, 2, 3])).toBe(6);\n  });\n});/m'
+has "added tests" 0 "$clean" bash "$script" $spec
 reset
-sed -i.bak '/verify(repository)/d' $junit && rm $junit.bak
-eq "JUnit: removed verify fails" "$(run $junit)" 1
+edit $spec 's/^import .*/import { total, other } from ".\/total";/'
+has "a changed import" 0 "$clean" bash "$script" $spec
 reset
-sed -i.bak '6,9d' $junit && rm $junit.bak
-eq "JUnit: removed test method fails" "$(run $junit)" 1
-has "JUnit: names the removed block" "1 test block(s) removed"
+{ echo "describe('outer', () => {"; sed 's/^/  /' $spec; echo "});"; } > "$tmp/wrapped" && cp "$tmp/wrapped" $spec
+has "a change of indent alone" 0 "$clean" bash "$script" $spec
 reset
-sed -i.bak 's/  void adds/  @Disabled void adds/' $junit && rm $junit.bak
-eq "JUnit: @Disabled fails" "$(run $junit)" 1
-has "JUnit: names the disabled test" "1 skip/only/todo added"
+spec src/new.spec.ts
+has "a new test file" 0 "$clean" bash "$script" src/new.spec.ts
+reset
+echo 'const r = model.fit(data);' >> $spec
+has "model.fit( is not a focused test" 0 "$clean" bash "$script" $spec
+reset
+edit src/total.ts 's/x \+ y/x - y/'
+has "a source change" 0 "$clean" bash "$script" src/total.ts
+reset
+
+echo "# what fails"
+edit $spec 's/toBe\(3\)/toBe(4)/'
+has "a rewritten assertion" 1 "$spec — 1 line\(s\) removed or rewritten" bash "$script" $spec
+has "the same, from the changed paths" 1 "$spec" bash "$script"
+has "the same, with paths on stdin" 1 "$spec" bash -c "git diff --name-only | bash '$script'"
+has "an allowed path passes and is listed" 0 "allowed by TEST_LOCK_ALLOW" env TEST_LOCK_ALLOW='src/a\.spec' bash "$script" $spec
+has "allow does not cover other paths" 1 "weakened" env TEST_LOCK_ALLOW='src/b\.spec' bash "$script" $spec
+reset
+edit $spec 's/total\(\[\]\),/total([0]),/'
+has "a changed value on a continuation line" 1 "1 line\(s\) removed or rewritten" bash "$script" $spec
+reset
+edit $spec "s/it\('handles empty'/it.skip('handles empty'/"
+has "an added skip" 1 "1 skip/only/todo added" bash "$script" $spec
+reset
+edit $spec 's/  it\(.handles empty.*?\n  \}\);\n//s'
+has "a removed test" 1 "1 test block\(s\) fewer" bash "$script" $spec
+reset
+edit $spec "s/  it\('handles empty'/  \/*\n  it('handles empty'/; s/^\}\);\$/  *\/\n});/m"
+has "a test inside a block comment" 1 "1 test block\(s\) fewer" bash "$script" $spec
+reset
+edit $spec "s/it\('adds', \(\) => \{\n/it('adds', () => {\n    return;\n/"
+has "a bare return at the top of a test" 1 "1 bare return added" bash "$script" $spec
+reset
+rm $spec
+has "a deleted test file" 1 "$spec — deleted or renamed" bash "$script" $spec
+has "the same, from the changed paths" 1 "$spec — deleted or renamed" bash "$script"
+reset
+git mv $spec src/a.ts
+has "a test file renamed out of its test name" 1 "$spec — deleted or renamed" bash "$script"
+reset
+
+echo "# JUnit"
+edit $junit 's/assertEquals\(3,/assertEquals(4,/'
+has "a rewritten assertion" 1 "OrderServiceTest.java — 1 line\(s\) removed or rewritten" bash "$script" $junit
+reset
+edit $junit 's/\n      \.andExpect\(status\(\)\.isOk\(\)\);/;/'
+has "a removed andExpect" 1 "1 assertion\(s\) fewer" bash "$script" $junit
+reset
+edit $junit 's/  \@Test\n  void savesTheOrder.*?\n  \}\n//s'
+has "a removed test method" 1 "1 test block\(s\) fewer" bash "$script" $junit
+reset
+edit $junit 's/  void adds/  \@Disabled void adds/'
+has "an added \@Disabled" 1 "1 skip/only/todo added" bash "$script" $junit
 reset
 named=api/src/main/java/shop/RefundIT.java
-sed -i.bak 's/assertEquals(3,/assertEquals(4,/' $named && rm $named.bak
-eq "a Java test outside a test directory is locked by its name" "$(run $named)" 1
+edit $named 's/assertEquals\(3,/assertEquals(4,/'
+has "a Java test outside a test directory is locked by its name" 1 "RefundIT.java" bash "$script" $named
 reset
 
-eq "no paths is a usage error" "$(bash "$script" </dev/null >/dev/null 2>&1; echo $?)" 2
+echo "# the base"
+edit $spec 's/toBe\(3\)/toBe(4)/'
+base=$(source "$here/../../delivery-pipeline/scripts/lib/changes.sh"; worktree_tree)
+has "TEST_LOCK_BASE: a change before the base is not this change's" 0 "$clean" env TEST_LOCK_BASE="$base" bash "$script" $spec
+has "DELIVERY_BASE does the same" 0 "$clean" env DELIVERY_BASE="$base" bash "$script" $spec
+reset
 
-echo
-echo "passed: $pass  failed: $fail"
-[ "$fail" = 0 ]
+echo "# it says so when it cannot look"
+has "an allow pattern that does not compile" 2 "TEST_LOCK_ALLOW is not a valid pattern" env TEST_LOCK_ALLOW='(' bash "$script" $spec
+mkdir -p "$tmp/plain" && cd "$tmp/plain"
+has "outside git" 2 "not a git repository" env GIT_CEILING_DIRECTORIES="$tmp" bash "$script" a.spec.ts
+
+finish

@@ -38,7 +38,7 @@ real defects beats an exhaustive one.
 ## Output format
 
 ```
-### <ComponentName> review
+### <file> review
 
 🔴 <file:line> — <one-sentence defect>
    why: <what breaks, in this file>
@@ -53,7 +53,7 @@ real defects beats an exhaustive one.
 Verdict: <SHIP | FIX FIRST> — <one line>
 ```
 
-Most-severe first. Every finding names the why. Before/after is the two lines
+Most-severe first. One finding per defect. Every finding names the why. Before/after is the two lines
 that change. A clean category gets one line.
 
 ## Sibling
@@ -62,4 +62,5 @@ that change. A clean category gets one line.
 sheet, form or picker is written, it produces the container / view / builder
 split that §2 "Role fit" in CHECKLIST.md judges. A rule that changes in one
 changes in the other in the same change set; the two must never describe
-different shapes.
+different shapes. The platform rules have one owner, §7 of CHECKLIST.md here;
+the authoring checklist points to it.

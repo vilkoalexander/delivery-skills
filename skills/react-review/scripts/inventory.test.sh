@@ -39,6 +39,14 @@ misses "skips layers it does not know" 'Home.tsx' "$out"
 sees "feature-local folders"          '^  features/cart/components$' "$out"
 sees "ends with the question"         '^Reinvention check: ' "$out"
 
+echo "# a root with characters sed would read"
+new_repo "app|web"
+mkdir -p src/features/cart/hooks src/lib
+echo "export const a = 1;" > src/lib/a.ts
+out=$(bash "$inventory")
+sees "feature-local folders are cut to the src root" '^  features/cart/hooks$' "$out"
+cd "$tmp/project" || exit 1
+
 echo "# options"
 has "INVENTORY_DOCS adds the doc line" 0 '↳ Primary action button\.$' env INVENTORY_DOCS=1 bash "$inventory"
 has "INVENTORY_LIMIT caps a section"   0 '… \+1 more lines \(raise INVENTORY_LIMIT=1' env INVENTORY_LIMIT=1 bash "$inventory"

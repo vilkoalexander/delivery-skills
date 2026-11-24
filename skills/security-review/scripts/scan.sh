@@ -8,7 +8,7 @@
 #
 # Usage: scan.sh <source file>          TypeScript, JavaScript, Java or Kotlin
 # Env:   INPUT   extra |-separated names that hold outside input in this
-#                project (default: req, request, body, query, params, dto, input, payload)
+#                project (default: req, request, ctx, body, query, params, dto, input, payload)
 #        GUARD   ERE for what authorizes a handler or marks it public
 #                (default: @UseGuards|@Public|@Roles|@Auth|@Permissions|@PreAuthorize|
 #                @Secured|@RolesAllowed|@PermitAll; "" when a global guard or URL rules decide)
@@ -26,6 +26,7 @@ fi
 
 input="(req|request|ctx|body|query|params|dto|input|payload${INPUT:+|$INPUT})"
 from_input="\\b$input\\b"
+written="(req\\.body|request\\.body|body|dto|input|payload${INPUT:+|$INPUT})"
 guard="${GUARD-@UseGuards|@Public|@Roles|@Auth|@Permissions|@PreAuthorize|@Secured|@RolesAllowed|@PermitAll}"
 
 found_any=0
@@ -89,9 +90,9 @@ fi
 report "Open to everyone — is each one meant to be?" \
   '@Public\(|@PermitAll|\.permitAll\(|@AllowAnonymous|@SkipAuth|anonymous\(\)'
 report "Request body written as it came — mass assignment" \
-  "data:[[:space:]]*(req\\.body|request\\.body|body|dto|input|payload)[[:space:]]*[,}]|\\.\\.\\.(req\\.body|request\\.body|body)\\b|Object\\.assign\\([^,]+,[[:space:]]*(req\\.body|request\\.body|body|dto)\\b|BeanUtils\\.copyProperties|\\.(save|merge|persist)\\([[:space:]]*(request|dto|body)[[:space:]]*\\)"
+  "data:[[:space:]]*${written}[[:space:]]*[,}]|\\.\\.\\.(req\\.body|request\\.body|body)\\b|Object\\.assign\\([^,]+,[[:space:]]*(req\\.body|request\\.body|body|dto)\\b|BeanUtils\\.copyProperties|\\.(save|merge|persist)\\([[:space:]]*(request|dto|body)[[:space:]]*\\)"
 report "Privilege field set from a variable — who may set it?" \
-  '\b(role|roles|isAdmin|is_admin|permissions|scopes|tenantId|ownerId|userId)[[:space:]]*[:=][[:space:]]*(req|request|body|dto|input|payload|params|query)\b'
+  "\\b(role|roles|isAdmin|is_admin|permissions|scopes|tenantId|ownerId|userId)[[:space:]]*[:=][[:space:]]*$input\\b"
 
 # --- where it sends, and what it lets in -----------------------------------------
 report "Request or redirect to a URL from outside input" \
@@ -119,7 +120,7 @@ report "Secret or token kept where script or another app can read it" \
 report "Secret-named value compiled into the client bundle" \
   '(NEXT_PUBLIC|EXPO_PUBLIC|VITE|REACT_APP|NG_APP)_[A-Z0-9_]*(SECRET|PRIVATE|PASSWORD)'
 report "Error detail sent to the caller" \
-  '(res|response|reply)\.[a-z.()0-9]*(send|json)\([^)]*(\.stack|err\b|error\b|e\b)\)|printStackTrace\(|getStackTrace\(\)|include-stacktrace|includeStackTrace'
+  '(res|response|reply)\.[a-z.()0-9]*(send|json)\([^)]*(\.stack|\b(err|error|e|ex|exception))\)|printStackTrace\(|getStackTrace\(\)|include-stacktrace|includeStackTrace'
 
 [ "$found_any" -eq 0 ] && echo "clean — no mechanical smells"
 exit 0

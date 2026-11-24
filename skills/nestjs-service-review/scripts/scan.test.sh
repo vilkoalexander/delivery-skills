@@ -38,7 +38,8 @@ flags "findUnique with no tenantId"
 flags "findMany with no take within 15 lines"
 flags "Prisma call that is neither awaited, returned, nor assigned"
 eq    "the floating call is located" "$(under 'Prisma call that is neither' | cut -d: -f1)" 10
-flags "async ngOnInit / async lifecycle-style hook"
+flags "async onModuleInit / onApplicationBootstrap"
+misses "the label names no Angular hook"  'ngOnInit' "$out"
 flags "Float arithmetic near money"
 flags "A money-ish field typed as plain number without a minor-unit suffix"
 eq    "one hit per line"             "$(under 'A money-ish field' | wc -l | tr -d ' ')" 1

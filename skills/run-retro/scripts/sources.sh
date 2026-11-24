@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-run_dir="${DELIVERY_RUN_DIR:-$HOME/.claude/delivery-skills/runs}"
-events_dir="${DELIVERY_EVENTS_DIR:-$(dirname "$run_dir")/events}"
-log="${DELIVERY_LOG:-$HOME/.claude/delivery-skills/log.jsonl}"
+here=$(cd "$(dirname "$0")" && pwd)
+delivery="$here/../../chunked-delivery/scripts"
+source "$delivery/lib/run.sh"
+events_dir=$run_events_dir
+log=$run_log
 
 usage() {
   echo "usage: sources.sh list        the recorded runs, newest first" >&2
@@ -32,12 +34,18 @@ read_events() {
   jq -cR 'fromjson? // empty' "$1"
 }
 
+newest_first() {
+  [ -d "$events_dir" ] || return 0
+  find "$events_dir" -maxdepth 1 -type f -name '*.jsonl' -exec ls -t {} + 2>/dev/null
+}
+
 list_runs() {
   local file
-  for file in $(ls -t "$events_dir"/*.jsonl 2>/dev/null); do
+  newest_first | while IFS= read -r file; do
     read_events "$file" | jq -rs --arg run "$(basename "$file" .jsonl)" '
-      [$run, (map(.ts) | min | floor | todate), (map(select(.ev == "mark")) | length | tostring) + " marks",
-       (map(select(.ev == "run_start"))[0].project // "unknown")] | @tsv'
+      select(length > 0)
+      | [$run, (map(.ts) | min | floor | todate), (map(select(.ev == "mark")) | length | tostring) + " marks",
+         (map(select(.ev == "run_start"))[0].project // "unknown")] | @tsv'
   done | table
 }
 
@@ -48,7 +56,7 @@ esac
 
 run=${1:-}
 if [ -z "$run" ]; then
-  newest=$(ls -t "$events_dir"/*.jsonl 2>/dev/null | head -1 || true)
+  newest=$(newest_first | head -1 || true)
   [ -n "$newest" ] || die "no event files in $events_dir"
   run=$(basename "$newest" .jsonl)
 fi
@@ -72,18 +80,20 @@ $(printf 'run\t%s\nproject\t%s\nbranch\t%s\nfrom\t%s\nto\t%s\ncompactions\t%s\n'
   "$from" "$to" "$(query 'map(select(.ev == "compact")) | length')" | table)
 EOF
 
-query '
-  map(select(.ev == "mark" and .chunk != null)) | group_by(.chunk)[]
-  | [(.[0].chunk | tostring), (map(.risk // empty)[0] // "unknown"),
-     (map(select(.phase == "fix")) | length | tostring) + " fix",
-     (map(.phase) | unique | join(",")), (map(.name // empty)[0] // "")]
-  | @tsv' | table | section "Chunks, from the marks"
+node "$delivery/lifecycle.mjs" builds "$file" | jq -r '
+  [(.chunk | tostring), "build \(.build)", (.risk // "unknown"),
+   "fix static=\(.fix.static) review=\(.fix.review) human=\(.fix.human)",
+   (.phases | unique | join(",")),
+   (if .parked then "parked: " + .parked else "" end), (.decision // "no decision"), (.name // "")]
+  | @tsv' | table | section "Builds, from the marks"
 
+# A line written before run ids were logged is matched by project and time.
 if [ -s "$log" ]; then
-  jq -r --arg project "$project" --arg from "$from" --arg to "$to" '
-    select(.project == $project and .ts >= $from and .ts <= $to)
-    | [(.chunk | tostring), .risk, .decision, "static=\(.static // 0)", "review=\(.findings)",
-       "human=\(.human_found // 0)", "fix_rounds=\(.fix_rounds)", "verify=\(.verify)"]
+  jq -rR --arg run "$run" --arg project "$project" --arg from "$from" --arg to "$to" '
+    fromjson? | select(type == "object")
+    | select(if .run then .run == $run else .project == $project and .ts >= $from and .ts <= $to end)
+    | [(.chunk | tostring), "build \(.build // "?")", .risk, .decision, "static=\(.static // 0)",
+       "review=\(.findings)", "human=\(.human_found // 0)", "fix_rounds=\(.fix_rounds)", "verify=\(.verify)"]
     | @tsv' "$log" | table
 fi | section "Decisions, from the run log"
 

@@ -13,15 +13,17 @@ this plugin. It changes nothing until the human picks.
 
 1. **Sources.** `bash scripts/sources.sh list`, then
    `bash scripts/sources.sh <run>`; the newest run when none is named. It
-   prints the chunks, the decisions, what the human typed, the refusals, the
-   gate failures, the failed tool calls and the transcript paths.
+   prints each build of each chunk with its fix rounds by stage, the
+   decisions, what the human typed, the refusals, the gate failures, the
+   failed tool calls and the transcript paths.
 2. **Human turns first.** They are the review comments of the run. Skip the
    approvals. Each of the others is one of:
    - a `fix` or `redo`: a defect that passed the gate and the review;
    - a design question or a correction in the middle of the run: a decision
      that nobody asked before the plan was approved;
    - a question about a report: the report did not say it.
-3. **Then the machine side.** A chunk with two or more fix marks, a gate step
+3. **Then the machine side.** A chunk built twice, a parked report, a build
+   with two or more review fix rounds or a fix after the report, a gate step
    that failed, a refusal that repeats, failed tool calls, a compaction, an
    agent transcript far longer than its neighbours.
 4. **Find the cause, not the symptom.** For each candidate that needs it,
@@ -42,7 +44,7 @@ this plugin. It changes nothing until the human picks.
 | A mechanical pattern: a banned API, an import shape, a file location, a syntax form | A deterministic check, at the highest level that holds. First a change that makes the mistake impossible: one owner, one supported way, the wrong import hidden, the old way deleted. Then a type. Then a rule in the project's linter whose message names what to use instead, a line in `docs/review/drift.checks`, or a step in `docs/review/delivery.json`. Where the codebase already breaks it, ratchet: fail on a count above today's |
 | A rule that was already written — a rubric line, a Global Constraints line, a line in `CLAUDE.md` — and was broken again | The sentence did not hold. The row above, and the sentence goes once the check exists |
 | Code the implementer copied: a deprecated helper, a workaround, the old pattern next to the new one | That code: migrate its callers and delete it. An agent copies the nearest example |
-| An escape that stayed in the tree: a silenced checker, a cast to `any`, a "for now" comment | Its cause, as one of the rows above. Never a line in `escapes.allow` to stop the flag |
+| An escape that stayed in the tree: a silenced checker, a cast to `any`, a "for now" comment | Its cause, as one of the rows above. Never a disable comment to stop the lint rule |
 | A judgement call that the reviewer did not make | One line in `docs/review/<rubric>.md`, written as a rule a reviewer can examine |
 | A word that meant two things, or two words for one thing | `GLOSSARY.md` |
 | A decision made in the middle of the run that had a real alternative | An ADR in `docs/adr/`; if it has no exceptions, also one invariant line for the Global Constraints |

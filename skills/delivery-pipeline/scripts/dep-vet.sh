@@ -12,7 +12,7 @@
 #          advisory (MAL-*)
 #   FLAG   runs an install script; has known advisories; not a registry spec
 #   SKIP   the registry did not answer in time, so nothing was vetted
-# Exit 1 when any line is BLOCK, else 0. A range is vetted at its base version
+# Exit 1 when any line is BLOCK, 2 when the config or a limit is invalid, else 0. A range is vetted at its base version
 # (^1.2.3 as 1.2.3), a bare name at latest.
 #
 #   DEP_MIN_AGE_DAYS      default 30
@@ -21,10 +21,10 @@
 #                         (default for the three: deps.minAgeDays, deps.minVersionDays
 #                         and deps.allow in docs/review/delivery.json)
 #   DEP_VET_RANGE         base..head for --diff instead of the working tree
+#   DELIVERY_BASE         tree-ish --diff compares the working tree with (default HEAD)
 #   DEP_VET_TIMEOUT       seconds for the whole run, default 6
 #   DEP_REGISTRY, DEP_OSV endpoints (default registry.npmjs.org, api.osv.dev)
 #   DEP_VET=off           print nothing, exit 0
-set -uo pipefail
 set -uo pipefail
 [ "${DEP_VET:-on}" = "off" ] && exit 0
 if [ $# -eq 0 ]; then
@@ -35,22 +35,42 @@ fi
 DELIVERY_CONFIG_MODULE="$(cd "$(dirname "$0")" && pwd)/config.mjs" exec node --input-type=module - "$@" <<'NODE'
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import path from 'node:path';
 
 const env = process.env;
 const REGISTRY = (env.DEP_REGISTRY || 'https://registry.npmjs.org').replace(/\/$/, '');
 const OSV = (env.DEP_OSV || 'https://api.osv.dev').replace(/\/$/, '');
+
+function stop(message) {
+  console.error(`dep-vet: ${message}`);
+  process.exit(2);
+}
 
 let config = {};
 try {
   const configModule = await import(env.DELIVERY_CONFIG_MODULE);
   config = configModule.load({ optional: true }).deps || {};
   config.allow = configModule.ere(config.allow);
-} catch {}
+} catch (error) {
+  stop(error.message);
+}
 
-const MIN_PACKAGE_AGE_DAYS = Number(env.DEP_MIN_AGE_DAYS || config.minAgeDays || 30);
-const MIN_VERSION_AGE_DAYS = Number(env.DEP_MIN_VERSION_DAYS || config.minVersionDays || 7);
+function days(name, value, fallback) {
+  if (value === undefined || value === '') return fallback;
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) stop(`${name} must be a number of days, got '${value}'`);
+  return number;
+}
+
+const MIN_PACKAGE_AGE_DAYS = days('DEP_MIN_AGE_DAYS (deps.minAgeDays)', env.DEP_MIN_AGE_DAYS || config.minAgeDays, 30);
+const MIN_VERSION_AGE_DAYS = days('DEP_MIN_VERSION_DAYS (deps.minVersionDays)', env.DEP_MIN_VERSION_DAYS || config.minVersionDays, 7);
 const allowPattern = env.DEP_VET_ALLOW || config.allow;
-const allowed = allowPattern ? new RegExp(allowPattern) : null;
+let allowed = null;
+try {
+  allowed = allowPattern ? new RegExp(allowPattern) : null;
+} catch {
+  stop(`DEP_VET_ALLOW (deps.allow) is not a valid pattern: ${allowPattern}`);
+}
 const signal = AbortSignal.timeout(Number(env.DEP_VET_TIMEOUT || 6) * 1000);
 
 const MANIFEST = /(^|\/)package\.json$/;
@@ -71,34 +91,56 @@ function git(...args) {
 function dependenciesOf(manifestText) {
   try {
     const manifest = JSON.parse(manifestText || '{}');
-    return { ...manifest.dependencies, ...manifest.devDependencies, ...manifest.optionalDependencies };
+    return {
+      ...manifest.peerDependencies,
+      ...manifest.dependencies,
+      ...manifest.devDependencies,
+      ...manifest.optionalDependencies,
+    };
   } catch {
     return {};
   }
 }
 
-function changedManifests(range) {
+const root = git('rev-parse', '--show-toplevel').trim() || process.cwd();
+const inRoot = (...args) => git('-C', root, ...args);
+
+function baseAndHead(range) {
+  if (!range) return [env.DELIVERY_BASE || (inRoot('rev-parse', '-q', '--verify', 'HEAD') ? 'HEAD' : ''), ''];
+  if (range.includes('...')) {
+    const [left, right] = range.split('...');
+    return [inRoot('merge-base', left || 'HEAD', right || 'HEAD').trim(), right || 'HEAD'];
+  }
+  const [base, head] = range.split('..');
+  return [base, head || 'HEAD'];
+}
+
+// Paths from the git root, whatever directory the script runs in.
+function changedManifests(range, base) {
   const changed = range
-    ? git('diff', '--name-only', range)
-    : git('diff', '--name-only', 'HEAD') + git('ls-files', '--others', '--exclude-standard');
-  return changed.split('\n').filter(file => MANIFEST.test(file) && !file.includes('node_modules/'));
+    ? inRoot('diff', '-z', '--name-only', '--no-renames', range)
+    : (base ? inRoot('diff', '-z', '--name-only', '--no-renames', base) : inRoot('ls-files', '-z', '--cached'))
+      + inRoot('ls-files', '-z', '--others', '--exclude-standard');
+  return changed.split('\0').filter(file => MANIFEST.test(file) && !file.includes('node_modules/'));
 }
 
 // The specs (name@range) a diff adds or re-versions in the given package.json files.
-function specsFromDiff(files) {
+function specsFromDiff(named) {
   const range = env.DEP_VET_RANGE || '';
-  const [base, head] = range ? range.split('..') : ['HEAD', ''];
-  if (!files.length) files = changedManifests(range);
+  const [base, head] = baseAndHead(range);
+  const files = named.length
+    ? named.map(file => path.relative(root, path.resolve(file)))
+    : changedManifests(range, base);
 
   const specs = new Set();
   for (const file of files) {
     if (!MANIFEST.test(file)) continue;
-    const before = dependenciesOf(git('show', `${base}:${file}`));
+    const before = dependenciesOf(base ? inRoot('show', `${base}:${file}`) : '');
     let afterText = '';
     if (head) {
-      afterText = git('show', `${head}:${file}`);
+      afterText = inRoot('show', `${head}:${file}`);
     } else {
-      try { afterText = fs.readFileSync(file, 'utf8'); } catch {}
+      try { afterText = fs.readFileSync(path.join(root, file), 'utf8'); } catch {}
     }
     for (const [name, wanted] of Object.entries(dependenciesOf(afterText))) {
       if (before[name] !== wanted) specs.add(`${name}@${wanted}`);
@@ -169,6 +211,7 @@ async function vet({ name, wanted }) {
   const versions = doc.versions || {};
   const published = doc.time || {};
   const version = resolveVersion(wanted, versions, doc['dist-tags'] || {});
+  if (!version) return [`BLOCK ${name} — the registry has no published version of it`];
   const id = `${name}@${version}`;
   const findings = [];
 

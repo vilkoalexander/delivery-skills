@@ -8,7 +8,7 @@ echo "# modes"
 new_repo empty
 has "no mode prints the header" 2 'bash static-gate.sh coverage \[root\]' bash "$gate"
 has "unknown mode"              2 'unknown mode: lint \(coverage \| check \| init\)' bash "$gate" lint
-has "check with no paths"       2 'check: no paths' bash "$gate" check
+has "check with no config"      2 'no docs/review/delivery.json' bash "$gate" check
 
 # value NAME prints the status column of one coverage row
 value() { printf '%s\n' "$out" | grep -E "^  $1 " | head -1 | sed -E "s|^  $1 +||"; }
@@ -98,39 +98,52 @@ misses "no rows for a plugin not installed" 'react-native/|sonarjs/|import/no-cy
 misses "only the installed test plugin" 'jest/' "$out"
 sees   "a rule below error is absent"   '^ABSENT:.* eslint:react/jsx-key( |$)' "$out"
 misses "a rule at error is not"         '^ABSENT:.* eslint:no-console( |$)' "$out"
-sees   "sections follow the gaps"       '^  sections: typescript eslint boundaries shape react tests prettier dead-code hooks' "$out"
+sees   "sections follow the gaps"       '^  sections: typescript eslint boundaries shape escapes react tests prettier dead-code hooks' "$out"
 
-echo "# check runs the secret scan"
+echo "# check on a plain change"
 new_repo gated
 echo base > README.md && commit_all
 mkdir src
 echo '{"workspaces":{".":{"typecheck":false,"lint":false,"format":false,"test":false}}}' > "$tmp/gate.json"
-echo "const k = 'AKIA""ABCDEFGHIJKLMNOP'" > src/new.ts
-out=$(DELIVERY_CONFIG="$tmp/gate.json" STATIC_SKIP="test-lock drift reuse" bash "$gate" check src/new.ts 2>&1); code=$?
-eq   "a secret fails the gate"  "$code" 1
-sees "under the secrets step"   '^== secrets' "$out"
-sees "with the hit"             'src/new.ts:1 — AWS' "$out"
-sees "and the verdict"          '^static gate: FAILED' "$out"
-has  "STATIC_SKIP=secrets skips it" 0 '^-- secrets: skipped — STATIC_SKIP' env DELIVERY_CONFIG="$tmp/gate.json" STATIC_SKIP="secrets test-lock drift reuse" bash "$gate" check src/new.ts
-
-echo "# check runs the escape scan and does not fail on a flag"
-echo "export const row = input as any" > src/cast.ts
-out=$(DELIVERY_CONFIG="$tmp/gate.json" STATIC_SKIP="test-lock drift secrets reuse" bash "$gate" check src/cast.ts 2>&1); code=$?
-eq   "a flag does not fail the gate" "$code" 0
-sees "under the escape scan"         '^== escape scan' "$out"
-sees "with the flag"                 'src/cast.ts:1 — type escape' "$out"
-sees "and a clean verdict"           '^static gate: clean' "$out"
-lacks "STATIC_SKIP=escapes skips it" 'escape scan' env DELIVERY_CONFIG="$tmp/gate.json" STATIC_SKIP="escapes test-lock drift secrets reuse" bash "$gate" check src/cast.ts
-
-echo "# check runs the erosion scan and does not fail on a flag"
-{ echo "export function route(a) {"; for n in $(seq 1 10); do echo "  if (a === $n) return $n;"; done; echo "}"; } > src/route.ts
+export DELIVERY_CONFIG="$tmp/gate.json"
+has "nothing changed" 2 'check: no paths, and nothing changed since HEAD' bash "$gate" check
+echo "export const row = input as any" > "src/café.ts"
+out=$(bash "$gate" check 2>&1); code=$?
+eq   "passes"                        "$code" 0
+sees "with a clean verdict"          '^static gate: clean$' "$out"
+sees "the reuse scan ran"            '^  reuse +ok$' "$out"
+misses "the scans that are gone are not steps" '^  (secrets|deps|escapes|erosion) ' "$out"
+has "STATIC_SKIP=reuse skips it"     0 '^  reuse +skipped — STATIC_SKIP$' env STATIC_SKIP=reuse bash "$gate" check
+rm "src/café.ts"
+{ echo "export function route(a) {"; echo "  return a;"; echo "}"; } > src/route.ts
 commit_all route
-sed -i.bak 's/^}$/  if (a === 99) return 99;\n}/' src/route.ts && rm src/route.ts.bak
-out=$(DELIVERY_CONFIG="$tmp/gate.json" STATIC_SKIP="test-lock drift secrets reuse escapes" bash "$gate" check src/route.ts 2>&1); code=$?
-eq   "a flag does not fail the gate" "$code" 0
-sees "under the erosion scan"        '^== erosion scan' "$out"
-sees "with the flag"                 'src/route.ts:1 — complex function grew — route: 11 → 12' "$out"
-sees "and a clean verdict"           '^static gate: clean' "$out"
-lacks "STATIC_SKIP=erosion skips it" 'erosion scan' env DELIVERY_CONFIG="$tmp/gate.json" STATIC_SKIP="erosion escapes test-lock drift secrets reuse" bash "$gate" check src/route.ts
+
+echo "# check runs the test lock and the revert check"
+mkdir test
+echo 'echo 1' > src/price.sh
+echo '[ "$(bash src/price.sh)" = 1 ] # expect(1)' > test/price.sh
+commit_all tests
+echo 'echo 2' > src/price.sh
+echo '[ "$(bash src/price.sh)" = 2 ] # expect(2)' > test/price.sh
+has "a rewritten test fails the gate" 1 '^  test-lock +FAIL$' env TEST_CMD=bash bash "$gate" check
+git checkout -q test/price.sh
+echo 'true' > test/always.sh
+out=$(TEST_CMD=bash bash "$gate" check 2>&1); code=$?
+eq   "a test that passes either way fails the gate" "$code" 1
+sees "under the revert check"        '^  revert-check +FAIL$' "$out"
+sees "with the test named"           'test/always.sh' "$out"
+eq   "the change is still in the tree" "$(cat src/price.sh)" "echo 2"
+echo '[ "$(bash src/price.sh)" = 2 ]' > test/always.sh
+has "tests that fail without the change pass it" 0 '^  revert-check +ok$' env TEST_CMD=bash bash "$gate" check
+has "no runner rule is n/a, not ok"             0 '^  revert-check +n/a — no runner rule' bash "$gate" check
+has "a runner that cannot start fails the gate"  1 '^  revert-check +could not run$' env TEST_CMD=false bash "$gate" check
+git checkout -q src/price.sh && rm test/always.sh
+
+echo "# a change that only deletes"
+git rm -q --cached src/route.ts && rm src/route.ts
+out=$(bash "$gate" check 2>&1); code=$?
+eq   "passes on the test lock alone" "$code" 0
+sees "the scan says it had nothing to read" '^  reuse +n/a — every changed path was deleted$' "$out"
+git reset -q --hard
 
 finish

@@ -22,7 +22,7 @@ if [ ! -d "$root" ]; then
   echo "root not found: $root" >&2
   exit 1
 fi
-cd "$root"
+cd "$root" || exit 1
 echo "root: $root"
 
 indent() {
@@ -72,15 +72,16 @@ done | cap
 echo
 echo "## Factories and builders exported anywhere"
 builder='export (async )?(function|const) '
-grep -rhoE "$builder(create|build|make|mock|stub|fake)[A-Z][A-Za-z0-9]*" --include='*.ts' --include='*.tsx' . 2>/dev/null \
+grep -rhoE --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist "$builder(create|build|make|mock|stub|fake)[A-Z][A-Za-z0-9]*" --include='*.ts' --include='*.tsx' . 2>/dev/null \
   | not_vendored | sed -E "s/$builder//" | sort -u | indent | cap
 
 echo
 echo "## Network fixtures (msw, nock)"
-grep -rlE 'setupServer\(|setupWorker\(|\bnock\(' --include='*.ts' --include='*.tsx' --include='*.js' . 2>/dev/null \
+grep -rlE --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist 'setupServer\(|setupWorker\(|\bnock\(' --include='*.ts' --include='*.tsx' --include='*.js' . 2>/dev/null \
   | not_vendored | indent | cap
 
 echo
 echo "## Focused or skipped tests across the suite"
-grep -rnE '\b(it|test|describe)\.(only|skip)\(|\bx(it|test|describe)\(' --include='*.ts' --include='*.tsx' --include='*.js' . 2>/dev/null \
+grep -rnE --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist '\b(it|test|describe)\.(only|skip)\(|\bx(it|test|describe)\(' --include='*.ts' --include='*.tsx' --include='*.js' . 2>/dev/null \
   | not_vendored | indent | cap
+exit 0

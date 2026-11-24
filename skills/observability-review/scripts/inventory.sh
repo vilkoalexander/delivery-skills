@@ -5,6 +5,7 @@
 #
 # Usage: scripts/inventory.sh [root]
 # Reporting script: a grep with no match is a normal outcome, not an error.
+set -uo pipefail
 
 limit="${INVENTORY_LIMIT:-40}"
 
@@ -20,12 +21,12 @@ if [ ! -d "$root" ]; then
   echo "root not found: $root" >&2
   exit 1
 fi
-cd "$root"
+cd "$root" || exit 1
 echo "root: $root"
 
 # Lines of backend source that match, without vendored, built or test files.
 backend_lines() {
-  grep -rnE "$1" --include='*.ts' . 2>/dev/null | grep -vE 'node_modules|/dist/|\.spec\.|\.test\.'
+  grep -rnE "$1" --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist --include='*.ts' . 2>/dev/null | grep -vE 'node_modules|/dist/|\.spec\.|\.test\.'
 }
 
 # section TITLE REGEX — prints the matching lines under a heading

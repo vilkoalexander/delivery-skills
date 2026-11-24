@@ -13,15 +13,12 @@ snapshot, and nothing in the loop waits on it.
 The file rows come from git, never from memory:
 
 ```bash
-git add -N .
-git diff --numstat                                        # every row, with +/-
-git apply --numstat --allow-empty "$WORKSPACE/chunk-$N-before.diff"
+bash chunked-delivery/scripts/snapshot.sh stat "$N"       # every row of this chunk, with +/-
 ```
 
-Every row carries the +/- counts from the first list. A path whose counts
-match the second list was already there before this chunk and stays off the
-map. The number of rows on the page equals the number of rows left; a map
-that is one file short is wrong.
+Every row carries the +/- counts from that list, which holds this chunk
+alone. The number of rows on the page equals the number of rows in the list;
+a map that is one file short is wrong.
 
 Tiers, notes, questions and flows come from the implementer and reviewer
 reports and `scripts/risk.sh`, the same sources as the chunk report. The
@@ -107,7 +104,7 @@ on a file row says why the file is in that tier, not what it contains.
 ## Where the rows come from
 
 Derive the map from the snapshots: file rows from the current
-`git diff --numstat`, less what `chunk-$N-before.diff` already held. Republish
+`snapshot.sh stat "$N"`. Republish
 after each fix round from a fresh numstat, never by editing the old counts. The
 published link goes into the chunk's ledger entry, so a resumed run republishes
 to the same page.

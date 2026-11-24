@@ -19,15 +19,15 @@ does one log line say what failed, for whom, and with which request?**
 
 1. **Target.** One backend file — service, controller, gateway, processor,
    resolver, middleware, job. None given — ask which.
-2. **Project layer.** `docs/review/observability-review.md` if the
+2. **Project layer.** [INVARIANTS.md](INVARIANTS.md), which says what the
+   project layer must supply and which rules are one-way doors. Then
+   `docs/review/observability-review.md` if the
    repository has one: the logger and how it is injected, the correlation
    mechanism, the redaction list, the error filter, the tracing setup, the
    events the project has decided must be logged. If it is absent, derive
    the same from `CLAUDE.md` / `AGENTS.md` and say so in one line. Then one
    sibling file in the same directory as the consistency baseline.
 3. **`scripts/inventory.sh [root]`** — what observability plumbing exists.
-   [INVARIANTS.md](INVARIANTS.md) says what the project layer must supply
-   and which rules are one-way doors.
 4. **`scripts/scan.sh <file>`** — mechanical pre-scan. Flags, not a verdict.
 5. **Walk CHECKLIST.md** top to bottom.
 6. **Report** in the format below.
@@ -59,5 +59,5 @@ real defects beats an exhaustive one.
 Verdict: <SHIP | FIX FIRST> — <one line>
 ```
 
-Most-severe first. Every finding names the production question it leaves
+Most-severe first. One finding per defect. Every finding names the production question it leaves
 unanswerable. A clean category gets one line.

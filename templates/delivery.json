@@ -18,9 +18,6 @@
     ".": { "typecheck": false, "lint": false, "format": "npx --no-install prettier --check --ignore-unknown {files}", "test": false }
   },
   "risk": { "high": ["(^|/)reports/export"], "medium": [] },
-  "secrets": { "allow": [] },
-  "escapes": { "allow": [] },
-  "erosion": { "threshold": 10, "allow": [] },
   "deps": { "allow": ["^@your-scope/"], "minAgeDays": 30, "minVersionDays": 7 },
   "shared": ["(^|/)(libs/ui|src/lib|src/hooks)(/|$)"]
 }

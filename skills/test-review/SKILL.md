@@ -29,9 +29,9 @@ covers were wrong?** A test that cannot fail is cost with no return.
 4. **`scripts/scan.sh <file>`** — mechanical pre-scan. Flags, not a verdict.
 5. **Revert-check result**, when one was handed to you: every test it lists
    still passed with the change reversed, and each is a 🔴 finding before
-   you read a line. `scripts/revert-check.sh` reverses working-tree hunks,
-   so the controller or the human runs it, never the reviewer; with no
-   result, say in one line that it was not run.
+   you read a line. `scripts/revert-check.sh` changes files in the working
+   tree while it runs, so the static gate or the human runs it, never the
+   reviewer; with no result, say in one line that it was not run.
 6. **Walk CHECKLIST.md** top to bottom.
 7. **Report** in the format below.
 
@@ -62,5 +62,5 @@ real defects beats an exhaustive one.
 Verdict: <SHIP | FIX FIRST> — <one line>
 ```
 
-Most-severe first. Every finding names what wrong code would pass. A clean
+Most-severe first. One finding per defect. Every finding names what wrong code would pass. A clean
 category gets one line.

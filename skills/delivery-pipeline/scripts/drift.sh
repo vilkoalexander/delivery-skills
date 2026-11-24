@@ -10,11 +10,14 @@
 #
 #   name :: when :: command :: generated
 #
-#   when       regex of changed paths that trigger the check; empty is always
+#   when       ERE of changed paths that trigger the check; empty is always
 #   command    run from the repo root; a non-zero exit is drift
 #   generated  optional, space-separated paths the command rewrites. The
 #              command is then a generator: drift is any change to those
 #              paths, and they are put back as they were afterwards.
+#
+# A field separator is `::` with space around it. Exit 0 clean, 1 drift,
+# 2 when a line of the file is malformed or a check could not be run.
 set -uo pipefail
 
 mode="${1:-}"
@@ -32,9 +35,10 @@ trim() {
   sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'
 }
 
-# field ROW N — the Nth `::`-separated field of one line of the checks file
+# field ROW N — the Nth field of one line of the checks file. A separator is `::` with
+# space around it, so a command can hold `std::move` or `a::b`.
 field() {
-  awk -F'::' -v n="$2" '{ print $n }' <<< "$1" | trim
+  N=$2 perl -ne 'chomp; @f = split /(?<!\S)::(?!\S)/, $_, -1; print $f[$ENV{N} - 1] // "", "\n"' <<< "$1" | trim
 }
 
 declared_checks() {
@@ -52,14 +56,13 @@ sha1() {
 
 # One "hash  path" line per file under the given paths.
 content_hashes() {
-  # shellcheck disable=SC2086
-  find $1 -type f 2>/dev/null | LC_ALL=C sort | while IFS= read -r file; do
+  find "$@" -type f 2>/dev/null | LC_ALL=C sort | while IFS= read -r file; do
     printf '%s  %s\n' "$(sha1 < "$file" | cut -c1-40)" "$file"
   done
 }
 
 run_quietly() {
-  sh -c "$1" > "$work/out" 2>&1 < /dev/null
+  bash -c "$1" > "$work/out" 2>&1 < /dev/null
 }
 
 show_output() {
@@ -80,24 +83,32 @@ run_command_check() {
 # A generator check: drift is any change the command makes to the generated paths.
 # They are put back as they were afterwards.
 run_generator_check() {
-  local command=$1 generated=$2 status=0
-  case " $generated " in
-    *" /"*|*..*)
-      echo "   generated paths must be inside the repo: $generated" >&2
-      return 1
-      ;;
-  esac
+  local command=$1 status=0 path
+  generated=()
+  read -r -a generated <<< "$2"
+  for path in "${generated[@]}"; do
+    case "$path" in
+      /*|*..*|-*)
+        echo "   generated paths must be inside the repo: $path" >&2
+        return 2
+        ;;
+    esac
+  done
 
-  content_hashes "$generated" > "$work/before"
-  # shellcheck disable=SC2086
-  tar -cf "$work/keep.tar" $generated 2>/dev/null
+  content_hashes "${generated[@]}" > "$work/before"
+  if ! tar -cf "$work/keep.tar" "${generated[@]}" 2> "$work/out"; then
+    echo "   could not save ${generated[*]} before the run, so the command was not run"
+    show_output
+    return 2
+  fi
+  kept=yes
 
   if ! run_quietly "$command"; then
     echo "   FAILED to run"
     show_output
     status=1
   else
-    content_hashes "$generated" > "$work/after"
+    content_hashes "${generated[@]}" > "$work/after"
     if cmp -s "$work/before" "$work/after"; then
       echo "   ok"
     else
@@ -107,9 +118,15 @@ run_generator_check() {
     fi
   fi
 
-  # shellcheck disable=SC2086
-  rm -rf $generated && tar -xf "$work/keep.tar" 2>/dev/null
+  put_back
   return $status
+}
+
+# Puts the generated paths back as they were before the command ran.
+put_back() {
+  [ "${kept:-no}" = yes ] || return 0
+  kept=no
+  rm -rf -- "${generated[@]}" && tar -xf "$work/keep.tar"
 }
 
 check() {
@@ -118,32 +135,48 @@ check() {
     exit 0
   fi
 
-  local changed=("$@") failed=0 ran=0 row name when command generated
+  local changed=("$@") failed=0 broken=0 ran=0 row name when command outputs status
   work=$(mktemp -d)
+  trap 'put_back; rm -rf "$work"' EXIT
+  trap 'exit 130' INT TERM
   while IFS= read -r row; do
     name=$(field "$row" 1)
     when=$(field "$row" 2)
     command=$(field "$row" 3)
-    generated=$(field "$row" 4)
-    if [ -z "$name" ] || [ -z "$command" ]; then
-      echo "drift: bad line, want name :: when :: command — $row" >&2
-      failed=1
+    outputs=$(field "$row" 4)
+    if [ -z "$name" ] || [ -z "$command" ] || [ -n "$(field "$row" 5)" ]; then
+      echo "drift: bad line, want name :: when :: command [:: generated paths] — $row" >&2
+      broken=1
       continue
     fi
-    if [ -n "$when" ] && [ ${#changed[@]} -gt 0 ]; then
-      printf '%s\n' "${changed[@]}" | grep -qE -- "$when" || continue
+    if [ -n "$when" ]; then
+      printf '' | grep -E -- "$when" > /dev/null 2>&1
+      if [ $? -gt 1 ]; then
+        echo "drift: the pattern of $name does not compile — $when" >&2
+        broken=1
+        continue
+      fi
+      if [ ${#changed[@]} -gt 0 ]; then
+        printf '%s\n' "${changed[@]}" | grep -qE -- "$when" || continue
+      fi
     fi
 
     ran=$((ran + 1))
     printf '== drift %s: %s\n' "$name" "$command"
-    if [ -z "$generated" ]; then
-      run_command_check "$command" || failed=1
+    if [ -z "$outputs" ]; then
+      run_command_check "$command"
     else
-      run_generator_check "$command" "$generated" || failed=1
+      run_generator_check "$command" "$outputs"
     fi
+    status=$?
+    [ "$status" = 1 ] && failed=1
+    [ "$status" -gt 1 ] && broken=1
   done < <(declared_checks)
-  rm -rf "$work"
 
+  if [ "$broken" = 1 ]; then
+    echo "drift: could not run every check"
+    exit 2
+  fi
   if [ "$failed" -eq 0 ]; then
     echo "drift: clean ($ran check(s) run)"
     exit 0

@@ -29,7 +29,7 @@ fails() { if "$@" >/dev/null 2>&1; then nok "$name" "exited 0"; else ok "$name";
 
 bash "$event" gate gate_start; eq "no run: exit 0" "$?" 0
 eq "no run: nothing written" "$(lines)" 0
-bash "$mark" phase=implement chunk=1 of=3; eq "mark outside a run: exit 0" "$?" 0
+bash "$mark" phase=implement chunk=1 of=3 2>/dev/null; eq "mark outside a run is refused" "$?" 2
 eq "mark outside a run: nothing written" "$(lines)" 0
 name="no arguments is usage"; fails bash "$event"
 
@@ -37,8 +37,8 @@ bash "$run" start >/dev/null
 eq "run_start" "$(last .ev)" run_start
 eq "run_start: project" "$(last .project)" "$(git rev-parse --show-toplevel)"
 eq "run_start: src" "$(last .src)" run
-bash "$run" start >/dev/null
-eq "second start writes no second run_start" "$(lines)" 1
+bash "$run" start --resume >/dev/null
+eq "a resumed start writes no second run_start" "$(lines)" 1
 
 bash "$event" gate gate_step step=lint ok:=false s:=4
 eq "event: ev" "$(last .ev)" gate_step
@@ -60,15 +60,18 @@ eq "mark: of" "$(last .of)" 5
 eq "mark: name with spaces" "$(last .name)" "invoice totals"
 eq "mark: risk" "$(last .risk)" medium
 eq "mark: plan" "$(last .plan)" plans/billing.md
+bash "$mark" phase=gate chunk=2 of=5
 bash "$mark" phase=fix chunk=2 of=5 round=2
 eq "mark: round" "$(last .round)" 2
+eq "mark: the build is stamped" "$(last .build)" 1
+eq "mark: the stage of a fix is stamped" "$(last .stage)" static
 bash "$mark" phase=final; eq "mark: final needs no chunk" "$?" 0
 eq "mark: final written" "$(last .phase)" final
 
 before=$(lines)
 name="mark: unknown phase";  fails bash "$mark" phase=lunch chunk=1 of=2
 name="mark: missing phase";  fails bash "$mark" chunk=1 of=2
-name="mark: missing chunk";  fails bash "$mark" phase=review
+name="mark: out of order";   fails bash "$mark" phase=cross chunk=2
 name="mark: bad risk";       fails bash "$mark" phase=review chunk=1 risk=huge
 name="mark: bad chunk";      fails bash "$mark" phase=review chunk=one
 name="mark: unknown key";    fails bash "$mark" phase=review chunk=1 colour=red
@@ -80,24 +83,24 @@ gate_cfg() { printf '{"workspaces":{".":{"typecheck":false,"lint":false,"format"
 export DELIVERY_CONFIG="$tmp/delivery.json"
 echo '{"workspaces":{".":{"typecheck":false,"lint":false,"format":false,"test":false}}}' > "$DELIVERY_CONFIG"
 before=$(lines)
-echo "nope.ts" | STATIC_SKIP="test-lock drift" bash "$gate" check >/dev/null 2>&1
-eq "gate on missing paths: start and end" "$(jq -r .ev "$(file)" | tail -n $(( $(lines) - before )) | tr '\n' ' ')" "gate_start gate_end "
-eq "gate_end: ok" "$(last .ok)" true
-eq "gate_end: src" "$(last .src)" gate
+echo "nope.ts" | bash "$gate" check >/dev/null 2>&1
+eq "a path that is no file stops the gate before it starts" "$?" 2
+eq "and writes no event" "$(lines)" "$before"
 
 echo "export const a = 1" > a.mjs
 before=$(lines)
 gate_cfg false
-STATIC_SKIP="secrets test-lock drift reuse escapes erosion" bash "$gate" check a.mjs >/dev/null 2>&1
+STATIC_SKIP="test-lock drift reuse" bash "$gate" check a.mjs >/dev/null 2>&1
 eq "failing gate exits 1" "$?" 1
 eq "failing gate: events" "$(jq -r '.ev + (if .step then ":" + .step else "" end)' "$(file)" | tail -n $(( $(lines) - before )) | tr '\n' ' ')" "gate_start gate_step_start:test gate_step:test gate_end "
 eq "failing gate: end not ok" "$(last .ok)" false
 eq "failing gate: step not ok" "$(tail -n 2 "$(file)" | head -1 | jq -r .ok)" false
 gate_cfg true
-STATIC_SKIP="test-lock drift reuse" bash "$gate" check a.mjs >/dev/null 2>&1
+bash "$gate" check a.mjs >/dev/null 2>&1
 eq "passing gate exits 0" "$?" 0
 eq "passing gate: end ok" "$(last .ok)" true
 
+bash "$mark" phase=gate chunk=2 && bash "$mark" phase=review chunk=2 && bash "$mark" phase=verify chunk=2 && bash "$mark" phase=report chunk=2
 bash "$runlog" add plan=plans/a.md chunk=2 risk=medium mode=long implementer=haiku reviewer=sonnet \
   fix_rounds=1 findings=3 verify=pass decision=edited >/dev/null
 eq "chunk_logged" "$(last .ev)" chunk_logged
@@ -106,7 +109,7 @@ eq "chunk_logged: entry decision" "$(last .entry.decision)" edited
 
 chmod 500 "$events"
 bash "$event" gate blocked; eq "unwritable event dir: exit 0" "$?" 0
-bash "$mark" phase=review chunk=2 of=5; eq "mark with unwritable dir: exit 0" "$?" 0
+bash "$mark" phase=fix chunk=2 of=5; eq "mark with unwritable dir: exit 0" "$?" 0
 chmod 700 "$events"
 
 bash "$run" stop >/dev/null

@@ -152,6 +152,30 @@ out=$(INPUT=upload GUARD= bash "$scan" hooks.controller.ts)
 flags   "File path from outside input"
 unflags "Handlers and no guard"
 
+echo "# INPUT reaches the write and privilege checks"
+cat > form.service.ts <<'TS'
+await prisma.user.update({ where: { id }, data: form });
+const next = { role: form.role, ownerId: ctx.user };
+TS
+out=$(bash "$scan" form.service.ts)
+unflags "Request body written as it came"
+sees    "ctx is outside input by default"    'ownerId: ctx' "$(under 'Privilege field set from a variable')"
+out=$(INPUT=form bash "$scan" form.service.ts)
+flags   "Request body written as it came"
+sees    "a project input name sets a privilege field" 'role: form' "$(under 'Privilege field set from a variable')"
+
+echo "# error detail"
+cat > reply.ts <<'TS'
+res.json(response);
+res.status(200).send(state);
+reply.send(err);
+TS
+out=$(bash "$scan" reply.ts)
+detail=$(under 'Error detail sent to the caller')
+sees   "an error object sent"                '^3:' "$detail"
+misses "a response object is not an error"   '^1:' "$detail"
+misses "a word that ends in e"               '^2:' "$detail"
+
 echo "# input"
 has "no argument"  1 '^usage: scan.sh <source file>$' bash "$scan"
 has "missing file" 1 '^not found: nope.ts$'           bash "$scan" nope.ts

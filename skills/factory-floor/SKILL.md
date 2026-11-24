@@ -30,11 +30,12 @@ dependencies. It binds to loopback and only reads files.
 | Chunk number, name, risk, declared step | same file | the controller, through `chunked-delivery/scripts/mark.sh` only |
 | Model, tokens, context fill | session and subagent transcripts | Claude Code |
 
-Stations light up from observed events: a gate from its own events, review and
-verify from the agent type, cross-model from the codex command, waiting from
-the controller's turn ending with no agent running. The declared step from
-`mark.sh` only outlines a station and assigns a `general-purpose` agent to
-implement or fix.
+Rows and stations follow `chunked-delivery/scripts/lifecycle.mjs`: one row
+for each build of a chunk, so a rejected chunk that is built again is a second
+row with its own decision. A gate lights up from its own events, tests,
+review and verify from the agent type and the declared step, cross-model from
+the `cross` mark, waiting from a `report` mark with no decision or from the
+controller's turn ending with no agent running.
 
 ## Limits to say out loud when asked
 

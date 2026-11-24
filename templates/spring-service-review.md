@@ -62,7 +62,7 @@ Everything in `<angle brackets>` is a placeholder — replace it or delete the r
 
 Never in a log line: `<phone, email, date of birth, token>`.
 
-## Known ceilings
+## Known ceilings — do not recommend past these
 
 - `<the authentication filter's own lookup is unscoped by design>`
 - `<one ceiling per line, stated as a rule a reviewer can check>`

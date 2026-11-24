@@ -73,6 +73,25 @@ TS
 out=$(bash "$scan" quiet.ts)
 unflags "Silent catch"
 
+echo "# outbound calls"
+cat > calls.ts <<'TS'
+const page = await fetch(url);
+const user = await axios(config);
+seen.add(1);
+total = prices.add(tax);
+await this.mailQueue.add('send', job);
+await refetch();
+await this.repo.fetch(id);
+TS
+out=$(bash "$scan" calls.ts)
+outbound=$(under 'Outbound HTTP / SDK call')
+sees   "a bare fetch"                        '^1:' "$outbound"
+sees   "a bare axios"                        '^2:' "$outbound"
+sees   "a queue add"                         '^5:' "$outbound"
+misses "Set.add is not outbound"             '^3:' "$outbound"
+misses "an add on a value is not outbound"   '^4:' "$outbound"
+misses "refetch and a repository fetch"      '^[67]:' "$outbound"
+
 echo "# project settings"
 cat > audit.ts <<'TS'
 audit.write('login', { pin: user.pin });

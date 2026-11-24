@@ -103,7 +103,7 @@ report "Error-level log next to a rethrow — check the boundary does not log it
 
 # --- external calls -----------------------------------------------------------
 report "Outbound HTTP / SDK call — needs an outcome log or span with the remote id" \
-  '\b(fetch|axios|got|httpService|this\.http)\.(get|post|put|patch|delete|request)?\(|\.(send|publish|sendMessage|add)\('
+  '(^|[^.A-Za-z0-9_$])(fetch|axios|got)\(|\b(axios|got|httpService|this\.http)\.(get|post|put|patch|delete|request)\(|\.(send|publish|sendMessage)\(|[qQ]ueue\.add\('
 report "Timer or cron entry — start/end counts?" \
   '@Cron\(|@Interval\(|@Process\(|@Processor\(|@OnQueueActive|@EventPattern\(|@MessagePattern\('
 

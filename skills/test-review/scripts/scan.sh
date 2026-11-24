@@ -45,13 +45,31 @@ report "Weak assertion — passes for any non-empty result, check a value is ass
   'toBeDefined\(\)|toBeTruthy\(\)|not\.toBeNull\(\)|not\.toBeUndefined\(\)|assert\.ok\(|assert\(|toBeInstanceOf\('
 report "Assertion on a mock call — fine as a second assertion, not the first" \
   'toHaveBeenCalled(Times|With)?\('
-report "Assertion inside a condition or catch — may never run" \
-  '^[[:space:]]*(\}[[:space:]]*)?(if|else|catch)\b.*\{[[:space:]]*$|\.catch\(.*expect'
+# Prints the if, else and catch lines whose block holds an assertion.
+conditional_assertions() {
+  awk '
+    function braces(text) { return gsub(/\{/, "{", text) - gsub(/\}/, "}", text) }
+    /^[[:space:]]*(\}[[:space:]]*)?(if|else|catch)([^A-Za-z0-9_]|$)/ || /\.catch\(/ {
+      if ($0 ~ /(expect|assert)[.(]/) { printf "%d:%s\n", NR, $0; next }
+      if ($0 ~ /\{[[:space:]]*$/ && !open) { open = NR; text = $0; depth = 0; seen = 0 }
+    }
+    open {
+      if (NR > open && $0 ~ /(expect|assert)[.(]/) seen = 1
+      depth = (NR == open) ? 1 : depth + braces($0)
+      if (depth <= 0 && NR > open) {
+        if (seen) printf "%d:%s\n", open, text
+        open = 0
+      }
+    }
+  ' "$file"
+}
+conditional=$(conditional_assertions)
+[ -n "$conditional" ] && flag "Assertion inside a condition or catch — may never run" "$conditional"
 report "Swallowed act — try/catch around the code under test" \
   '^[[:space:]]*try[[:space:]]*\{'
 
 # Test blocks with no assertion at all: count it/test blocks vs expect/assert.
-test_blocks=$(grep -cE '^\s*(it|test)\(' "$file")
+test_blocks=$(grep -E '^[[:space:]]*(it|test)(\.[A-Za-z]+)*[(`]' "$file" | grep -cvE '^[[:space:]]*(it|test)\.(skip|todo)\b')
 assertions=$(grep -cE '\b(expect|assert)[.(]' "$file")
 if [ "$test_blocks" -gt 0 ] && [ "$assertions" -lt "$test_blocks" ]; then
   flag "Fewer assertions ($assertions) than test blocks ($test_blocks) — some test asserts nothing"
@@ -84,7 +102,7 @@ report "Random data without a seed" \
 report "Module-level mutable state — check it is reset in beforeEach" \
   '^(let|var) [A-Za-z_]+ *= *(\[\]|\{\}|new Map|new Set|0|null)'
 
-real_io=$(grep -nE '\b(fetch|axios|got)\(|\bfs\.(read|write)|https?://' "$file" | grep -vE 'localhost|127\.0\.0\.1')
+real_io=$(grep -nE '\b(fetch|axios|got)(\.[a-z]+)?\(|\bfs\.(read|write)|\b(request|supertest)\([^)]*https?://' "$file" | grep -vE 'localhost|127\.0\.0\.1')
 [ -n "$real_io" ] && flag "Real network or filesystem in a unit test" "$real_io"
 
 # --- snapshots ----------------------------------------------------------------

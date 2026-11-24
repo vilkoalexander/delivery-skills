@@ -33,7 +33,7 @@ A project's `docs/review/prisma-schema-review.md` answers, in this order:
 | Forward hooks — columns with no reader yet | So they are not reported as dead |
 | Deferred features | So they are not proposed as gaps |
 
-## Known ceilings — don't recommend past these
+## Known ceilings — do not recommend past these
 
 - **`CREATE INDEX CONCURRENTLY` cannot run in a Prisma migration.** Migrations
   execute inside a transaction and `CONCURRENTLY` is not allowed there. If a

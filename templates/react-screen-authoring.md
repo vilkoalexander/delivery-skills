@@ -47,6 +47,6 @@ it or delete the row.
 | --- | --- |
 | `<src/features/<x>/components/<X>Sheet.tsx>` | `<reseed effect until a shared sheet-session adapter exists>` |
 
-## Deferred — never propose
+## Deferred — never propose as gaps
 
 `<a shared sheet-session adapter, a form library, …>`

@@ -65,8 +65,10 @@ chain_coverage() {
 # One line per contract package: how many imports each app has, and the two that should not exist.
 consumption_per_app() {
   local package app app_name imports line
-  for package in $(ls "$contracts"); do
-    [ -d "$contracts/$package" ] || continue
+  local package_dir
+  for package_dir in "$contracts"/*/; do
+    [ -d "$package_dir" ] || continue
+    package=$(basename "$package_dir")
     line="  $scope/$(printf '%-12s' "$package")"
     for app in "$apps"/*/; do
       app_name=$(basename "$app")
@@ -74,7 +76,7 @@ consumption_per_app() {
       line="$line $app_name:$imports"
       [ "$imports" != 0 ] || continue
 
-      if [ "$package" = dto ] && ! grep -rqE "from '@nestjs" "$app/src" 2>/dev/null; then
+      if [ "$package" = dto ] && ! grep -rqE "from ['\"]@nestjs" "$app/src" 2>/dev/null; then
         line="$line <-- dto in a non-Nest app"
       fi
       if [ "$package" = test-utils ] && grep -rqE "$scope/test-utils" "$app/src" \
@@ -87,8 +89,10 @@ consumption_per_app() {
 }
 
 files_missing_from_a_barrel() {
-  local package barrel file name
-  for package in $(ls "$contracts"); do
+  local package package_dir barrel file name
+  for package_dir in "$contracts"/*/; do
+    [ -d "$package_dir" ] || continue
+    package=$(basename "$package_dir")
     barrel="$contracts/$package/src/index.ts"
     [ -f "$barrel" ] || continue
     for file in "$contracts/$package"/src/lib/*.ts; do
@@ -97,7 +101,7 @@ files_missing_from_a_barrel() {
       case "$name" in
         *.spec|*.test) continue ;;
       esac
-      grep -q "\./lib/$name'" "$barrel" || printf '  %s/src/lib/%s.ts not exported from index.ts\n' "$package" "$name"
+      grep -qF -e "./lib/$name'" -e "./lib/$name\"" "$barrel" || printf '  %s/src/lib/%s.ts not exported from index.ts\n' "$package" "$name"
     done
   done
 }
@@ -109,9 +113,8 @@ enum_drift() {
   # a quote in it run as shell.
   local zod_values
   zod_values=$(find "$contracts/schemas/src" -name '*.ts' -exec cat {} + 2>/dev/null | tr '\n' ' ' \
-    | grep -oE "z\.enum\(\[[^]]*\]" | grep -oE "'[A-Za-z_][A-Za-z0-9_]*'" | tr -d "'" | sort -u | paste -sd' ' -)
+    | grep -oE "z\.enum\(\[[^]]*\]" | grep -oE "['\"][A-Za-z_][A-Za-z0-9_]*['\"]" | tr -d "'\"" | sort -u | paste -sd' ' -)
 
-  # shellcheck disable=SC2086
   awk -v zod_values="$zod_values" '
     BEGIN {
       count = split(zod_values, values, " ")
@@ -123,7 +126,7 @@ enum_drift() {
       if (!($1 in in_zod))
         printf "  %s.%s exists in Prisma but in no schema enum — a row carrying it fails serialization\n", enum, $1
     }
-  ' $prisma_files
+  ' "${prisma_files[@]}"
 }
 
 echo
@@ -138,20 +141,22 @@ fi
 
 echo
 echo "=== backend-only imports inside client-consumed packages (must be empty)"
-grep -rnE "from '(node:|@nestjs|@prisma|fs|path|crypto|buffer|express|fastify)" \
+grep -rnE "from ['\"](node:[^'\"]*|@nestjs/[^'\"]*|@prisma/[^'\"]*|(fs|path|crypto|buffer|express|fastify)(/[^'\"]*)?)['\"]" \
   "$contracts"/schemas/src "$contracts"/types/src "$contracts"/utils/src --include='*.ts' 2>/dev/null \
-  | grep -v node_modules | sed "s|$root/||" | indent | cap
+  | grep -v node_modules | while IFS= read -r line; do printf '%s\n' "${line#"$root"/}"; done | indent | cap
 
 echo
 echo "=== zod entry points in use (must be one)"
-grep -rhoE "from 'zod(/v[34])?'" "$contracts" "$apps" --include='*.ts' --include='*.tsx' 2>/dev/null | sort | uniq -c | indent
+grep -rhoE "from ['\"]zod(/v[34])?['\"]" "$contracts" ${apps:+"$apps"} --include='*.ts' --include='*.tsx' 2>/dev/null | tr '"' "'" | sort | uniq -c | indent
 
 echo
 echo "=== files missing from a barrel"
 files_missing_from_a_barrel | cap
 
-prisma_files=$(find "$root" -maxdepth 5 -name '*.prisma' -not -path '*/node_modules/*' -not -path '*/migrations/*' 2>/dev/null | head -50)
-if [ -n "$prisma_files" ] && [ -d "$contracts/schemas" ]; then
+prisma_files=()
+while IFS= read -r file; do [ -n "$file" ] && prisma_files+=("$file"); done < <(
+  find "$root" -maxdepth 5 -name '*.prisma' -not -path '*/node_modules/*' -not -path '*/migrations/*' 2>/dev/null | head -50)
+if [ ${#prisma_files[@]} -gt 0 ] && [ -d "$contracts/schemas" ]; then
   echo
   echo "=== Prisma ↔ schema enum drift (enums are hand-mirrored; nothing enforces it)"
   enum_drift | cap

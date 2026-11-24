@@ -55,6 +55,23 @@ send "$(ev PreToolUse "$(jq -cn --arg c "$long" '{tool_name:"Bash",tool_use_id:"
 eq "command clipped to 200" "$(last '.what | length')" 200
 eq "controller agent is null" "$(last .agent)" null
 
+redacted() { # name command — the secret word "hunter2secret" must not reach the event file
+  send "$(ev PreToolUse "$(jq -cn --arg c "$2" '{tool_name:"Bash",tool_use_id:"t5",tool_input:{command:$c}}')")"
+  if tail -n 1 "$(file)" | grep -q "hunter2secret"; then nok "redacted: $1" "$(last .what)"; else ok "redacted: $1"; fi
+}
+redacted "an Authorization header" 'curl -H "Authorization: Bearer hunter2secret.abc" https://api.test/x'
+redacted "a basic header"          "curl -H 'authorization: Basic hunter2secret==' https://api.test/x"
+redacted "a --password option"     'mysql --password=hunter2secret -u app'
+redacted "a --token option"        'vercel deploy --token hunter2secret'
+redacted "a secret-named variable" 'API_KEY=hunter2secret npm run seed'
+redacted "an exported variable"    'export DB_PASSWORD="hunter2secret" && npm start'
+redacted "a password in a URL"     'psql postgres://app:hunter2secret@db.internal:5432/app'
+redacted "a vendor token"          "gh auth login --with-token <<< ghp_hunter2secret0123456789abcdef"
+send "$(ev PreToolUse '{"tool_name":"Bash","tool_use_id":"t6","tool_input":{"command":"API_KEY=abc npm run seed -- --dry"}}')"
+eq "the rest of the command stays" "$(last .what)" "API_KEY=[redacted] npm run seed -- --dry"
+send "$(ev PostToolUseFailure '{"tool_name":"Bash","tool_use_id":"t7","error":"401 for token=hunter2secret","duration_ms":3}')"
+if tail -n 1 "$(file)" | grep -q hunter2secret; then nok "redacted: an error" "$(last .error)"; else ok "redacted: an error"; fi
+
 send "$(ev PreToolUse '{"tool_name":"Write","tool_use_id":"t3","tool_input":{"file_path":"/a/c.ts","content":"SECRET"}}')"
 if tail -n 1 "$(file)" | grep -q SECRET; then nok "file content kept out" "content in event"; else ok "file content kept out"; fi
 
@@ -115,8 +132,7 @@ eq "after stop: nothing written" "$(lines)" "$before"
 
 printf '{"project":"%s","started":"2026-01-01T00:00:00Z"}\n' "$repo" > "$DELIVERY_RUN_DIR/$(printf '%s' "$(git -C "$repo" rev-parse --show-toplevel)" | { if command -v shasum >/dev/null 2>&1; then shasum; else sha1sum; fi; } | cut -c1-12)"
 send "$(ev Stop)"
-legacy=$(ls "$events" | grep -- '-0.jsonl$' | head -1)
-[ -n "$legacy" ] && ok "marker without a run id still logs" || nok "marker without a run id still logs" "$(ls "$events")"
+eq "a marker with no run id logs nothing" "$(ls "$events" | wc -l | tr -d ' ')" 1
 
 echo
 echo "passed: $pass  failed: $fail"

@@ -56,8 +56,12 @@ sees "B1 says where jscpd runs"              '^  B1  PASS    jscpd \(.jscpd.json
 sees "B2 names the config"                   '^  B2  PASS    hand-roll bans in eslint.config.mjs$' "$out"
 sees "C4 points at the section"              '^  C4  MANUAL  Caught by hand section exists' "$out"
 
+echo "# markup in a filled layer is not a placeholder"
+printf '%s\n' 'Use `<ui-skeleton>` and a `<button>` in a `<table>`.<br>' '<details><summary>More</summary></details>' > docs/review/react-review.md
+has "A4 custom elements and HTML tags pass"  0 '^  A4  PASS    1 project layer files$' bash "$audit"
+
 echo "# partial setups"
-echo "Use <shared-button> here." > docs/review/react-review.md
+echo "Use <the shared button> from <path> here." > docs/review/react-review.md
 has "A4 a layer still holding placeholders"  0 '^  A4  MISS    template placeholders still in: docs/review/react-review.md' bash "$audit"
 echo '{ "devDependencies": { "jscpd": "4.0.0" } }' > package.json
 has "B1 configured but never run"            0 '^  B1  MISS    jscpd configured \(.jscpd.json\) but no script or CI step runs it$' bash "$audit"

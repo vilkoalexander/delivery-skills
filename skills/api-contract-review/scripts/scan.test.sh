@@ -79,6 +79,30 @@ flags  "z.date\(\) in a schema"
 misses "spec files are skipped" 'id.schema.spec.ts' "$out"
 has "one tidy file is clean" 0 '^clean — no mechanical smells$' bash "$scan" "$schemas/id.schema.ts"
 
+echo "# double quotes, a spaced directory, another working directory"
+new_repo "double quoted"
+spaced="packages/my schemas/src/lib"
+mkdir -p "$spaced"
+cat > "$spaced/order.schema.ts" <<'TS'
+import { z } from "zod";
+import { z as z4 } from "zod/v4";
+import { Injectable } from "@nestjs/common";
+import { money } from "./money.js";
+import { pathToRegexp } from "path-to-regexp";
+export const orderSchema = z.object({ bornAt: z.date() });
+TS
+out=$(CLIENT_LIBS='my schemas' bash "$scan" "$spaced/order.schema.ts")
+flags "Backend-only import in a package that reaches a client bundle"
+misses "a package whose name starts like a backend one" 'path-to-regexp' "$(under 'Backend-only import')"
+flags "zod imported from more than one entry point"
+flags "Relative import with a .js suffix"
+flags "z.date\(\) in a schema"
+out=$(bash "$scan" "packages/my schemas")
+sees "a directory with a space is scanned" '^## z.date\(\) in a schema' "$out"
+out=$(cd / && bash "$scan" "$tmp/double quoted/$spaced/order.schema.ts")
+sees "paths are relative to the target's repository" '^packages/my schemas/src/lib/order.schema.ts:6:' "$out"
+cd "$tmp/project" || exit 1
+
 echo "# input"
 mkdir empty
 has "no argument"     1 '^usage: scan.sh <file-or-dir>$' bash "$scan"

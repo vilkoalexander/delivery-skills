@@ -63,9 +63,20 @@ eq "a generator that fails is a failure" "$(run check)" 1
 has "says it failed to run" "FAILED to run"
 
 echo 'client :: :: true :: ../outside' > $checks
-eq "generated paths outside the repo are refused" "$(run check)" 1
+eq "generated paths outside the repo are refused" "$(run check)" 2
 echo 'just a name' > $checks
-eq "a malformed line fails" "$(run check)" 1
+eq "a malformed line is exit 2, not drift" "$(run check)" 2
+has "and says so" "could not run every check"
+
+echo 'cpp :: :: echo a::b && exit 1' > $checks
+eq "a command can hold :: without spaces" "$(run check)" 1
+has "and runs whole" "a::b"
+echo 'bad :: ( :: true' > $checks
+eq "a pattern that does not compile is exit 2" "$(run check src/a.ts)" 2
+echo 'keep' > gen/other.ts
+echo 'client :: :: true :: gen missing-dir' > $checks
+eq "paths that cannot be saved: the command is not run" "$(run check)" 2
+eq "and nothing was deleted" "$(cat gen/other.ts)" keep
 
 mkdir -p prisma locales
 touch prisma/schema.prisma .env.example

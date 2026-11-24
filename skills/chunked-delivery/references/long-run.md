@@ -17,8 +17,13 @@ human then continues in long-run mode.
 - The chunk became larger than the size limit.
 - The chunk showed that the plan is wrong.
 
-If none is true, add the entry of the chunk to `$WORKSPACE/long-run-report.md`
-and start the next chunk. Write no chunk report in the conversation.
+If none is true, add the entry of the chunk to `$WORKSPACE/long-run-report.md`,
+record `mark.sh phase=report`, and start the next chunk. Write no chunk
+report in the conversation.
+
+Tell the scripts the mode when the human answers `long`:
+`bash chunked-delivery/scripts/run.sh mode long`. Without it, `mark.sh` stops
+the next chunk until the human answers the report.
 
 A low-risk chunk has no verify of its own. Add its `exercise:` line to the
 list for the whole-tree verify.
@@ -32,11 +37,10 @@ Criteria: <one line per acceptance criterion: pass with what the verifier saw,
           or "whole-tree verify" on a low-risk chunk>
 Needs you: <each "needs human" tap and "not verified" item, or "nothing">
 Rulings:  <decisions that could have gone the other way, or "none">
-Diff:     diff -u <$WORKSPACE>/chunk-N-before.diff <$WORKSPACE>/chunk-N.diff
+Diff:     <$WORKSPACE>/chunk-N.diff
 ```
 
-Snapshots are cumulative. Thus the `Diff:` command is the way to see one chunk
-alone.
+The diff of a chunk holds that chunk alone.
 
 ## After the last chunk
 

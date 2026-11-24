@@ -90,7 +90,7 @@ if [ -n "$tenant" ]; then
   [ -n "$unscoped" ] && flag "Prisma call with no $tenant within 15 lines — verify the model is genuinely non-tenant" "$unscoped"
 
   unscoped_unique=$(prisma_calls_without 'findUnique' "$tenant" 5 0 "$exempt_models")
-  [ -n "$unscoped_unique" ] && flag "findUnique with no $tenant — only a compound unique including the tenant key can be tenant-scoped; otherwise use findFirst" "$unscoped_unique"
+  [ -n "$unscoped_unique" ] && flag "findUnique with no $tenant — add it to the where (Prisma 5+ takes it next to the unique field); before 5 use a compound unique or findFirst" "$unscoped_unique"
 fi
 
 unbounded=$(prisma_calls_without 'findMany' 'take:' 15 0)
@@ -99,7 +99,7 @@ unbounded=$(prisma_calls_without 'findMany' 'take:' 15 0)
 # --- async correctness (no type-aware lint) ----------------------------------
 floating=$(grep -nE '^[[:space:]]*(this\.prisma|tx)\.[a-zA-Z]+\.' "$file" | grep -vE 'await|return|=' || true)
 [ -n "$floating" ] && flag "Prisma call that is neither awaited, returned, nor assigned" "$floating"
-report "async ngOnInit / async lifecycle-style hook — a rejected promise there is unhandled" \
+report "async onModuleInit / onApplicationBootstrap — a rejected promise there is unhandled" \
   'async (onModuleInit|onApplicationBootstrap)\('
 
 # --- money / ledger ----------------------------------------------------------

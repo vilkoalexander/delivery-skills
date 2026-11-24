@@ -251,6 +251,46 @@ Secrets: `gitleaks` as a pre-commit hook (`gitleaks protect --staged`) and in
 CI (`gitleaks detect`). Nothing in a review rubric can see a key that was
 already pushed.
 
+## escapes
+
+A line that gets past a check without fixing the cause: a silenced checker, a
+cast to `any`, a comment that defers the fix. At `error` these fail the lint
+step, so no reviewer reads them.
+
+```bash
+npm i -D @eslint-community/eslint-plugin-eslint-comments
+```
+
+```js
+import comments from '@eslint-community/eslint-plugin-eslint-comments/configs';
+
+// add to the config array:
+comments.recommended,
+{ linterOptions: { reportUnusedDisableDirectives: 'error' } },
+{ files: ['**/*.{ts,tsx}'], ignores: ['**/*.{spec,test}.{ts,tsx}'], rules: {
+  '@typescript-eslint/ban-ts-comment': ['error', {
+    'ts-ignore': true, 'ts-nocheck': true,
+    'ts-expect-error': 'allow-with-description', minimumDescriptionLength: 10,
+  }],
+  '@eslint-community/eslint-comments/require-description': 'error',   // a disable names its reason
+  '@eslint-community/eslint-comments/no-unlimited-disable': 'error',  // and the rule it disables
+  'no-warning-comments': ['error', {
+    terms: ['todo', 'fixme', 'hack', 'for now', 'temporary', 'workaround'], location: 'anywhere',
+  }],
+  'no-restricted-syntax': ['error',
+    { selector: 'TSAsExpression > TSAnyKeyword', message: 'as any hides the type; narrow it.' },
+    { selector: "TSAsExpression > TSAsExpression[typeAnnotation.type='TSUnknownKeyword']",
+      message: 'as unknown as hides the type; narrow it.' },
+  ],
+} },
+```
+
+`@typescript-eslint/no-explicit-any` from the eslint section covers the `any`
+annotation. A workaround for a cause outside the code keeps its disable
+comment, with the reason and the removal condition as its description. Java
+and Kotlin: `-Xlint:all -Werror` and detekt or Checkstyle own this; the
+plugin has no scan for them.
+
 ## shape
 
 Budgets for code that works and is still too much: tangled branches, deep

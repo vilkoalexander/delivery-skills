@@ -110,6 +110,7 @@ function fullChunk(): state.RunEvent[] {
     script("mark", "mark", 39, { phase: "verify", chunk: 1, of: 3 }),
     hook("agent_start", 40, "v1", VER),
     hook("agent_stop", 45, "v1", VER),
+    script("mark", "mark", 45.5, { phase: "cross", chunk: 1, of: 3 }),
     hook("tool", 46, null, null, { id: "x1", tool: "Bash", what: "node /p/scripts/codex-companion.mjs adversarial-review" }),
     hook("tool_end", 50, null, null, { id: "x1", tool: "Bash", ok: true }),
     script("mark", "mark", 51, { phase: "report", chunk: 1, of: 3 }),
@@ -189,7 +190,7 @@ describe("build", () => {
     assert.deepEqual([got.name, got.branch, got.plan, got.state], ["app", "feat", "plans/b.md", "running"]);
     const chunk = got.chunks.at(-1)!;
     assert.deepEqual([chunk.n, chunk.of, chunk.name, chunk.risk], [1, 3, "totals", "medium"]);
-    assert.equal(got.chunks[0].empty, true);
+    assert.equal(got.chunks.length, 1);
     const agent = got.agents[0];
     assert.equal(agent.running, true);
     assert.deepEqual([agent.seat, agent.desc, agent.model, agent.calls], [GP, "Build totals", "haiku", 2]);
@@ -233,7 +234,10 @@ describe("build", () => {
     assert.equal(got.state, "waiting");
     const chunk = got.chunks.at(-1)!;
     assert.deepEqual(Object.fromEntries(chunk.stations.map((s) => [s.name, s.status])), {
-      implement: "done", gate: "done", review: "done", fix: "done", verify: "done", cross: "done", you: "waiting" });
+      tests: "skipped", implement: "done", gate: "done", fix: "done", review: "done", verify: "done", cross: "done",
+      you: "waiting" });
+    assert.equal(station(chunk, "cross").detail, "0:05");
+    assert.deepEqual(chunk.fix, { static: 0, review: 1, human: 0 });
     assert.match(station(chunk, "gate").detail, /1 failed/);
     assert.match(station(chunk, "fix").detail, /round 1/);
     assert.match(station(chunk, "fix").detail, /2 agents/);
@@ -306,22 +310,61 @@ describe("build", () => {
       script("mark", "mark", 62, { phase: "implement", chunk: 2, of: 3, name: "screen", risk: "low" }),
       script("mark", "mark", 70, { phase: "final" }),
     ], T0 + 80);
-    assert.deepEqual(got.chunks.map((c) => [c.n, c.final]), [[null, false], [1, false], [2, false], [null, true]]);
-    const first = got.chunks[1];
+    assert.deepEqual(got.chunks.map((c) => [c.n, c.final]), [[1, false], [2, false], [null, true]]);
+    const first = got.chunks[0];
     assert.equal(first.decision, "edited");
     assert.deepEqual(station(first, "you"), { name: "you", status: "done", detail: "edited", declared: true });
     assert.equal(first.end, T0 + 62);
-    const second = got.chunks[2];
+    const second = got.chunks[1];
     assert.deepEqual([second.name, second.risk], ["screen", "low"]);
     assert.equal(station(second, "implement").status, "skipped");
     assert.equal(station(second, "you").detail, "moved on");
+  });
+
+  test("a rejected chunk built again is a second row with its own decision", () => {
+    const got = build([
+      ...fullChunk(),
+      hook("prompt", 60),
+      script("log", "chunk_logged", 61, { entry: { chunk: 1, decision: "rejected", build: 1 } }),
+      script("mark", "mark", 62, { phase: "implement", chunk: 1, of: 3, build: 2 }),
+      hook("agent_start", 63, "a9", GP),
+      hook("agent_stop", 64, "a9", GP),
+      script("mark", "mark", 70, { phase: "gate", chunk: 1, of: 3, build: 2 }),
+      script("mark", "mark", 71, { phase: "report", chunk: 1, of: 3, build: 2, parked: "the plan is wrong" }),
+    ], T0 + 80);
+    assert.deepEqual(got.chunks.map((c) => [c.n, c.build, c.decision]), [[1, 1, "rejected"], [1, 2, null]]);
+    const again = got.chunks[1];
+    assert.deepEqual([again.name, again.risk, again.fix.review], ["totals", "medium", 0]);
+    assert.equal(got.agents.find((a) => a.id === "a9")!.chunk, 1);
+    assert.deepEqual(station(again, "you"), { name: "you", status: "waiting", detail: "parked: the plan is wrong", declared: true });
+    assert.equal(station(got.chunks[0], "fix").detail.startsWith("round 1"), true);
+    assert.equal(got.state, "waiting");
+  });
+
+  test("test authors, static rounds and the final pass", () => {
+    const got = build([
+      script("run", "run_start", 0, { project: "/work/app" }),
+      script("mark", "mark", 1, { phase: "test", chunk: 1, of: 1, risk: "high" }),
+      hook("agent_start", 2, "t1", GP),
+      hook("agent_stop", 3, "t1", GP),
+      script("mark", "mark", 4, { phase: "implement", chunk: 1 }),
+      script("mark", "mark", 5, { phase: "gate", chunk: 1 }),
+      script("mark", "mark", 6, { phase: "fix", chunk: 1, stage: "static", round: 1 }),
+      script("mark", "mark", 7, { phase: "final" }),
+      script("mark", "mark", 8, { phase: "review", scope: "final" }),
+      script("mark", "mark", 9, { phase: "fix", scope: "final", stage: "review", round: 1 }),
+    ], T0 + 20);
+    assert.deepEqual(got.chunks.map((c) => [c.n, c.final, c.phase]), [[1, false, "fix"], [null, true, "fix"]]);
+    assert.equal(got.agents[0].station, "tests");
+    assert.equal(station(got.chunks[0], "tests").status, "done");
+    assert.equal(station(got.chunks[0], "fix").detail, "1 static");
+    assert.deepEqual(station(got.chunks[1], "fix"), { name: "fix", status: "running", detail: "round 1", declared: true });
   });
 
   test("run without marks still shows observed work", () => {
     const got = build(chunkEvents().filter((e) => e.ev !== "mark"), T0 + 20);
     assert.equal(got.chunks.length, 1);
     assert.equal(got.chunks[0].n, null);
-    assert.equal(got.chunks[0].empty, false);
     assert.equal(station(got.chunks[0], "implement").status, "running");
   });
 
@@ -356,6 +399,19 @@ describe("list", () => {
     assert.deepEqual([rows[0].plan, rows[0].chunk, rows[0].of], ["plans/b.md", 2, 5]);
     assert.equal(rows[1].no_events, true);
     assert.equal(rows[1].run, "feedfeedfeed-0");
+  });
+
+  test("the list reads no transcript", () => {
+    marker();
+    writeLines(transcript, [assistant("c1", T0 + 1)]);
+    writeLines(path.join(events, RUN + ".jsonl"), [
+      ...fullChunk(),
+      script("log", "chunk_logged", 61, { entry: { chunk: 1, decision: "rejected" } }),
+      script("mark", "mark", 62, { phase: "implement", chunk: 1, of: 3 }),
+    ]);
+    const rows = state.listRuns(tail, T0 + 70);
+    assert.deepEqual([rows[0].chunk, rows[0].chunks, rows[0].state], [1, 1, "waiting"]);
+    assert.deepEqual([...tail.files.keys()].filter((key) => !key.startsWith(events)), []);
   });
 
   test("nothing on disk", () => {

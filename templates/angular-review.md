@@ -34,7 +34,7 @@ Angular `<version>`. Zoneless: `<yes | no | planned>`.
 | An empty-list placeholder | `<ui-empty-state>` |
 | HTTP with auth + error mapping | `ApiClient` — never raw `HttpClient` in a component |
 
-## Known ceilings — don't recommend past these
+## Known ceilings — do not recommend past these
 
 - `<ui-table>` is presentational; sorting and paging state live in the page.
 - `<legacy module X>` stays on NgModules until `<condition>`; do not flag its files.

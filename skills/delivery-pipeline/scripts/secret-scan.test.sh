@@ -32,12 +32,32 @@ added "Stripe live key"           1 "Stripe live key"    src/a.ts "sk_""live_012
 added "sk- key"                   1 "API key"            src/a.ts "const c = new Client('sk-""ant-0123456789abcdef0123456789abcdef')"
 added "Google API key"            1 "Google API key"     src/a.ts "key: 'AIza""0123456789abcdefghijABCDEFGHIJ01234'"
 added "npm token"                 1 "npm token"          .npmrc   "//registry.npmjs.org/:_authToken=npm_""0123456789abcdefghijABCDEFGHIJ012345"
+added "GitLab token"              1 "GitLab token"       src/a.ts "token: 'glp""at-0123456789abcdefghij'"
+added "SendGrid key"              1 "SendGrid key"       src/a.ts "key = 'S""G.0123456789abcdefgh.0123456789abcdefghijklmn'"
+added "Twilio key"                1 "Twilio key"         src/a.ts "sid: 'S""K0123456789abcdef0123456789abcdef'"
+added "Hugging Face token"        1 "Hugging Face token" src/a.py "token = 'h""f_0123456789abcdefghijABCDEFGHIJ'"
+added "Stripe webhook secret"     1 "Stripe webhook"     src/a.ts "const s = 'whs""ec_0123456789abcdefghijABCD'"
+added "Slack webhook URL"         1 "Slack webhook URL"  src/a.ts "post('https://hooks.slack"".com/services/T0123ABCD/B0123ABCD/0123456789abcdefghijABCD')"
+added "Google OAuth token"        1 "Google OAuth token" src/a.ts "auth: 'ya2""9.0123456789abcdefghij_-AB'"
+added "DigitalOcean token"        1 "DigitalOcean token" src/a.ts "t = 'do""p_v1_$(printf '0123456789abcdef%.0s' 1 2 3 4)'"
+added "Azure storage key"         1 "Azure storage key"  src/a.ts "conn = 'DefaultEndpointsProtocol=https;Account""Key=$(printf 'abcdEFGH0123+/%.0s' 1 2 3)=='"
+added "a word that starts like a Twilio key" 0 "SECRETS: 0 hits" src/a.ts "const SKIPPED0123456789abcdef0123456789abcdef = 1"
 added "vendor key in a test file" 1 "AWS access key id"  src/a.spec.ts "const k = '$aws'"
 
 echo "# generic rules, skipped in tests, docs and examples"
 added "literal on a secret key"   1 "literal assigned"   src/config.ts "  apiKey: 'f3a9c1d27b6e4085a1c2'"
 added "password in a URL"         1 "password in a URL"  src/db.ts "const url = 'postgres://app:hunter2secret@db.internal:5432/app'"
 added "JWT"                       1 "JSON web token"     src/a.ts "const t = '$jwt'"
+added "YAML value with no quotes" 1 "config file"        config/app.yml "  api_key: f3a9c1d27b6e4085a1c2"
+added "properties value"          1 "config file"        src/main/resources/application.properties "spring.datasource.password=f3a9c1d27b6e4085a1c2"
+added "YAML list item"            1 "config file"        deploy/values.yaml "  - clientSecret: f3a9c1d27b6e4085a1c2  # prod"
+added "YAML value that is a word" 0 "SECRETS: 0 hits"    config/app.yml "  password_policy: at-least-sixteen-chars"
+added "YAML value from the environment" 0 "SECRETS: 0 hits" config/app.yml '  api_key: ${API_KEY}'
+added "a fallback after process.env" 1 "literal fallback" src/config.ts "const apiKey = process.env.API_KEY || 'f3a9c1d27b6e4085a1c2'"
+added "a fallback after ??"       1 "literal fallback"   src/config.ts "const secret = import.meta.env.VITE_SECRET ?? 'f3a9c1d27b6e4085a1c2'"
+added "a fallback inside \${ }"   1 "literal fallback"   config/app.yml '  password: ${DB_PASSWORD:-f3a9c1d27b6e4085a1c2}'
+added "process.env with no literal" 0 "SECRETS: 0 hits"  src/config.ts "const apiKey = process.env.API_KEY || ''"
+added "a fallback that is a label" 0 "SECRETS: 0 hits"   src/config.ts "const secretName = process.env.SECRET_NAME ?? 'default-secret-name'"
 added "committed env file"        1 "committed env file" .env.production "STRIPE_SECRET=whsec1234567890"
 added "env read is clean"         0 "SECRETS: 0 hits"    src/config.ts "  apiKey: process.env.API_KEY,"
 added "short label is clean"      0 "SECRETS: 0 hits"    src/form.ts "  password: 'Password1',"
@@ -66,6 +86,28 @@ has "counts the hits"                   1 "^SECRETS: 1 hits$"                bas
 commit_all new
 has "committed, so the tree is clean"   0 "SECRETS: 0 hits"                  bash "$scan"
 has "SECRET_DIFF_RANGE scans a range"   1 "src/new.ts:2"                     env SECRET_DIFF_RANGE=HEAD~1..HEAD bash "$scan"
+
+echo "# it says so when it cannot scan"
+printf 'const k = "%s"\n' "$aws" > src/bad.ts
+has "an allow pattern that does not compile" 2 "SECRET_ALLOW .* is not a valid pattern" env SECRET_ALLOW='(' bash "$scan" src/bad.ts
+has "a range git does not know"              2 "git diff failed"                       env SECRET_DIFF_RANGE=nope..nowhere bash "$scan" src/bad.ts
+mkdir -p docs/review && echo '{"typo": 1}' > docs/review/delivery.json
+has "an invalid config"                      2 'unknown key "typo"'                    bash "$scan" src/bad.ts
+rm -rf docs src/bad.ts
+
+echo "# file names"
+printf 'line one\nconst k = "%s"\n' "$aws" > "src/café.ts"
+has "a name that is not ASCII" 1 "^src/café.ts:2 — AWS access key id" bash "$scan" "src/café.ts"
+has "the same, from the changed paths" 1 "^src/café.ts:2 — AWS" bash "$scan"
+has "the same, as git quotes it on stdin" 1 "^src/café.ts:2 — AWS" bash -c "git ls-files --others --exclude-standard | bash '$scan'"
+rm "src/café.ts"
+printf 'const k = "%s"\n' "$aws" > "src/my notes.md"
+has "a name with a space keeps its line" 1 "^src/my notes.md:1 — AWS access key id" bash "$scan"
+rm "src/my notes.md"
+
+new_repo fresh
+printf 'const k = "%s"\n' "$aws" > a.ts && git add a.ts
+has "a staged file in a repository with no commit" 1 "^a.ts:1 — AWS access key id" bash "$scan"
 
 mkdir -p "$tmp/plain" && cd "$tmp/plain"
 has "outside git" 2 "secret-scan: not a git repository" env GIT_CEILING_DIRECTORIES="$tmp" bash "$scan"

@@ -34,7 +34,12 @@ One line per criterion, in this shape:
 <criterion> — pass · ran: <exact command> · saw: <the output line that shows it>
 <criterion> — FAIL · ran: <exact command> · saw: <the output line that shows it>
 <criterion> — needs human · <the tap or look only a person can do, in one line>
+<criterion> — not verified: could not start — <why> · ran: <exact command> · saw: <the output line that shows it>
 ```
+
+`could not start` is for an app or a test run that did not start: a port in
+use, a missing env value, a build that fails before the criterion. It is
+never `pass`, and it is not `FAIL`: nothing about the criterion was seen.
 
 When the dispatch lists reviewer findings, try to make each one happen and
 add one line per finding. `not runnable` is for a finding about how the code
@@ -52,5 +57,7 @@ is yours, not the human's.
 
 Leave the working tree and the index exactly as you found them. Bash is for
 starting the project, sending requests and running its tests: no redirect
-into a project file, no `git add`, `git apply`, `git stash`, `git checkout`,
-no installs, no formatter, no codegen. Stop any process you started.
+into a project file, no git command that is not read-only, no installs, no
+formatter, no codegen. A log or a screenshot goes under `$TMPDIR` or the
+evidence directory. The tree is compared when you stop. Stop any process you
+started.

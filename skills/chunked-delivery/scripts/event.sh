@@ -12,26 +12,15 @@ fi
 shift
 [ $# -eq 0 ] || shift
 
-run_dir="${DELIVERY_RUN_DIR:-$HOME/.claude/delivery-skills/runs}"
-events_dir="${DELIVERY_EVENTS_DIR:-$(dirname "$run_dir")/events}"
-root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-
-short_hash() {
-  if command -v shasum > /dev/null 2>&1; then shasum; else sha1sum; fi | cut -c1-12
-}
-
-checkout_id=$(printf '%s' "$root" | short_hash)
-marker="$run_dir/$checkout_id"
-[ -f "$marker" ] || exit 0
-
-if [[ $(< "$marker") =~ \"run\":\"([^\"]+)\" ]]; then
-  run=${BASH_REMATCH[1]}
-else
-  run="$checkout_id-0"
-fi
+source "$(dirname "$0")/lib/run.sh"
+run_locate
+run_active || exit 0
+run=$(run_field run)
+[ -n "$run" ] || exit 0
 
 if [ "$source" = file ] && [ -z "$event" ]; then
-  printf '%s\n' "$events_dir/$run.jsonl"
+  run_events_file
+  echo
   exit 0
 fi
 
@@ -49,6 +38,6 @@ line=$(EV_RUN="$run" EV_SRC="$source" EV_EV="$event" jq -cn ${fields[@]+"${field
 ' 2>/dev/null) || exit 0
 [ -n "$line" ] || exit 0
 
-mkdir -p "$events_dir" 2>/dev/null || exit 0
-printf '%s\n' "$line" >> "$events_dir/$run.jsonl" 2>/dev/null
+mkdir -p "$run_events_dir" 2>/dev/null || exit 0
+printf '%s\n' "$line" >> "$(run_events_file)" 2>/dev/null
 exit 0

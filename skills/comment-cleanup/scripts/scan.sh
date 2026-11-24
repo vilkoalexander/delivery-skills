@@ -15,7 +15,7 @@ table_rows="${COMMENT_TOP:-30}"
 not_source='(^|/)(node_modules|dist|build|coverage|vendor|generated|__generated__|__snapshots__)/|\.(min|gen|generated)\.|\.d\.ts$'
 
 if git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
-  candidates=$(git ls-files -- "$@")
+  candidates=$(git -c core.quotePath=false ls-files -- "$@")
 else
   candidates=$(find "${@:-.}" -type f)
 fi

@@ -111,6 +111,41 @@ TS
 out=$(bash "$scan" sub.component.ts)
 unflags "Manual subscribe with no teardown"
 
+echo "# signals without a type argument, double quotes, a spaced directory"
+mkdir -p "my app" && cd "my app" || exit 1
+cat > row.component.ts <<'TS'
+import { Thing } from "../../shared/thing";
+@Component({
+  templateUrl: "./row.component.html",
+  styleUrl: "./row.component.scss",
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class RowComponent {
+  @Input() items = [];
+  readonly count = input(0);
+  readonly picked = output();
+}
+TS
+echo '<p *ngIf="open">a</p>'    > row.component.html
+echo '.row { color: #ff0000; }' > row.component.scss
+cd .. || exit 1
+out=$(bash "$scan" "my app/row.component.ts")
+sees  "companions in a spaced directory"       '^scanning: row.component.ts \+ row.component.html \+ row.component.scss$' "$out"
+flags "Structural directives"
+sees  "the template hit names the file"        '^row.component.html:1:' "$(under 'Structural directives')"
+flags "Raw hex colors"
+flags "Mixed input generations in one class"
+flags "Deep relative import"
+cat > plain.component.ts <<'TS'
+@Component({ template: '', changeDetection: ChangeDetectionStrategy.OnPush })
+export class PlainComponent {
+  @Input() label = '';
+  save(form) { this.api.input(form); return output(form); }
+}
+TS
+out=$(bash "$scan" plain.component.ts)
+unflags "Mixed input generations in one class"
+
 echo "# input"
 has "no argument"  1 '^usage: scan.sh <component.ts>$' bash "$scan"
 has "missing file" 1 '^not found: nope.ts$'            bash "$scan" nope.ts

@@ -6,12 +6,14 @@
 # Usage: scripts/inventory.sh [root]
 #   root is the directory holding the build file. Auto-detected from the
 #   current directory upward when omitted.
+# Env:   MIGRATION_NAME  ERE for a valid migration file name, as in scan.sh
 # Reporting script: a grep with no match is a normal outcome, not an error.
 set -uo pipefail
 
 # Output is bounded: INVENTORY_LIMIT lines per section (default 40), overflow
 # reported as a count.
 limit="${INVENTORY_LIMIT:-40}"
+migration_name="${MIGRATION_NAME:-^(V[0-9]+([._][0-9]+)*|U[0-9]+([._][0-9]+)*|R)__[A-Za-z0-9_]+\.sql$}"
 
 cap() {
   awk -v limit="$limit" '
@@ -152,8 +154,8 @@ else
     find "$migration_dir" -maxdepth 1 -name 'V*.sql' -exec basename {} \; | sort -t_ -k1,1V 2>/dev/null | tail -5 | sed 's/^/    /'
     repeatable=$(find "$migration_dir" -maxdepth 1 -name 'R__*.sql' | wc -l | tr -d ' ')
     [ "$repeatable" -gt 0 ] && echo "    repeatable: $repeatable"
-    unnamed=$(find "$migration_dir" -maxdepth 1 -name '*.sql' -exec basename {} \; | grep -vE '^(V[0-9]+([._][0-9]+)*|U[0-9]+([._][0-9]+)*|R)__[A-Za-z0-9_]+\.sql$' || true)
-    [ -n "$unnamed" ] && printf '    not a migration name: %s\n' $unnamed
+    unnamed=$(find "$migration_dir" -maxdepth 1 -name '*.sql' -exec basename {} \; | grep -vE -- "$migration_name" || true)
+    [ -n "$unnamed" ] && printf '%s\n' "$unnamed" | sed 's/^/    not a migration name: /'
   done <<< "$migration_dirs"
 fi
 changed=$(git status --porcelain -- '*.sql' 2>/dev/null | grep -E '^( M|M |MM)' | grep -E '/V[0-9][^/]*\.sql$' || true)

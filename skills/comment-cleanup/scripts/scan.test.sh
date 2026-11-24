@@ -46,6 +46,12 @@ has   "COMMENT_TOP limits the table"  0 '\(top 1\)'              env COMMENT_TOP
 has   "COMMENT_EXT picks extensions"  0 'no source files in scope' env COMMENT_EXT=py bash "$scan"
 lacks "an untracked file is not scanned" 'c\.ts' bash -c "echo '// new' > src/c.ts; bash '$scan'"
 
+echo "# file names git would quote"
+echo '// TODO odd name' > 'src/café one.ts'
+git add -A
+has   "a non-ASCII, spaced name is scanned" 0 'src/café one.ts:1:// TODO odd name' bash "$scan"
+lacks "a plain name gets no such hit"       'src/b.ts:1:// TODO' bash "$scan"
+
 echo "# outside git"
 mkdir -p "$tmp/plain/src" && cd "$tmp/plain"
 echo '// TODO later' > src/x.js

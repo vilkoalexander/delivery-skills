@@ -130,6 +130,8 @@ check() {
       line ERROR "$file" "git diff failed: $(head -1 <<< "$changed")"
       continue
     fi
+    untracked=$(git ls-files --others --exclude-standard -- "${specs[@]}" 2> /dev/null)
+    [ -z "$untracked" ] || changed="${changed:+$changed$'\n'}$untracked"
     [ -n "$changed" ] || continue
     flagged=$((flagged + 1))
     count=$(grep -c . <<< "$changed")

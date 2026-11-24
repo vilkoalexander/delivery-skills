@@ -111,16 +111,19 @@ const now = () => Date.now() / 1000 + skew;
 const model = m => (m || '?').replace(/^claude-/, '');
 const ICON = {running: '●', done: '✓', failed: '✗', waiting: '◆', skipped: '–', idle: '·'};
 
-function chunkLabel(c) { return c.final ? 'Final, whole tree' : c.n == null ? 'Before the first chunk' : 'Chunk ' + c.n + (c.of ? ' of ' + c.of : ''); }
+const cls = s => String(s ?? '').replace(/[^a-z0-9-]/gi, '');
+const STATION_LABEL = {you: 'waiting for you', gate: 'static gate', cross: 'cross-model', tests: 'tests first'};
+function chunkLabel(c) { return c.final ? 'Final, whole tree' : c.n == null ? 'Before the first chunk' : 'Chunk ' + c.n + (c.of ? ' of ' + c.of : '') + (c.build > 1 ? ', build ' + c.build : ''); }
+function chipLabel(c) { return c.final ? 'final' : c.n == null ? 'pre' : c.n + (c.build > 1 ? ' · b' + c.build : ''); }
 
 function renderRuns(rows) {
   if (!picked && rows.length) pick(rows[0].run);
   $('runs').innerHTML = rows.length ? rows.map(r => {
     const where = r.no_events ? 'no events recorded' : r.final ? 'final' : r.chunk != null ? 'chunk ' + r.chunk + (r.of ? '/' + r.of : '') : 'no chunk yet';
     return `<button class="run ${r.run === picked ? 'sel' : ''}" data-run="${esc(r.run)}">
-      <div class="top"><span class="dot ${r.state}"></span><span>${esc(r.name)}</span><span class="sub" style="margin:0">${day(r.started)}</span></div>
+      <div class="top"><span class="dot ${cls(r.state)}"></span><span>${esc(r.name)}</span><span class="sub" style="margin:0">${day(r.started)}</span></div>
       <div class="sub">${esc(r.plan || 'no plan named')}</div>
-      <div class="sub">${r.state} · ${where}</div></button>`; }).join('')
+      <div class="sub">${esc(r.state)} · ${esc(where)}</div></button>`; }).join('')
     : '<div class="note" style="margin:0 6px">No runs yet. One appears when a delivery run starts.</div>';
 }
 
@@ -136,12 +139,12 @@ function ctxCell(a) {
 function seatTag(a) { return a.station !== 'other' && !a.seat.startsWith(a.station.slice(0, 5)) ? ` <span class="doing">· ${esc(a.station)}</span>` : ''; }
 function doing(a) {
   if (!a.current) return a.running ? '<span class="doing">thinking</span>' : '';
-  return `<span class="doing"><b>${esc(a.current.tool)}</b> ${esc(a.current.what)} <span data-since="${a.current.since}"></span></span>`;
+  return `<span class="doing"><b>${esc(a.current.tool)}</b> ${esc(a.current.what)} <span data-since="${+a.current.since}"></span></span>`;
 }
 
 function render() {
   if (!run) return;
-  const r = run, chunks = r.chunks.filter(c => !c.empty);
+  const r = run, chunks = r.chunks;
   const cur = chunks[chunks.length - 1];
   const c = chunks.find(x => x.index === chunkPick) || cur;
   const live = r.state === 'running' || r.state === 'waiting' || r.state === 'stale';
@@ -151,27 +154,27 @@ function render() {
   const feed = r.feed.filter(f => showTools || f.kind !== 'tool').slice(-120).reverse();
   $('main').innerHTML = `
     <div class="head"><span class="title">${esc(r.name)}</span><span class="plan">${esc(r.plan || 'no plan named')}</span>
-      <span class="pill ${r.state}">${r.state}</span>${r.branch ? `<span class="plan">${esc(r.branch)}</span>` : ''}
-      <span class="time">run <span ${live ? `data-from="${r.started}"` : ''}>${clock((r.ended || r.last || r.started) - r.started)}</span></span></div>
-    <div class="chunkline"><b>${chunkLabel(c)}</b>${c.name ? `<span>${esc(c.name)}</span>` : ''}
-      ${c.risk ? `<span class="pill ${c.risk}">${c.risk}</span>` : ''}
-      <span class="time"><span ${c.end ? '' : `data-from="${c.start}"`}>${clock((c.end || r.last) - c.start)}</span></span></div>
-    ${chunks.length > 1 ? `<div class="chips">${chunks.map(x => `<button class="chip ${x === c ? 'sel' : ''}" data-chunk="${x.index}">${x.final ? 'final' : x.n == null ? 'pre' : x.n}</button>`).join('')}</div>` : ''}
-    <div class="stations">${c.stations.map(s => `<div class="st ${s.status} ${s.declared && c === cur && live ? 'declared' : ''}">
-      <div class="nm"><span>${s.name === 'you' ? 'waiting for you' : s.name === 'gate' ? 'static gate' : s.name === 'cross' ? 'cross-model' : s.name}</span><span class="ico">${ICON[s.status]}</span></div>
+      <span class="pill ${cls(r.state)}">${esc(r.state)}</span>${r.mode === 'long' ? '<span class="plan">long run</span>' : ''}${r.branch ? `<span class="plan">${esc(r.branch)}</span>` : ''}
+      <span class="time">run <span ${live ? `data-from="${+r.started}"` : ''}>${clock((r.ended || r.last || r.started) - r.started)}</span></span></div>
+    <div class="chunkline"><b>${esc(chunkLabel(c))}</b>${c.name ? `<span>${esc(c.name)}</span>` : ''}
+      ${c.risk ? `<span class="pill ${cls(c.risk)}">${esc(c.risk)}</span>` : ''}
+      <span class="time"><span ${c.end ? '' : `data-from="${+c.start}"`}>${clock((c.end || r.last) - c.start)}</span></span></div>
+    ${chunks.length > 1 ? `<div class="chips">${chunks.map(x => `<button class="chip ${x === c ? 'sel' : ''}" data-chunk="${+x.index}">${esc(chipLabel(x))}</button>`).join('')}</div>` : ''}
+    <div class="stations">${c.stations.map(s => `<div class="st ${cls(s.status)} ${s.declared && c === cur && live ? 'declared' : ''}">
+      <div class="nm"><span>${esc(STATION_LABEL[s.name] || s.name)}</span><span class="ico">${ICON[s.status] || ''}</span></div>
       <div class="dt">${esc(s.detail)}</div></div>`).join('')}</div>
     ${g ? `<div class="gate"><span class="note" style="margin:0">gate steps</span>${g.steps.map(s =>
-      `<span class="gs ${s.ok === true ? 'ok' : s.ok === false ? 'bad' : 'live'}">${esc(s.step)} ${s.ok === true ? '✓' : s.ok === false ? '✗' : '●'}${s.s ? ' ' + s.s + 's' : ''}</span>`).join('')}
-      ${g.failed_runs ? `<span class="note" style="margin:0">${g.failed_runs} earlier run${g.failed_runs > 1 ? 's' : ''} failed</span>` : ''}</div>` : ''}
+      `<span class="gs ${s.ok === true ? 'ok' : s.ok === false ? 'bad' : 'live'}">${esc(s.step)} ${s.ok === true ? '✓' : s.ok === false ? '✗' : '●'}${s.s ? ' ' + esc(s.s) + 's' : ''}</span>`).join('')}
+      ${g.failed_runs ? `<span class="note" style="margin:0">${+g.failed_runs} earlier run${g.failed_runs > 1 ? 's' : ''} failed</span>` : ''}</div>` : ''}
 
     <h2>Agents</h2>
     <table><tr><th>Seat</th><th>Model</th><th>Doing</th><th class="n">Time</th><th class="n">Calls</th><th class="n">Context</th></tr>
       <tr class="${ctl.running ? '' : 'dim'}"><td><b>controller</b></td><td>${esc(model(ctl.model))}</td><td>${doing(ctl)}</td>
-        <td class="n"></td><td class="n">${ctl.calls}</td>${ctxCell(ctl)}</tr>
+        <td class="n"></td><td class="n">${+ctl.calls}</td>${ctxCell(ctl)}</tr>
       ${agents.map(a => `<tr class="${a.running ? '' : 'dim'}"><td><b>${esc(a.seat)}</b>${seatTag(a)}${a.desc ? `<div class="doing">${esc(a.desc)}</div>` : ''}</td>
         <td>${esc(model(a.model))}</td><td>${a.running ? doing(a) : 'stopped'}</td>
-        <td class="n"><span ${a.running ? `data-from="${a.start}"` : ''}>${clock((a.end || r.last) - a.start)}</span></td>
-        <td class="n">${a.calls}</td>${ctxCell(a)}</tr>`).join('')}
+        <td class="n"><span ${a.running ? `data-from="${+a.start}"` : ''}>${clock((a.end || r.last) - a.start)}</span></td>
+        <td class="n">${+a.calls}</td>${ctxCell(a)}</tr>`).join('')}
     </table>
     <div class="note">Context is the last request's input plus cache. Window size is not recorded anywhere, so it is assumed: 200k, or 1M once a session passes 200k.</div>
 

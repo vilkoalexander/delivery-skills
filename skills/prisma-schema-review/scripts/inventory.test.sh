@@ -62,6 +62,16 @@ has "another tenant key"        0 '^  tenant:   NONE'           env TENANT_FIELD
 has "INVENTORY_LIMIT caps the models" 0 '… \+1 more models \(raise INVENTORY_LIMIT=1' env INVENTORY_LIMIT=1 bash "$inventory"
 has "takes a file"              0 '^schema: prisma/schema.prisma$' bash "$inventory" "$tmp/project/prisma/schema.prisma"
 has "takes a directory"         0 '^schema: prisma/schema.prisma$' bash "$inventory" "$tmp/project/prisma"
+
+echo "# model names with digits and underscores"
+new_repo "odd [names]"
+mkdir prisma
+printf '%s\n' 'model OAuth2Token {' '  id String @id' '  tenantId String' '}' '' 'model Audit_Log{' '  id String @id' '}' > prisma/schema.prisma
+out=$(bash "$inventory")
+sees "a name with a digit"       '^OAuth2Token  \(no @@map\)$' "$out"
+sees "a name with an underscore" '^Audit_Log  \(no @@map\)$' "$out"
+sees "a root with regex characters is cut from the path" '^schema: prisma/schema.prisma$' "$out"
+
 new_repo bare
 has "no schema"                 1 '^no .prisma files found — pass a dir or file$' bash "$inventory"
 

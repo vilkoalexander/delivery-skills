@@ -184,7 +184,8 @@ Escalators. A small number of files does not cancel these:
 
 `bash delivery-pipeline/scripts/risk.sh <paths…>` prints the class of each
 path with the rule that matched, then the class of the set. You can also send
-the paths on stdin: `git diff --name-only | bash delivery-pipeline/scripts/risk.sh`.
+the paths on stdin. With no paths, it takes each path that differs from
+`HEAD` in the working tree, new files included.
 
 - The script sees paths, not content. Its class is a minimum, not a verdict.
 - `risk.high` and `risk.medium` in `docs/review/delivery.json` add the paths

@@ -30,7 +30,17 @@ class "jpa entity"          model/src/main/java/shop/InvoiceEntity.java high "sc
 class "security module"     security/src/main/java/shop/filter/PhoneFilter.java high "auth, guard, session"
 class "java auth class"     user/src/main/java/shop/JwtTokenManager.java high "auth, guard, session"
 
+class "the config of the gate" docs/review/delivery.json        high "the config of the gate"
+class "the drift checks"    docs/review/drift.checks          high "the config of the gate"
+class "money word, any case" api/src/main/java/shop/PaymentService.java high "money path"
+class "money word in a screen" src/features/cart/CheckoutScreen.tsx high "money path"
+class "kotlin entity"       model/src/main/kotlin/shop/OrderEntity.kt high "schema or migration"
+class "typeorm entity"      src/users/user.entity.ts          high "schema or migration"
+class "secrets file"        config/secrets.yaml               high "env or secrets"
+
 echo "# low"
+class "a doc about money"   docs/billing.md                   low "docs"
+class "a style named after auth" src/oauth-button.css         low "styling or assets"
 class "spec file"           src/users/users.service.spec.ts   low "tests"
 class "tests folder"        tests/helpers.ts                  low "tests"
 class "java test"           user/src/test/java/shop/UnitControllerTest.java low "tests"
@@ -56,6 +66,12 @@ class "manifest"            package.json                      medium "dependency
 class "lockfile"            apps/web/pnpm-lock.yaml           medium "dependency change"
 class "anything else"       src/thing.ts                      medium "no rule matched — unsure is medium"
 
+class "requirements file"   requirements.txt                  medium "dependency change"
+class "vite inside a word"  src/invites/invite.service.ts     medium "NestJS unit"
+class "jest inside a word"  src/lib2/majestic.ts              medium "no rule matched — unsure is medium"
+class "secret inside a word" src/secretary/list.ts            medium "no rule matched — unsure is medium"
+class "kotlin service"      user/src/main/kotlin/shop/UnitService.kt medium "Spring unit"
+
 echo "# the class for the set"
 has "highest path wins"           0 '^class: high$'   bash "$risk" README.md src/thing.ts src/auth/login.ts
 has "all low stays low"           0 '^class: low$'    bash "$risk" README.md src/Button.tsx
@@ -69,6 +85,11 @@ has "RISK_HIGH"                   0 '^high    src/thing.ts  \(RISK_HIGH\)$'    e
 has "RISK_MEDIUM"                 0 '^medium  README.md  \(RISK_MEDIUM\)$'     env RISK_MEDIUM='README' bash "$risk" README.md
 has "RISK_HIGH beats RISK_MEDIUM" 0 '\(RISK_HIGH\)'                            env RISK_HIGH='thing' RISK_MEDIUM='thing' bash "$risk" src/thing.ts
 
+has "a pattern that does not compile" 2 "RISK_HIGH .* is not a valid pattern" env RISK_HIGH='(reports' bash "$risk" src/thing.ts
+mkdir -p docs/review && echo '{"risk":{"hihg":["x"]},"typo":1}' > docs/review/delivery.json
+has "an invalid config"               2 'unknown key "typo"'                   bash "$risk" src/thing.ts
+rm -rf docs
+
 echo "# input"
 has "paths on stdin"   0 '^class: high$'      bash -c "printf 'README.md\n\nsrc/auth/a.ts\n' | bash '$risk'"
 has "no paths"         2 '^usage: risk.sh'    bash "$risk"
@@ -78,7 +99,20 @@ mixed() { bash "$risk" "$@" 2>&1 | grep -c '^mixed: '; }
 eq "bump alone is not mixed"       "$(mixed package.json pnpm-lock.yaml)" 0
 eq "bump with source is mixed"     "$(mixed package.json src/a.ts src/b.ts)" 1
 eq "workspace package.json counts" "$(mixed apps/web/package.json src/a.ts)" 1
+eq "a Gradle build with source is mixed" "$(mixed build.gradle src/main/java/A.java)" 1
 eq "no dependency change, no line" "$(mixed src/a.ts)" 0
 has "says how many other paths"    0 '^mixed: dependency change shares the chunk with other paths \(2\)' bash "$risk" package.json src/a.ts src/b.ts
+
+echo "# no paths: the change itself"
+new_repo changed
+mkdir -p src/auth && echo a > src/auth/guard.ts && commit_all
+echo b > src/auth/guard.ts && echo c > notes.md
+base=$(git rev-parse HEAD^{tree})
+has "takes each path that differs from HEAD" 0 'src/auth/guard.ts' bash "$risk"
+has "a file git does not track too"          0 'notes.md'          bash "$risk"
+echo d > src/auth/guard.ts && commit_all
+echo e > later.md
+has "DELIVERY_BASE moves the start"          0 'src/auth/guard.ts' env DELIVERY_BASE="$base" bash "$risk"
+lacks "and without it only the new work"     'guard.ts'            bash "$risk"
 
 finish

@@ -4,27 +4,34 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { builds as buildsOf, PHASES } from "../../chunked-delivery/scripts/lifecycle.mjs";
 
 export const STALE_AFTER_S = 30 * 60;
 const FEED_LIMIT = 300;
 // Models seen running past 200k on this machine; everything else is assumed 200k.
 export const WINDOW_1M_MODELS = ["fable"];
 const SIDE_AGENTS = ["Explore", "Plan", "web-fetch", "claude-code-guide", "statusline-setup"];
-const STATIONS = ["implement", "gate", "review", "fix", "verify", "cross", "you"] as const;
+const FINAL = "final";
+export const STATIONS: string[] = [...new Set(Object.values(PHASES as Record<string, { station: string }>)
+  .map((phase) => phase.station))].filter((name) => name !== FINAL);
+const STATION_OF_PHASE = (phase: string | null): string | null =>
+  phase ? (PHASES as Record<string, { station: string }>)[phase]?.station ?? null : null;
+const AGENT_STATIONS = ["tests", "implement", "review", "fix", "verify"];
 
 export type Tokens = { in: number; out: number; cw: number; cr: number };
 export const ZERO: Tokens = { in: 0, out: 0, cw: 0, cr: 0 };
 
 export type RunEvent = { ev: string; ts?: number; src?: string; agent?: string | null; [key: string]: any };
 export type UsageItem = Tokens & { id: string; ts: number | null; model: string };
-export type Marker = { project?: string; started?: string; run?: string };
+export type Marker = { project?: string; started?: string; run?: string; mode?: string; head?: string };
 type OpenTool = { tool: string; what: string; since: number };
-type StationName = (typeof STATIONS)[number];
-export type Station = { name: StationName; status: string; detail: string; declared: boolean };
-type Chunk = {
-  n: number | null; of: number | null; name: string | null; risk: string | null; phase: string | null;
-  round: number; final: boolean; start: number | null; end: number | null; fixMarks: number; decision: string | null;
+export type Station = { name: string; status: string; detail: string; declared: boolean };
+type Build = {
+  chunk: number | string | undefined; build: number; of: number | null; name: string | null; plan: string | null;
+  risk: string | null; marks: RunEvent[]; phases: string[]; fix: { static: number; review: number; human: number };
+  started: number; reportedAt: number | null; parked: string | null; decision: string | null;
 };
+type Row = { build: Build | null; phase: string | null; start: number | null; end: number | null };
 type Agent = {
   id: string; type: string | null; seat: string; start: number; end: number | null; calls: number;
   open: Map<string, OpenTool>; chunk: number; station: string; transcript: string | null;
@@ -34,7 +41,6 @@ type Gate = {
   start: number; end: number | null; ok: boolean | null; chunk: number;
   steps: { step: string; ok: boolean | null; s: number | null }[];
 };
-type Cross = { id: string | null; start: number; end: number | null; ok: boolean | null; chunk: number };
 type AgentRow = {
   id: string; seat: string; type: string | null; desc: string | null; station: string; chunk: number;
   start: number; end: number | null; running: boolean; calls: number; current: OpenTool | null;
@@ -171,7 +177,7 @@ function stationFor(agentType: string | null, phase: string | null): string {
   if (kind === "verifier") return "verify";
   if (phase === "fix") return "fix";
   if (kind === "reviewer") return "review";
-  return "implement";
+  return phase === "test" ? "tests" : "implement";
 }
 
 function expandHome(file: string): string {
@@ -213,176 +219,208 @@ export function clock(seconds: number | null | undefined): string {
   return hours ? `${hours}:${String(minutes).padStart(2, "0")}:${secs}` : `${minutes}:${secs}`;
 }
 
-function emptyChunk(start: number | null): Chunk {
-  return { n: null, of: null, name: null, risk: null, phase: null, round: 0, final: false, start, end: null,
-           fixMarks: 0, decision: null };
+type Feed = { ts: number; kind: string; who: string; text: string };
+type Controller = { calls: number; open: Map<string, OpenTool>; sid: string | null; transcripts: string[];
+                    lastEv: string | null };
+type Dispatch = { sub: string | null; model: string | null; desc: string; taken: boolean };
+type Reduced = {
+  run: { project: string | null; branch: string | null; plan: string | null; started: number | null;
+         ended: number | null };
+  rows: Row[]; current: number; agents: Map<string, Agent>; controller: Controller; dispatches: Dispatch[];
+  gates: Gate[]; feed: Feed[]; lastTs: number | null; buildOfMark: Map<RunEvent, Build>;
+};
+type Turn = { ts: number; who: string; actor: Agent | null; holder: Agent | Controller };
+
+const isFinal = (build: Build | null): boolean => build?.chunk === FINAL;
+
+function stripProject(state: Reduced, what: unknown): string {
+  const text = typeof what === "string" ? what : "";
+  return state.run.project ? text.split(state.run.project + "/").join("") : text;
+}
+
+function say(state: Reduced, ts: number, kind: string, who: string, text: string) {
+  state.feed.push({ ts, kind, who, text });
+}
+
+function enterRow(state: Reduced, build: Build | null, ts: number): Row {
+  let index = state.rows.findIndex((row) => row.build === build);
+  if (index < 0) index = state.rows.push({ build, phase: null, start: ts, end: null }) - 1;
+  if (index !== state.current) {
+    if (state.current >= 0) state.rows[state.current].end = ts;
+    state.rows[index].end = null;
+    state.current = index;
+  }
+  return state.rows[index];
+}
+
+// Work seen before the first mark still needs a row to show under.
+function rowForWork(state: Reduced, ts: number): number {
+  if (state.current < 0) enterRow(state, null, ts);
+  return state.current;
+}
+
+function agentOf(state: Reduced, event: RunEvent, ts: number): Agent {
+  const id = event.agent as string;
+  let agent = state.agents.get(id);
+  if (!agent) {
+    const type: string | null = event.agent_type ?? null;
+    const match = state.dispatches.find((d) => !d.taken && (d.sub === type || d.sub === null));
+    if (match) match.taken = true;
+    const chunk = rowForWork(state, ts);
+    agent = { id, type, seat: shortType(type), start: ts, end: null, calls: 0, open: new Map(), chunk,
+              station: stationFor(type, state.rows[chunk].phase), transcript: event.transcript ?? null,
+              agentTranscript: null, desc: match?.desc || null, alias: match?.model ?? null };
+    state.agents.set(id, agent);
+    say(state, ts, "agent", agent.seat, "started" + (agent.desc ? ": " + agent.desc : ""));
+  }
+  return agent;
+}
+
+const HANDLERS: Record<string, (state: Reduced, event: RunEvent, turn: Turn) => void> = {
+  run_start(state, event, { ts }) {
+    state.run.project = event.project || state.run.project;
+    state.run.branch = event.branch ?? null;
+    say(state, ts, "run", "run", "run started on " + path.basename(state.run.project || "?"));
+  },
+  run_stop(state, _event, { ts }) {
+    state.run.ended = ts;
+    say(state, ts, "run", "run", "run ended");
+  },
+  mark(state, event, { ts }) {
+    const build = state.buildOfMark.get(event) ?? null;
+    if (!build) return;
+    enterRow(state, build, ts).phase = event.phase ?? null;
+    if (event.plan) state.run.plan = event.plan;
+    const label = isFinal(build) ? "final, whole tree" : `chunk ${event.chunk}`;
+    const again = build.build > 1 && event === build.marks[0] ? `, build ${build.build}` : "";
+    const round = event.phase === "fix" && event.round ? ` round ${event.round}` : "";
+    const parked = event.parked ? ` (parked: ${event.parked})` : "";
+    say(state, ts, "mark", "controller", `${label}${again}: ${event.phase}${round}${parked}`);
+  },
+  agent_stop(state, event, { ts, who, actor }) {
+    if (!actor) return;
+    actor.end = ts;
+    actor.open.clear();
+    actor.agentTranscript = event.agent_transcript || actor.agentTranscript;
+    say(state, ts, "agent", who, `stopped, ${actor.calls} calls, ${clock(ts - actor.start)}`);
+  },
+  tool(state, event, { ts, who, actor, holder }) {
+    holder.calls += 1;
+    const what = stripProject(state, event.what);
+    holder.open.set(event.id || "t" + ts, { tool: event.tool, what, since: ts });
+    if (actor) actor.end = null;
+    else if (event.tool === "Agent" || event.tool === "Task") {
+      state.dispatches.push({ sub: event.sub ?? null, model: event.model ?? null, desc: what, taken: false });
+    }
+    say(state, ts, "tool", who, `${event.tool} ${what}`);
+  },
+  tool_end(state, event, { ts, who, holder }) {
+    holder.open.delete(event.id);
+    if (event.ok === false) say(state, ts, "fail", who, `${event.tool} failed: ${event.error || ""}`);
+  },
+  refusal(state, event, { ts, who, holder }) {
+    for (const [key, tool] of holder.open) if (tool.tool === event.tool) holder.open.delete(key);
+    say(state, ts, "refusal", who,
+        `REFUSED ${event.tool || "stop"} ${stripProject(state, event.what)}: ${stripProject(state, event.reason)}`);
+  },
+  turn_end(state, _event, { ts, who }) {
+    state.controller.open.clear();
+    say(state, ts, "turn", who, "turn ended");
+  },
+  notify(state, event, { ts, who }) {
+    say(state, ts, "notify", who, "notification: " + (event.message || event.kind || ""));
+  },
+  compact(state, event, { ts, who }) {
+    say(state, ts, "notify", who, `context compacted (${event.trigger || "?"})`);
+  },
+  gate_start(state, event, { ts }) {
+    state.gates.push({ start: ts, end: null, ok: null, steps: [], chunk: rowForWork(state, ts) });
+    say(state, ts, "gate", "gate", `static gate started on ${event.paths} paths`);
+  },
+  gate_step_start(state, event) {
+    state.gates.at(-1)?.steps.push({ step: event.step, ok: null, s: null });
+  },
+  gate_step(state, event, { ts }) {
+    const gate = state.gates.at(-1);
+    if (!gate) return;
+    let step = gate.steps.findLast((s) => s.step === event.step && s.ok === null);
+    if (!step) {
+      step = { step: event.step, ok: null, s: null };
+      gate.steps.push(step);
+    }
+    step.ok = Boolean(event.ok);
+    step.s = event.s ?? null;
+    say(state, ts, step.ok ? "gate" : "fail", "gate", `${step.step} ${step.ok ? "ok" : "FAIL"}`);
+  },
+  gate_end(state, event, { ts }) {
+    const gate = state.gates.at(-1);
+    if (!gate) return;
+    gate.end = ts;
+    gate.ok = Boolean(event.ok);
+    say(state, ts, gate.ok ? "gate" : "fail", "gate", "static gate " + (gate.ok ? "clean" : "FAILED"));
+  },
+  chunk_logged(state, event, { ts }) {
+    const entry = event.entry || {};
+    say(state, ts, "mark", "you", `chunk ${entry.chunk} ${entry.decision}`);
+  },
+};
+
+function turnOf(state: Reduced, event: RunEvent, ts: number): Turn {
+  if (event.src !== "hook") return { ts, who: event.src || "script", actor: null, holder: state.controller };
+  if (event.agent) {
+    const actor = agentOf(state, event, ts);
+    return { ts, who: actor.seat, actor, holder: actor };
+  }
+  const controller = state.controller;
+  controller.lastEv = event.ev;
+  if (event.sid) controller.sid = event.sid;
+  if (event.transcript && !controller.transcripts.includes(event.transcript)) {
+    controller.transcripts.push(event.transcript);
+  }
+  return { ts, who: "controller", actor: null, holder: controller };
+}
+
+/** Everything the event file alone says about a run. No transcript is read here. */
+export function reduce(input: RunEvent[], marker: Marker | null = null): Reduced {
+  const events = input.filter((event) => typeof event.ts === "number").sort((a, b) => a.ts! - b.ts!);
+  const state: Reduced = {
+    run: { project: marker?.project ?? null, branch: null, plan: null, started: null, ended: null },
+    rows: [], current: -1, agents: new Map(), dispatches: [], gates: [], feed: [], lastTs: null,
+    controller: { calls: 0, open: new Map(), sid: null, transcripts: [], lastEv: null },
+    buildOfMark: new Map(),
+  };
+  for (const build of buildsOf(events) as Build[]) {
+    for (const mark of build.marks) state.buildOfMark.set(mark, build);
+  }
+  for (const event of events) {
+    const ts = event.ts!;
+    state.lastTs = ts;
+    state.run.started ??= ts;
+    const turn = turnOf(state, event, ts);
+    HANDLERS[event.ev]?.(state, event, turn);
+  }
+  if (!state.rows.length) enterRow(state, null, state.run.started ?? 0);
+  return state;
+}
+
+function progress(state: Reduced, marker: Marker | null, at: number) {
+  const { run, lastTs, controller } = state;
+  const ended = run.ended !== null || marker === null;
+  const anyRunning = !ended && [...state.agents.values()].some((a) => a.end === null);
+  const current = state.rows[state.current];
+  const reported = current.build !== null && current.phase === "report" && !current.build.decision;
+  const waiting = !ended && !anyRunning && (controller.lastEv === "turn_end" || reported);
+  const status = ended ? "ended" : waiting ? "waiting"
+    : lastTs === null || at - lastTs > STALE_AFTER_S ? "stale" : "running";
+  return { ended, waiting, status, edge: run.ended ?? (ended ? lastTs : at) ?? at };
 }
 
 export function build(runId: string, input: RunEvent[], tail: Tail, now: number | null = null,
                       marker: Marker | null = null) {
   const at = now ?? Date.now() / 1000;
-  const events = [...input].sort((a, b) => (a.ts || 0) - (b.ts || 0));
-  const run = { project: marker?.project ?? null, branch: null as string | null, plan: null as string | null,
-                started: null as number | null, ended: null as number | null };
-  const chunks: Chunk[] = [emptyChunk(null)];
-  const agents = new Map<string, Agent>();
-  const controller = { calls: 0, open: new Map<string, OpenTool>(), sid: null as string | null,
-                       transcripts: [] as string[], lastEv: null as string | null };
-  const dispatches: { sub: string | null; model: string | null; desc: string; taken: boolean }[] = [];
-  const gates: Gate[] = [];
-  const crosses: Cross[] = [];
-  const feed: { ts: number; kind: string; who: string; text: string }[] = [];
-  let lastTs: number | null = null;
-
-  const strip = (what: unknown): string => {
-    const text = typeof what === "string" ? what : "";
-    return run.project ? text.split(run.project + "/").join("") : text;
-  };
-  const say = (ts: number, kind: string, who: string, text: string) => feed.push({ ts, kind, who, text });
-
-  const getAgent = (event: RunEvent, ts: number): Agent => {
-    const id = event.agent as string;
-    let agent = agents.get(id);
-    if (!agent) {
-      const type: string | null = event.agent_type ?? null;
-      const match = dispatches.find((d) => !d.taken && (d.sub === type || d.sub === null));
-      if (match) match.taken = true;
-      agent = { id, type, seat: shortType(type), start: ts, end: null, calls: 0, open: new Map(),
-                chunk: chunks.length - 1, station: stationFor(type, chunks.at(-1)!.phase),
-                transcript: event.transcript ?? null, agentTranscript: null,
-                desc: match?.desc || null, alias: match?.model ?? null };
-      agents.set(id, agent);
-      say(ts, "agent", agent.seat, "started" + (agent.desc ? ": " + agent.desc : ""));
-    }
-    return agent;
-  };
-
-  for (const event of events) {
-    const ts = event.ts;
-    const kind = event.ev;
-    if (typeof ts !== "number") continue;
-    lastTs = ts;
-    if (run.started === null) {
-      run.started = ts;
-      chunks[0].start = ts;
-    }
-    let current = chunks.at(-1)!;
-    const isHook = event.src === "hook";
-    let actor: Agent | null = null;
-    let who: string;
-    if (isHook && event.agent) {
-      actor = getAgent(event, ts);
-      who = actor.seat;
-    } else if (isHook) {
-      who = "controller";
-      controller.lastEv = kind;
-      if (event.sid) controller.sid = event.sid;
-      if (event.transcript && !controller.transcripts.includes(event.transcript)) {
-        controller.transcripts.push(event.transcript);
-      }
-    } else {
-      who = event.src || "script";
-    }
-    const holder = actor ?? controller;
-
-    if (kind === "run_start") {
-      run.project = event.project || run.project;
-      run.branch = event.branch ?? null;
-      say(ts, "run", "run", "run started on " + path.basename(run.project || "?"));
-    } else if (kind === "run_stop") {
-      run.ended = ts;
-      say(ts, "run", "run", "run ended");
-    } else if (kind === "mark") {
-      const isFinal = event.phase === "final";
-      const same = isFinal ? current.final : !current.final && current.n === (event.chunk ?? null);
-      if (!same) {
-        current.end = ts;
-        current = { ...emptyChunk(ts), n: event.chunk ?? null, final: isFinal };
-        chunks.push(current);
-      }
-      if (event.of != null) current.of = event.of;
-      if (event.name != null) current.name = event.name;
-      if (event.risk != null) current.risk = event.risk;
-      if (event.plan) run.plan = event.plan;
-      current.phase = event.phase ?? null;
-      if (event.phase === "fix") {
-        current.fixMarks += 1;
-        current.round = Math.max(current.round, event.round || current.fixMarks);
-      }
-      const label = isFinal ? "final, whole tree" : `chunk ${event.chunk}`;
-      say(ts, "mark", "controller", `${label}: ${event.phase}${event.round ? " round " + event.round : ""}`);
-    } else if (kind === "agent_stop" && actor) {
-      actor.end = ts;
-      actor.open.clear();
-      actor.agentTranscript = event.agent_transcript || actor.agentTranscript;
-      say(ts, "agent", who, `stopped, ${actor.calls} calls, ${clock(ts - actor.start)}`);
-    } else if (kind === "tool") {
-      holder.calls += 1;
-      const what = strip(event.what);
-      holder.open.set(event.id || "t" + ts, { tool: event.tool, what, since: ts });
-      if (actor) {
-        actor.end = null;
-      } else {
-        if (event.tool === "Agent" || event.tool === "Task") {
-          dispatches.push({ sub: event.sub ?? null, model: event.model ?? null, desc: what, taken: false });
-        }
-        if (what.includes("codex-companion")) {
-          crosses.push({ id: event.id ?? null, start: ts, end: null, ok: null, chunk: chunks.length - 1 });
-        }
-      }
-      say(ts, "tool", who, `${event.tool} ${what}`);
-    } else if (kind === "tool_end") {
-      holder.open.delete(event.id);
-      for (const cross of crosses) {
-        if (cross.id === event.id && cross.end === null) {
-          cross.end = ts;
-          cross.ok = Boolean(event.ok);
-        }
-      }
-      if (event.ok === false) say(ts, "fail", who, `${event.tool} failed: ${event.error || ""}`);
-    } else if (kind === "refusal") {
-      for (const [key, tool] of holder.open) if (tool.tool === event.tool) holder.open.delete(key);
-      say(ts, "refusal", who, `REFUSED ${event.tool || "stop"} ${strip(event.what)}: ${strip(event.reason)}`);
-    } else if (kind === "turn_end") {
-      controller.open.clear();
-      say(ts, "turn", who, "turn ended");
-    } else if (kind === "notify") {
-      say(ts, "notify", who, "notification: " + (event.message || event.kind || ""));
-    } else if (kind === "compact") {
-      say(ts, "notify", who, `context compacted (${event.trigger || "?"})`);
-    } else if (kind === "gate_start") {
-      gates.push({ start: ts, end: null, ok: null, steps: [], chunk: chunks.length - 1 });
-      say(ts, "gate", "gate", `static gate started on ${event.paths} paths`);
-    } else if (kind === "gate_step_start" && gates.length) {
-      gates.at(-1)!.steps.push({ step: event.step, ok: null, s: null });
-    } else if (kind === "gate_step" && gates.length) {
-      const steps = gates.at(-1)!.steps;
-      let step = steps.findLast((s) => s.step === event.step && s.ok === null);
-      if (!step) {
-        step = { step: event.step, ok: null, s: null };
-        steps.push(step);
-      }
-      step.ok = Boolean(event.ok);
-      step.s = event.s ?? null;
-      say(ts, step.ok ? "gate" : "fail", "gate", `${step.step} ${step.ok ? "ok" : "FAIL"}`);
-    } else if (kind === "gate_end" && gates.length) {
-      const gate = gates.at(-1)!;
-      gate.end = ts;
-      gate.ok = Boolean(event.ok);
-      say(ts, gate.ok ? "gate" : "fail", "gate", "static gate " + (gate.ok ? "clean" : "FAILED"));
-    } else if (kind === "chunk_logged") {
-      const entry = event.entry || {};
-      for (const chunk of chunks) if (chunk.n === entry.chunk && !chunk.final) chunk.decision = entry.decision ?? null;
-      say(ts, "mark", "you", `chunk ${entry.chunk} ${entry.decision}`);
-    }
-  }
-
-  const ended = run.ended !== null || marker === null;
-  const edge = run.ended ?? (ended ? lastTs : at) ?? at;
-  const anyRunning = !ended && [...agents.values()].some((a) => a.end === null);
-  const waiting = !ended && controller.lastEv === "turn_end" && !anyRunning;
-  const state = ended ? "ended" : waiting ? "waiting"
-    : lastTs === null || at - lastTs > STALE_AFTER_S ? "stale" : "running";
+  const state = reduce(input, marker);
+  const { run, controller, gates, lastTs } = state;
+  const { ended, waiting, status, edge } = progress(state, marker, at);
 
   const currentOf = (open: Map<string, OpenTool>): OpenTool | null => {
     let latest: OpenTool | null = null;
@@ -390,7 +428,7 @@ export function build(runId: string, input: RunEvent[], tail: Tail, now: number 
     return latest ? { tool: latest.tool, what: latest.what, since: latest.since } : null;
   };
 
-  const agentRows: AgentRow[] = [...agents.values()].map((agent) => {
+  const agentRows: AgentRow[] = [...state.agents.values()].map((agent) => {
     const usage = summarize(tail.read(agentTranscriptPath(agent), parseUsage));
     const running = agent.end === null && !ended;
     return {
@@ -407,32 +445,33 @@ export function build(runId: string, input: RunEvent[], tail: Tail, now: number 
     seat: "controller", sid: controller.sid, calls: controller.calls,
     current: ended ? null : currentOf(controller.open), model: controllerUsage.model,
     tokens: controllerUsage.tokens, ctx: controllerUsage.ctx, window: controllerUsage.window,
-    fill: controllerUsage.fill, running: state === "running" && controller.lastEv !== "turn_end",
+    fill: controllerUsage.fill, running: status === "running" && controller.lastEv !== "turn_end",
   };
 
-  const chunkRows = chunks.map((chunk, index) => {
-    const isLast = index === chunks.length - 1;
+  const chunkRows = state.rows.map((row, index) => {
+    const isCurrent = index === state.current;
     const mine = agentRows.filter((a) => a.chunk === index);
     const myGates = gates.filter((g) => g.chunk === index);
-    const controllerTokens = summarize(controllerItems, chunk.start, chunk.end ?? run.ended).tokens;
+    const controllerTokens = summarize(controllerItems, row.start, row.end ?? run.ended).tokens;
+    const made = row.build;
     return {
-      index, n: chunk.n, of: chunk.of, name: chunk.name, risk: chunk.risk, final: chunk.final,
-      phase: chunk.phase, start: chunk.start, end: chunk.end ?? (ended ? edge : null), decision: chunk.decision,
+      index, n: typeof made?.chunk === "number" ? made.chunk : null, of: made?.of ?? null,
+      name: made?.name ?? null, risk: isFinal(made) ? null : made?.risk ?? null, final: isFinal(made),
+      build: made?.build ?? 1, phase: row.phase, start: row.start,
+      end: row.end ?? (ended ? edge : null), decision: made?.decision ?? null, parked: made?.parked ?? null,
+      fix: made?.fix ?? { static: 0, review: 0, human: 0 },
       tokens: mine.reduce((sum, a) => add(sum, a.tokens), controllerTokens), controller_tokens: controllerTokens,
-      stations: stations(chunk, mine, myGates, crosses.filter((c) => c.chunk === index), isLast, waiting, ended,
-                         chunk.end ?? edge),
+      stations: stations(row, mine, myGates, isCurrent, waiting, ended, row.end ?? edge),
       gate: lastGate(myGates),
-      empty: chunks.length > 1 && index === 0 && !mine.length && !myGates.length
-        && !crosses.some((c) => c.chunk === 0),
     };
   });
 
   return {
     run: runId, project: run.project, name: path.basename(run.project || "") || runId, branch: run.branch,
-    plan: run.plan, state, started: run.started, ended: run.ended ?? (ended ? lastTs : null), last: lastTs,
-    now: at, chunks: chunkRows, agents: agentRows, controller: controllerRow,
-    tokens: agentRows.reduce((sum, a) => add(sum, a.tokens), controllerUsage.tokens),
-    feed: feed.slice(-FEED_LIMIT),
+    plan: run.plan, mode: marker?.mode ?? null, state: status, started: run.started,
+    ended: run.ended ?? (ended ? lastTs : null), last: lastTs, now: at, chunks: chunkRows, agents: agentRows,
+    controller: controllerRow, tokens: agentRows.reduce((sum, a) => add(sum, a.tokens), controllerUsage.tokens),
+    feed: state.feed.slice(-FEED_LIMIT),
   };
 }
 
@@ -443,68 +482,80 @@ function lastGate(gates: Gate[]) {
            start: gate.start, end: gate.end, steps: gate.steps.map((s) => ({ step: s.step, ok: s.ok, s: s.s })) };
 }
 
-function stations(chunk: Chunk, agents: AgentRow[], gates: Gate[], crosses: Cross[], isLast: boolean,
-                  waiting: boolean, ended: boolean, stop: number): Station[] {
-  const out = {} as Record<StationName, { status: string; detail: string }>;
-  const idle = { status: "idle", detail: "" };
+function fixDetail(fix: { static: number; review: number; human: number }): string {
+  return [fix.review ? `round ${fix.review}` : "", fix.static ? `${fix.static} static` : "",
+          fix.human ? `${fix.human} after the report` : ""].filter(Boolean).join(" · ");
+}
 
-  for (const name of ["implement", "review", "fix", "verify"] as const) {
+function gateStation(gates: Gate[], ended: boolean) {
+  const gate = gates.at(-1);
+  if (!gate) return null;
+  const failed = gates.filter((g) => g.ok === false).length;
+  const note = `run ${gates.length}` + (failed ? ` · ${failed} failed` : "");
+  if (gate.end !== null) {
+    return { status: gate.ok ? "done" : "failed", detail: `${clock(gate.end - gate.start)} · ${note}` };
+  }
+  if (ended) return { status: "failed", detail: "no result · " + note };
+  const step = gate.steps.findLast((s) => s.ok === null)?.step;
+  return { status: "running", detail: `${step || "starting"} · ${note}` };
+}
+
+function crossStation(marks: RunEvent[], live: boolean, stop: number) {
+  const at = marks.findLastIndex((mark) => mark.phase === "cross");
+  if (at < 0) return null;
+  const next = marks[at + 1];
+  if (next) return { status: "done", detail: clock(next.ts! - marks[at].ts!) };
+  return { status: live ? "running" : "done", detail: clock(stop - marks[at].ts!) };
+}
+
+function youStation(row: Row, isCurrent: boolean, waiting: boolean) {
+  const made = row.build;
+  if (made?.decision) return { status: "done", detail: made.decision };
+  if (made && row.phase === "report") {
+    return { status: "waiting", detail: made.parked ? "parked: " + made.parked : "your turn" };
+  }
+  if (isCurrent && waiting) return { status: "waiting", detail: "your turn" };
+  if (!isCurrent) return { status: "done", detail: "moved on" };
+  return null;
+}
+
+function stations(row: Row, agents: AgentRow[], gates: Gate[], isCurrent: boolean, waiting: boolean,
+                  ended: boolean, stop: number): Station[] {
+  const out: Record<string, { status: string; detail: string }> = {};
+  const idle = { status: "idle", detail: "" };
+  const phase = row.phase;
+  const live = isCurrent && !ended;
+
+  for (const name of AGENT_STATIONS) {
     const mine = agents.filter((a) => a.station === name);
-    if (!mine.length) {
-      out[name] = idle;
-      continue;
-    }
-    const live = mine.some((a) => a.running);
-    const span = (live ? stop : Math.max(...mine.map((a) => a.end as number))) - Math.min(...mine.map((a) => a.start));
-    out[name] = { status: live ? "running" : "done",
+    if (!mine.length) continue;
+    const running = mine.some((a) => a.running);
+    const span = (running ? stop : Math.max(...mine.map((a) => a.end as number))) - Math.min(...mine.map((a) => a.start));
+    out[name] = { status: running ? "running" : "done",
                   detail: `${mine.length} agent${mine.length === 1 ? "" : "s"} · ${clock(span)}` };
   }
-  if (chunk.round && out.fix.status !== "idle") {
-    out.fix = { status: out.fix.status, detail: `round ${chunk.round} · ${out.fix.detail}` };
-  } else if (chunk.round) {
-    out.fix = { status: chunk.phase === "fix" && isLast && !ended ? "running" : "done", detail: `round ${chunk.round}` };
-  }
+  const rounds = row.build ? fixDetail(row.build.fix) : "";
+  if (rounds && out.fix) out.fix = { status: out.fix.status, detail: `${rounds} · ${out.fix.detail}` };
+  else if (rounds) out.fix = { status: phase === "fix" && live ? "running" : "done", detail: rounds };
 
-  const gate = gates.at(-1);
-  if (!gate) {
-    out.gate = idle;
-  } else {
-    const failed = gates.filter((g) => g.ok === false).length;
-    const note = `run ${gates.length}` + (failed ? ` · ${failed} failed` : "");
-    if (gate.end !== null) {
-      out.gate = { status: gate.ok ? "done" : "failed", detail: `${clock(gate.end - gate.start)} · ${note}` };
-    } else if (ended) {
-      out.gate = { status: "failed", detail: "no result · " + note };
-    } else {
-      const step = gate.steps.findLast((s) => s.ok === null)?.step;
-      out.gate = { status: "running", detail: `${step || "starting"} · ${note}` };
-    }
-  }
+  const gate = gateStation(gates, ended);
+  if (gate) out.gate = gate;
+  const cross = crossStation(row.build?.marks ?? [], live, stop);
+  if (cross) out.cross = cross;
+  const you = youStation(row, isCurrent, waiting);
+  if (you) out.you = you;
 
-  const cross = crosses.at(-1);
-  if (!cross) {
-    out.cross = idle;
-  } else if (cross.end === null) {
-    out.cross = { status: ended ? "done" : "running", detail: clock(stop - cross.start) };
-  } else {
-    out.cross = { status: cross.ok ? "done" : "failed", detail: clock(cross.end - cross.start) };
-  }
-
-  if (chunk.decision) out.you = { status: "done", detail: chunk.decision };
-  else if (isLast && waiting) out.you = { status: "waiting", detail: "your turn" };
-  else if (!isLast) out.you = { status: "done", detail: "moved on" };
-  else out.you = idle;
-
-  const reached = STATIONS.findLastIndex((name) => out[name].status !== "idle");
+  const reached = STATIONS.findLastIndex((name) => out[name]);
+  const declared = STATION_OF_PHASE(phase);
   return STATIONS.map((name, i) => {
-    const skipped = out[name].status === "idle" && (i < reached || !isLast || ended);
-    const station = skipped ? { status: "skipped", detail: "" } : out[name];
-    return { name, status: station.status, detail: station.detail,
-             declared: chunk.phase === name || (name === "you" && chunk.phase === "report") };
+    const skipped = !out[name] && (i < reached || !isCurrent || ended);
+    const station = skipped ? { status: "skipped", detail: "" } : out[name] ?? idle;
+    return { name, status: station.status, detail: station.detail, declared: declared === name };
   });
 }
 
 export function listRuns(tail: Tail, now: number | null = null) {
+  const at = now ?? Date.now() / 1000;
   const markers = readMarkers();
   const rows: any[] = [];
   const seen = new Set<string>();
@@ -518,12 +569,16 @@ export function listRuns(tail: Tail, now: number | null = null) {
     if (!name.endsWith(".jsonl")) continue;
     const runId = name.slice(0, -6);
     seen.add(runId);
-    const events = tail.read(path.join(eventsDir(), name), parseEvent);
-    const full = build(runId, events, new Tail(), now, markers.get(runId) ?? null);
-    const chunk = full.chunks.findLast((c) => !c.empty) ?? full.chunks.at(-1)!;
-    rows.push({ run: runId, name: full.name, project: full.project, plan: full.plan, state: full.state,
-                started: full.started, ended: full.ended, chunk: chunk.n, of: chunk.of, final: chunk.final,
-                chunks: full.chunks.filter((c) => c.n !== null).length });
+    const marker = markers.get(runId) ?? null;
+    const state = reduce(tail.read(path.join(eventsDir(), name), parseEvent), marker);
+    const { ended, status } = progress(state, marker, at);
+    const made = state.rows[state.current].build;
+    rows.push({ run: runId, name: path.basename(state.run.project || "") || runId, project: state.run.project,
+                plan: state.run.plan, state: status, started: state.run.started,
+                ended: state.run.ended ?? (ended ? state.lastTs : null),
+                chunk: typeof made?.chunk === "number" ? made.chunk : null, of: made?.of ?? null,
+                final: isFinal(made),
+                chunks: new Set(state.rows.map((row) => row.build?.chunk).filter((n) => typeof n === "number")).size });
   }
   for (const [runId, marker] of markers) {
     if (seen.has(runId)) continue;

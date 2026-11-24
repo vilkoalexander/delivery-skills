@@ -55,6 +55,11 @@ eq "structural directives"   "$(count '*ngIf/*ngFor structural directives')" 1
 eq "OnPush"                  "$(count 'OnPush components')" 1
 eq "signals"                 "$(count 'input()/output()/model() signals')" 0
 
+echo 'export class T { readonly n = input(0); readonly done = output(); }' > "$shared/tag.component.ts"
+out=$(bash "$inventory")
+eq "signals with no type argument" "$(count 'input()/output()/model() signals')" 1
+rm "$shared/tag.component.ts"
+
 echo "# options"
 has "INVENTORY_DOCS adds the doc line"   0 '↳ Primary action button\.$' env INVENTORY_DOCS=1 bash "$inventory"
 has "INVENTORY_LIMIT caps a section"     0 '… \+2 more lines \(raise INVENTORY_LIMIT=1 to see them\)' env INVENTORY_LIMIT=1 bash "$inventory"

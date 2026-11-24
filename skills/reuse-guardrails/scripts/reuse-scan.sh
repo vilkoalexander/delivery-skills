@@ -14,46 +14,28 @@
 #                      docs/review/delivery.json, else utils|lib|helpers|hooks|common|shared|components/ui)
 #   REUSE_STRICT=1     exit 1 when anything was flagged
 #   DEP_VET=off        skip the registry and advisory lookup for changed dependencies
+# Exits 2 when it could not scan (bad pattern, bad range, invalid config).
 set -uo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
 pipeline="$here/../../delivery-pipeline/scripts"
 
-shared="${REUSE_SHARED:-$(node "$pipeline/config.mjs" get shared 2>/dev/null)}"
-shared="${shared:-(^|/)(utils|lib|helpers|hooks|common|shared|components/ui)(/|$)}"
-range="${REUSE_DIFF_RANGE:-}"
 if ! root=$(git rev-parse --show-toplevel 2>/dev/null); then
   echo "reuse-scan: not a git repository" >&2
   exit 2
 fi
 cd "$root"
+source "$pipeline/lib/changes.sh"
 
-# ------------------------------------------------------------- which paths
-paths=("$@")
+shared="${REUSE_SHARED:-}"
+[ -n "$shared" ] || shared=$(config_get shared) || exit 2
+shared="${shared:-(^|/)(utils|lib|helpers|hooks|common|shared|components/ui)(/|$)}"
+valid_ere "REUSE_SHARED (shared)" "$shared" || exit 2
+range="${REUSE_DIFF_RANGE:-}"
+before_ref=$(changes_base)
+[ -n "$range" ] && before_ref=${range%%..*}
 
-# A harness can hand a pipe that never closes; wait one second for each line, then fall back to git.
-read_paths_from_stdin() {
-  local line
-  [ -t 0 ] && return 0
-  while IFS= read -r -t 1 line; do
-    [ -n "$line" ] && paths+=("$line")
-  done
-}
-
-changed_paths() {
-  if [ -n "$range" ]; then
-    git diff --name-only "$range"
-  else
-    { git diff --name-only HEAD; git ls-files --others --exclude-standard; } | sort -u
-  fi
-}
-
-[ ${#paths[@]} -gt 0 ] || read_paths_from_stdin
-if [ ${#paths[@]} -eq 0 ]; then
-  while IFS= read -r path; do
-    paths+=("$path")
-  done < <(changed_paths)
-fi
+load_paths "$range" "$@" || exit 2
 if [ ${#paths[@]} -eq 0 ]; then
   echo "reuse-scan: nothing changed"
   echo "REUSE: 0 flags"
@@ -65,46 +47,15 @@ manifests=()
 for path in "${paths[@]}"; do
   case "$path" in
     *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs)
-      [[ $path =~ \.(spec|test)\. ]] || sources+=("$path")
+      is_test_path "$path" || sources+=("$path")
       ;;
   esac
   [ "$(basename "$path")" = package.json ] && manifests+=("$path")
 done
 
-# ------------------------------------------------------------- added lines
-is_tracked() {
-  git ls-files --error-unmatch "$1" > /dev/null 2>&1
-}
-
-# A diff of the paths; an untracked file counts as added whole.
-diff_of() {
-  local file
-  if [ -n "$range" ]; then
-    git diff -U0 "$range" -- "$@"
-    return
-  fi
-  git diff -U0 HEAD -- "$@"
-  for file in "$@"; do
-    is_tracked "$file" && continue
-    printf '+++ b/%s\n' "$file"
-    sed 's/^/+/' "$file"
-  done
-}
-
-# Turns a -U0 diff into "path:line:text", one line per added line.
-number_added_lines() {
-  awk '
-    /^\+\+\+ b\// { file = substr($0, 7); line = 0; next }
-    /^@@/         { split($3, hunk, /[,+]/); line = hunk[2] - 1; next }
-    /^\+/         { line++; print file ":" line ":" substr($0, 2); next }
-    /^-/          { next }
-                  { line++ }
-  '
-}
-
 added=""
 if [ ${#sources[@]} -gt 0 ]; then
-  added=$(diff_of "${sources[@]}" | number_added_lines)
+  added=$(added_lines "$range" "${sources[@]}") || exit 2
 fi
 
 # ---------------------------------------------------------------- sections
@@ -120,16 +71,7 @@ section() {
 }
 
 is_new_file() {
-  local path=$1
-  if [ -n "$range" ]; then
-    git diff --diff-filter=A --name-only "$range" -- "$path" | grep -q .
-    return
-  fi
-  if is_tracked "$path"; then
-    git diff --diff-filter=A --name-only HEAD -- "$path" | grep -q .
-  else
-    [ -z "$(git ls-files -- "$path")" ]
-  fi
+  ! git cat-file -e "$before_ref:$1" 2> /dev/null
 }
 
 new_shared_files() {
@@ -195,10 +137,10 @@ added_dependencies() {
   local manifest before after names found=""
   for manifest in ${manifests[@]+"${manifests[@]}"}; do
     if [ -n "$range" ]; then
-      before=$(git show "${range%%..*}:$manifest" 2>/dev/null)
+      before=$(git show "$before_ref:$manifest" 2>/dev/null)
       after=$(git show "${range##*..}:$manifest" 2>/dev/null)
     else
-      before=$(git show "HEAD:$manifest" 2>/dev/null)
+      before=$(git show "$before_ref:$manifest" 2>/dev/null)
       after=$(cat "$manifest" 2>/dev/null)
     fi
     names=$(added_dependency_names "$before" "$after")

@@ -4,7 +4,10 @@ Read when the human approves the last chunk. The run is not complete at that
 time. Each chunk review saw the diff of one chunk only. Nothing examined the
 work as a whole.
 
-Record the phase: `bash chunked-delivery/scripts/mark.sh phase=final`.
+Record the phase: `bash chunked-delivery/scripts/mark.sh phase=final`. Record
+each step of this pass with a mark that has no `chunk`:
+`mark.sh phase=verify`, then `phase=review`, `phase=cross`, `phase=fix`,
+`phase=gate`, `phase=report`.
 
 ## Do these three steps, one time, in this order
 
@@ -12,8 +15,9 @@ Record the phase: `bash chunked-delivery/scripts/mark.sh phase=final`.
    criterion of the plan. In long-run mode, also give it the `exercise:` line
    of each low-risk chunk. Its lines become the `Spec:` line of the report. A
    criterion that nobody ran is not met.
-2. **Review the whole tree.** Take a snapshot of the full working tree:
-   `git add -N . && git diff > "$WORKSPACE/final.diff"`. Dispatch one reviewer
+2. **Review the whole tree.** Take a snapshot of all that the run changed:
+   `bash chunked-delivery/scripts/snapshot.sh final` writes
+   `$WORKSPACE/final.diff`. Dispatch one reviewer
    on Opus 5.5 against it, not against the snapshot of the last chunk. Give it:
    - the snapshot;
    - the goal and the acceptance criteria of the plan;
@@ -35,7 +39,9 @@ Record the phase: `bash chunked-delivery/scripts/mark.sh phase=final`.
 ## Findings
 
 A finding or a `FAIL` line gets the same treatment as in a chunk. Tell the
-human in one line that fix rounds are in progress. The limit is five rounds.
+human in one line that fix rounds are in progress. The limit is five rounds,
+and `mark.sh` holds it. Run the static gate after each fix round:
+`DELIVERY_BASE=$(bash chunked-delivery/scripts/snapshot.sh base final)`.
 Then report what stays open.
 
 ## The final report

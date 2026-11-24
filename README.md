@@ -47,36 +47,44 @@ The picture is wide: click it for full size.
 
 ## Scripts decide what they can
 
-A rule in a prompt is a request. A script gives the same answer every run,
-costs no tokens and cannot be argued with. So anything with one right answer
-is a script, and a model is asked only what is left.
+A rule in a prompt is a request. A script gives the same answer every run
+and costs no tokens. So anything with one right answer is a script, and a
+model is asked only what is left. A script that cannot answer says so and
+fails; it never reports "nothing found" for something it could not look at.
 
 [![Inside the static gate: how each step decides](diagrams/static-gate.svg)](diagrams/static-gate.svg)
 
 | Script | Decides | Runs |
 | --- | --- | --- |
-| `hooks/guard.sh` | No commit, add, push, merge, stash or PR during a run, and no install of a package the registry does not vouch for. Reviewer and verifier cannot write. An implementer report has its Proof block. A chunk task completes only after your decision is in the run log. | On every tool call |
-| `delivery-pipeline/scripts/static-gate.sh check` | The commands your `docs/review/delivery.json` names for typecheck, lint, format and tests pass; a step with no command is reported as skipped | After each chunk, before any reviewer |
-| `delivery-pipeline/scripts/secret-scan.sh` | No line the change adds holds a credential | In the gate |
+| `hooks/guard.sh` | During a run git is read-only on the command line: no commit, add, push, merge, stash or PR, and no install of a package the registry does not vouch for. It reads the command text, so it stops mistakes, not a script written to get around it. Reviewer and verifier cannot write. An implementer report has its Proof block. A chunk task completes only after your decision is in the run log. | On every tool call |
+| `delivery-pipeline/scripts/static-gate.sh check` | The commands your `docs/review/delivery.json` names for typecheck, lint, format and tests pass; a step with no command is reported as skipped, and a step that could not run fails the gate | After each chunk, before any reviewer |
 | `test-review/scripts/test-lock.sh` | No existing test was deleted, skipped or had an assertion rewritten | In the gate |
 | `delivery-pipeline/scripts/drift.sh` | Two copies of one fact still agree: schema and migrations, API and generated client, native deps and SDK. You declare the pairs. | In the gate, when a matching path changed |
-| `test-review/scripts/revert-check.sh` | New tests fail when the change is reverted | In the gate, when tests changed |
+| `test-review/scripts/revert-check.sh` | New tests pass with the change and fail when it is reverted | In the gate, when tests and source changed |
 | `reuse-guardrails/scripts/reuse-scan.sh` | A new helper, export or dependency duplicates one the repo has | In the gate; flags, never fails |
-| `delivery-pipeline/scripts/escape-scan.sh` | A line the change adds silences a checker, casts to `any`, defers the fix in a comment, or keeps two copies in sync by a comment | In the gate; flags, never fails |
-| `delivery-pipeline/scripts/erosion-scan.sh` | A function that was complex already got more complex, or the change took it past the limit | In the gate; flags, never fails |
-| `delivery-pipeline/scripts/dep-vet.sh` | A package exists in the registry, is not days old and is not reported as malware; flags install scripts and known advisories | In the hook before an install or `npx` during a run; in the reuse scan for changed dependencies |
+| `delivery-pipeline/scripts/dep-vet.sh` | A package exists in the registry, is not days old and is not reported as malware; flags install scripts and known advisories | In the hook before an install or `npx` during a run |
 | `delivery-pipeline/scripts/risk.sh` | Risk class of a change, from its paths; says when a dependency change shares the chunk with other work | At the cut and in each report |
 | `<rubric>/scripts/scan.sh` | Mechanical smells in one file | Before a reviewer reads it |
 | `<rubric>/scripts/inventory.sh` | What the repo already has to reuse | Before an implementer writes |
-| `chunked-delivery/scripts/redo.sh` | Returns the tree to before a chunk, keeps what it discards | On `redo` |
+| `chunked-delivery/scripts/snapshot.sh` | Nothing: records the working tree before a chunk and writes the diff of that chunk alone, without touching the index | Before and after each chunk |
+| `chunked-delivery/scripts/redo.sh` | Returns the tree to before a chunk, keeps what it discards as a patch | On `redo` |
+| `hooks/tree-check.sh` | A reviewer or verifier seat left the working tree as it found it; a seat that wrote is refused once, then recorded | When a read-only seat starts and stops |
 | `hooks/emit.sh` | Nothing: records every tool call, agent start and stop, and refusal of a run, in the background | On every tool call during a run |
-| `chunked-delivery/scripts/mark.sh` | Which chunk and step the run is on, the one fact nothing else can observe | At each step of the loop |
+| `chunked-delivery/scripts/mark.sh` | Whether the next step of the loop is permitted: the order of phases, the fix-round limit of the risk class, a verify before the report, your answer before the next chunk. `lifecycle.mjs` holds the rules, and the floor page, the log and the retro read the same file | At each step of the loop |
 | `chunked-delivery/scripts/run-log.sh` | One line per chunk; `stats` totals what each gate caught and counts the paths the runs took | At each decision |
 | `chunked-delivery/scripts/test-first.sh` | A test author changed a file that is not a test; an implementer changed a test | After the test authors, and after the implementers |
 | `run-retro/scripts/sources.sh` | What one run left behind: chunks, decisions, what you typed, refusals, gate failures, transcript paths | At the start of a retro |
 | `delivery-pipeline/scripts/stamp.sh` | Which project-layer documents name code that changed since the commit on their `As of:` line; `set` writes the commit | After the recipe is proved, and at the cut; flags, never fails |
 | `verify-recipe/scripts/check.sh` | The verify recipe and the feature map are whole: every section filled, every feature in the index, no placeholder, no path that is gone | After the recipe is written, and at the cut |
 | `comment-cleanup/scripts/verify.sh` | A cleanup changed comment lines only | After a comment cleanup |
+
+The gate has no scan for credentials, suppressions or complexity: CI owns
+credentials, and the project's ESLint config owns the other two
+([`STATIC-SETUP.md`](skills/delivery-pipeline/STATIC-SETUP.md) has the rules).
+
+The hook reads commands through `hooks/command.mjs`, a tokenizer and not a
+shell: pip, pipx and uvx installs are not vetted, and a seat writes only
+under a temp directory or `DELIVERY_EVIDENCE_DIR`.
 
 Paths are under `skills/`. Outside a run the hook does nothing, so other
 plugins that commit keep working. Every script has tests;

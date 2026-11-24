@@ -2,38 +2,54 @@
 # Static gate: what the toolchain enforces, and whether a change passes it.
 # Runs before any reviewer is dispatched, so a diff that fails tsc or lint
 # never costs a review seat.
-#
-#   bash static-gate.sh coverage [root]     once per run — what is enforced
-#   bash static-gate.sh check <path>...     per chunk — does the change pass
-#   git diff --name-only | bash static-gate.sh check
-#   bash static-gate.sh init                once per project — draft docs/review/delivery.json
-#
-# `coverage` prints a table of checks and their status (error / warn / absent
-# / none) and ends with an ABSENT: list for the Global Constraints block.
-# `check` runs the commands docs/review/delivery.json names for the workspace
-# each changed path is in (see config.mjs) and exits non-zero with each tool's
-# output on failure. It detects nothing: without that file it refuses, and a
-# step with no command is printed as skipped, never counted as passing.
-#
-#   RISK_HIGH / RISK_MEDIUM are not read here; see risk.sh.
-#   STATIC_SKIP   space-separated steps to skip for this call: test-lock drift secrets reuse escapes erosion, or any step name from the config
-#   SECRET_ALLOW  regex over `path:line:text` for added lines secret-scan.sh must not count
-#   ESCAPE_ALLOW  the same for escape-scan.sh
-#   EROSION_ALLOW  regex over `path:function` for functions erosion-scan.sh must not count
-#   DRIFT_FILE   the project's drift checks (default docs/review/drift.checks); see drift.sh
-#   TEST_LOCK_ALLOW  regex of existing test paths a plan task names as changing
 set -uo pipefail
+
+usage() {
+  cat >&2 <<'TEXT'
+bash static-gate.sh coverage [root]     once per run — what is enforced
+bash static-gate.sh check [path...]     per chunk — does the change pass
+bash static-gate.sh init                once per project — draft docs/review/delivery.json
+
+`coverage` prints a table of checks and their status (error / warn / absent
+/ none) and ends with an ABSENT: list for the Global Constraints block. In a
+monorepo, name the workspace directory as [root].
+
+`check` takes the changed paths from its arguments, else from stdin, else
+from git: everything between DELIVERY_BASE (default HEAD) and the working
+tree, deleted and untracked files included. It runs its own steps, then the
+commands docs/review/delivery.json names for the workspace of each changed
+path (see config.mjs). It detects nothing: without that file it refuses.
+
+Every step ends in the summary with one status: ok, FAIL, could not run,
+skipped (with the reason) or n/a (with the reason). A step that could not
+run fails the gate, a flag scan included. A gate in which no failing step
+ran is not clean. Exit 0 clean, 1 failed, 2 the gate itself could not start.
+
+  DELIVERY_BASE     tree-ish the change starts from (default HEAD)
+  STATIC_SKIP       space-separated steps to skip for this call: test-lock
+                    revert-check drift reuse, or
+                    any step name from the config
+  DRIFT_FILE        the project's drift checks (default docs/review/drift.checks); see drift.sh
+  TEST_LOCK_ALLOW   ERE of existing test paths a plan task names as changing
+  TEST_CMD          the test runner for revert-check.sh, when it cannot be detected
+RISK_HIGH and RISK_MEDIUM are not read here; see risk.sh.
+TEXT
+  exit 2
+}
 
 here=$(cd "$(dirname "$0")" && pwd)
 skills="$here/../.."
 mode="${1:-}"
 shift || true
-if [ -z "$mode" ]; then
-  sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' >&2
-  exit 2
-fi
+[ -n "$mode" ] || usage
 
 root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+if [ "$mode" = coverage ] && [ -n "${1:-}" ]; then
+  if ! root=$(cd "$1" 2>/dev/null && pwd); then
+    echo "coverage: no directory $1" >&2
+    exit 2
+  fi
+fi
 
 has_script() {
   node -e '
@@ -137,7 +153,7 @@ coverage_typescript() {
   if has_script typecheck; then
     row "script: typecheck" "$(node -e 'console.log(require("./package.json").scripts.typecheck)')"
   else
-    row "script: typecheck" "none — falls back to tsc --noEmit"
+    row "script: typecheck" "none"
   fi
 }
 
@@ -195,6 +211,8 @@ coverage_eslint() {
     @typescript-eslint/no-explicit-any @typescript-eslint/no-unsafe-assignment no-console
     import-x/no-cycle import/no-cycle
     complexity max-depth max-params sonarjs/cognitive-complexity
+    @typescript-eslint/ban-ts-comment no-warning-comments
+    @eslint-community/eslint-comments/require-description @eslint-community/eslint-comments/no-unlimited-disable
     react-native/no-inline-styles react-native/no-color-literals react-native/no-unused-styles
     react-hooks/rules-of-hooks react-hooks/exhaustive-deps react/jsx-key jsx-a11y/alt-text
     @angular-eslint/prefer-standalone @angular-eslint/template/use-track-by-function
@@ -327,6 +345,7 @@ coverage_drift() {
 setup_section() {
   case "$1" in
     typescript|tsc:*) echo typescript ;;
+    eslint:@typescript-eslint/ban-ts-comment|eslint:no-warning-comments|eslint:@eslint-community/*) echo escapes ;;
     eslint|eslint:type-aware|eslint:@typescript-eslint/*|eslint:no-console|eslint:max-warnings) echo eslint ;;
     eslint:complexity|eslint:max-depth|eslint:max-params|eslint:sonarjs/*|eslint:react-native/*) echo shape ;;
     eslint:react*|eslint:jsx-a11y*)   echo react ;;
@@ -372,64 +391,141 @@ coverage() {
 }
 
 # ------------------------------------------------------------------- check
-steps_run=()
-steps_skipped=()
+# One line per step: name<TAB>status<TAB>note. Every step lands here once.
+results=()
 gate_failed=0
+fail_steps_run=0
 
-# run_step NAME SHOWN command... — SHOWN is what the report prints after the name
+record() {
+  results+=("$1"$'\t'"$2"$'\t'"${3:-}")
+}
+
+# run_step KIND NAME SHOWN command...
+# KIND fail: any exit but 0 fails the gate. KIND flag: its findings are for the
+# reviewer and never fail the gate; a scan that could not run (exit 2 or more) does.
 run_step() {
-  local name=$1 shown=$2 started=$SECONDS ok=true
-  shift 2
-  printf '== %s: %s\n' "$name" "$shown"
+  local kind=$1 name=$2 shown=$3 started=$SECONDS status ok=true code
+  shift 3
   emit gate_step_start step="$name"
-  steps_run+=("$name")
 
-  if "$@" > "$step_log" 2>&1; then
-    echo "   ok"
+  "$@" > "$step_log" 2>&1
+  code=$?
+  if [ "$code" = 0 ] && grep -q ': n/a — ' "$step_log"; then
+    not_applicable "$name" "$(sed -n 's/^.*: n\/a — //p' "$step_log" | tail -1)"
+    emit gate_step step="$name" ok:=true s:=0
+    return
+  elif [ "$code" = 0 ]; then
+    status=ok
+  elif [ "$kind" = flag ] && [ "$code" = 1 ]; then
+    status=flags
+  elif [ "$code" = 2 ] && [ "$kind" != project ]; then
+    status="could not run"
   else
-    echo "   FAIL"
-    tail -40 "$step_log" | sed 's/^/   /'
-    gate_failed=1
-    ok=false
+    status=FAIL
   fi
+
+  printf '== %s: %s\n' "$name" "$shown"
+  case $status in
+    ok|flags)
+      echo "   $status"
+      [ "$kind" = project ] || sed 's/^/   /' "$step_log"
+      ;;
+    *)
+      echo "   $status"
+      tail -40 "$step_log" | sed 's/^/   /'
+      gate_failed=1
+      ok=false
+      ;;
+  esac
+  [ "$kind" = flag ] || fail_steps_run=$((fail_steps_run + 1))
+  record "$name" "$status"
   emit gate_step step="$name" ok:=$ok s:=$((SECONDS - started))
 }
 
 skip_step() {
-  steps_skipped+=("$1")
+  record "$1" skipped "$2"
   printf -- '-- %s: skipped — %s\n' "$1" "$2"
+}
+
+not_applicable() {
+  record "$1" n/a "$2"
+  printf -- '-- %s: n/a — %s\n' "$1" "$2"
 }
 
 run_in_dir() {
   (cd "$1" && bash -c "$2") < /dev/null
 }
 
-# test-lock, drift and secrets: the gate's own steps, before the project's.
-check_built_in_steps() {
-  local lock="$skills/test-review/scripts/test-lock.sh"
-  if skip test-lock; then
-    skip_step test-lock STATIC_SKIP
-  elif [ -f "$lock" ]; then
-    run_step test-lock "bash $lock ${changed[*]}" bash "$lock" "${changed[@]}"
-  fi
+# The gate's own steps, in the order they run. A fail step fails the gate; a
+# flag step hands its lines to the reviewer and the chunk report.
+fail_steps=(test-lock revert-check drift)
+flag_steps=(reuse)
 
-  if skip drift; then
-    skip_step drift STATIC_SKIP
-  elif [ -f "${DRIFT_FILE:-docs/review/drift.checks}" ]; then
-    run_step drift "bash $here/drift.sh check ${changed[*]}" bash "$here/drift.sh" check "${changed[@]}"
-  fi
+# Sets `step_command` and `step_shown` for one of the gate's own steps, or `step_reason` to why it has nothing to do.
+own_step() {
+  local drift_file="${DRIFT_FILE:-docs/review/drift.checks}"
+  step_command=()
+  step_reason=""
+  step_shown="$1 on ${#changed[@]} path(s)"
+  case $1 in
+    test-lock)
+      step_command=(bash "$skills/test-review/scripts/test-lock.sh" "${changed[@]}")
+      ;;
+    revert-check)
+      if [ ${#changed_tests[@]} -eq 0 ]; then
+        step_reason="no changed test file"
+      else
+        step_command=(bash "$skills/test-review/scripts/revert-check.sh" "${changed[@]}")
+      fi
+      ;;
+    drift)
+      if [ ! -f "$drift_file" ]; then
+        step_reason="no $drift_file"
+      else
+        step_command=(bash "$here/drift.sh" check "${changed[@]}")
+      fi
+      ;;
+    reuse)
+      if [ ${#existing[@]} -eq 0 ]; then
+        step_reason="every changed path was deleted"
+      else
+        step_command=(env DEP_VET=off bash "$skills/reuse-guardrails/scripts/reuse-scan.sh" "${existing[@]}")
+      fi
+      ;;
+  esac
+}
 
-  if skip secrets; then
-    skip_step secrets STATIC_SKIP
-  elif [ ${#existing[@]} -gt 0 ]; then
-    run_step secrets "bash $here/secret-scan.sh ${existing[*]}" bash "$here/secret-scan.sh" "${existing[@]}"
-  fi
+run_own_steps() {
+  local kind=$1 name
+  shift
+  for name in "$@"; do
+    if skip "$name"; then
+      skip_step "$name" STATIC_SKIP
+      continue
+    fi
+    own_step "$name"
+    if [ -n "$step_reason" ]; then
+      not_applicable "$name" "$step_reason"
+    else
+      run_step "$kind" "$name" "$step_shown" "${step_command[@]}"
+    fi
+  done
 }
 
 # The project's own steps, as docs/review/delivery.json names them.
-check_project_steps() {
-  local kind dir name text label
+run_project_steps() {
+  local kind dir name text label rows
+  if ! rows=$(node "$here/config.mjs" plan "${changed[@]}" 2> "$step_log"); then
+    echo "== config: the plan of the project steps"
+    echo "   could not run"
+    tail -20 "$step_log" | sed 's/^/   /'
+    record config "could not run"
+    gate_failed=1
+    return
+  fi
+
   while IFS=$'\t' read -r kind dir name text; do
+    [ -n "$kind" ] || continue
     label=$name
     [ "$dir" = . ] || [ "$dir" = - ] || label="$name:$dir"
     case "$kind" in
@@ -437,91 +533,88 @@ check_project_steps() {
         if skip "$name"; then
           skip_step "$label" STATIC_SKIP
         else
-          run_step "$label" "$text" run_in_dir "$dir" "$text"
+          run_step project "$label" "$text" run_in_dir "$dir" "$text"
         fi
         ;;
       SKIP)
         skip_step "$label" "$text"
         ;;
     esac
-  done < <(node "$here/config.mjs" plan "${changed[@]}")
+  done <<< "$rows"
 }
 
-# Reuse flags ride along to the reviewer and the chunk report; they never
-# fail the gate (REUSE_STRICT=1 on the scan itself does, when wanted).
-check_reuse() {
-  local scan="$skills/reuse-guardrails/scripts/reuse-scan.sh"
-  skip reuse && return 0
-  [ -f "$scan" ] && [ ${#existing[@]} -gt 0 ] || return 0
-
-  printf '== reuse scan\n'
-  emit gate_step_start step=reuse
-  bash "$scan" "${existing[@]}" | sed 's/^/   /'
-  emit gate_step step=reuse ok:=true s:=0
+# Splits the changed paths: files that exist, files the change deleted, and
+# names that are neither. A name that is neither stops the gate: it would be
+# a file no step reads.
+sort_paths() {
+  local path base unknown=()
+  base=$(changes_base)
+  existing=()
+  changed_tests=()
+  manifests=()
+  for path in "${changed[@]}"; do
+    if [ -f "$path" ]; then
+      existing+=("$path")
+      is_test_path "$path" && changed_tests+=("$path")
+      [ "$(basename "$path")" = package.json ] && manifests+=("$path")
+    elif ! git cat-file -e "$base:$path" 2> /dev/null; then
+      unknown+=("$path")
+    fi
+  done
+  [ ${#unknown[@]} -eq 0 ] && return 0
+  echo "check: not a file under $root and not a file the change deleted:" >&2
+  printf '  %s\n' "${unknown[@]}" >&2
+  echo "Give paths from the root of the repository." >&2
+  return 2
 }
 
-# Escape flags ride along the same way: a silenced checker or a deferred fix
-# is for a reviewer to judge (ESCAPE_STRICT=1 on the scan itself fails).
-check_escapes() {
-  skip escapes && return 0
-  [ ${#existing[@]} -gt 0 ] || return 0
-
-  printf '== escape scan\n'
-  emit gate_step_start step=escapes
-  ESCAPE_STRICT= bash "$here/escape-scan.sh" "${existing[@]}" | sed 's/^/   /'
-  emit gate_step step=escapes ok:=true s:=0
-}
-
-# Erosion flags ride along too: a function that was complex and grew is for a
-# reviewer to judge (EROSION_STRICT=1 on the scan itself fails).
-check_erosion() {
-  skip erosion && return 0
-  [ ${#existing[@]} -gt 0 ] || return 0
-
-  printf '== erosion scan\n'
-  emit gate_step_start step=erosion
-  EROSION_STRICT= bash "$here/erosion-scan.sh" "${existing[@]}" | sed 's/^/   /'
-  emit gate_step step=erosion ok:=true s:=0
+print_summary() {
+  local result name status note verdict=clean
+  echo
+  if [ "$gate_failed" != 0 ]; then
+    verdict=FAILED
+  elif [ "$fail_steps_run" = 0 ]; then
+    verdict="NOT RUN"
+    gate_failed=1
+  fi
+  echo "static gate: $verdict"
+  for result in "${results[@]}"; do
+    IFS=$'\t' read -r name status note <<< "$result"
+    printf '  %-22s %s%s\n' "$name" "$status" "${note:+ — $note}"
+  done
+  case $verdict in
+    FAILED)    echo "Send the output above to the implementer; no reviewer yet." ;;
+    "NOT RUN") echo "No step that can fail ran, so nothing was checked. Run the typecheck and the tests of the project yourself." ;;
+  esac
 }
 
 check() {
   cd "$root"
-  changed=("$@")
-  if [ ${#changed[@]} -eq 0 ]; then
-    local line
-    while IFS= read -r line; do
-      [ -n "$line" ] && changed+=("$line")
-    done
-  fi
-  if [ ${#changed[@]} -eq 0 ]; then
-    echo "check: no paths" >&2
-    exit 2
-  fi
+  source "$here/lib/changes.sh"
   node "$here/config.mjs" check || exit 2
 
-  existing=()
-  local path
-  for path in "${changed[@]}"; do
-    [ -f "$path" ] && existing+=("$path")
-  done
+  DELIVERY_TREE=$(worktree_tree) || exit 2
+  export DELIVERY_TREE
+  load_paths "" "$@" || exit 2
+  changed=(${paths[@]+"${paths[@]}"})
+  if [ ${#changed[@]} -eq 0 ]; then
+    echo "check: no paths, and nothing changed since $(changes_base)" >&2
+    exit 2
+  fi
+  sort_paths || exit 2
 
   step_log=$(mktemp)
+  trap 'rm -f "$step_log"' EXIT
   emit gate_start paths:=${#changed[@]}
-  check_built_in_steps
-  check_project_steps
-  rm -f "$step_log"
-  check_reuse
-  check_escapes
-  check_erosion
+  run_own_steps fail "${fail_steps[@]}"
+  run_project_steps
+  run_own_steps flag "${flag_steps[@]}"
 
-  local summary="ran: ${steps_run[*]:-nothing}"
-  [ ${#steps_skipped[@]} -gt 0 ] && summary="$summary; skipped: ${steps_skipped[*]}"
-  if [ "$gate_failed" -eq 0 ]; then
+  print_summary
+  if [ "$gate_failed" = 0 ]; then
     emit gate_end ok:=true
-    echo "static gate: clean — $summary"
   else
     emit gate_end ok:=false
-    echo "static gate: FAILED — $summary. Send the output above to the implementer; no reviewer yet"
     exit 1
   fi
 }

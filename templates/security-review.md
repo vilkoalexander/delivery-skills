@@ -51,7 +51,7 @@ delete the row.
 
 `<email, phone, address, payment method last four, date of birth>` — not in URLs, cache keys or analytics events.
 
-## Ceilings — do not recommend past these
+## Known ceilings — do not recommend past these
 
 - `<No second auth library; no hand-rolled crypto>`
 - `<No per-handler role checks where the guard already decides>`

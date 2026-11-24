@@ -28,6 +28,7 @@ describe('cart', () => {
       await fetch('https://api.example.com/cart');
     } catch (e) {
       console.log(e); // TODO
+      expect(e.message).toMatch(/cart/);
     }
   });
   it('renders', () => { expect(tree).toMatchSnapshot(); });
@@ -46,7 +47,7 @@ flags "Weak assertion"
 flags "Assertion on a mock call"
 flags "Assertion inside a condition or catch"
 flags "Swallowed act"
-flags "Fewer assertions \(4\) than test blocks \(5\)"
+flags "Fewer assertions \(5\) than test blocks \(6\)"
 
 echo "# mocking"
 flags "Mocks the module under test \(./cart\)"
@@ -80,6 +81,38 @@ cat > local.test.ts <<'TS'
 it('answers', async () => { expect(await call('http://localhost:3000/x')).toEqual({ ok: 1 }); });
 TS
 has "is clean" 0 '^clean — no mechanical smells$' bash "$scan" local.test.ts
+
+echo "# a condition with no assertion, a URL that is data"
+cat > branch.test.ts <<'TS'
+it('opens the link', () => {
+  if (process.env.CI) {
+    setup();
+  }
+  for (const row of rows) {
+    if (row.kind === 'x') {
+      expect(row.total).toBe(3);
+    }
+  }
+  expect(link.href).toBe('https://example.com/docs');
+});
+TS
+out=$(bash "$scan" branch.test.ts)
+conditional=$(under 'Assertion inside a condition or catch')
+sees   "an assertion under an if"            '^6:' "$conditional"
+misses "an if with no assertion in it"       '^2:' "$conditional"
+unflags "Real network or filesystem in a unit test"
+
+echo "# table tests are test blocks"
+cat > table.test.ts <<'TS'
+it.each([[1, 2], [3, 4]])('adds %i', (a, b) => {});
+test.each`
+  a | b
+`('sums $a', ({ a }) => {});
+it.todo('later');
+it('checks', () => { expect(sum(1, 1)).toBe(2); });
+TS
+out=$(bash "$scan" table.test.ts)
+flags "Fewer assertions \(1\) than test blocks \(3\)"
 
 echo "# input"
 has "no argument"  1 '^usage: scan.sh <test file>$' bash "$scan"

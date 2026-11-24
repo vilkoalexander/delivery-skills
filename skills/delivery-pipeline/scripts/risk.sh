@@ -29,47 +29,63 @@ set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 max_low_files="${RISK_MAX_LOW_FILES:-5}"
 
-from_config() {
-  node "$here/config.mjs" get "$1" 2>/dev/null
-}
-project_high="${RISK_HIGH:-$(from_config risk.high)}"
-project_medium="${RISK_MEDIUM:-$(from_config risk.medium)}"
+source "$here/lib/changes.sh"
 
-if [ $# -gt 0 ]; then
-  paths=("$@")
-else
-  paths=()
-  while IFS= read -r line; do
-    [ -n "$line" ] && paths+=("$line")
+project_high="${RISK_HIGH:-}"
+[ -n "$project_high" ] || project_high=$(config_get risk.high) || exit 2
+project_medium="${RISK_MEDIUM:-}"
+[ -n "$project_medium" ] || project_medium=$(config_get risk.medium) || exit 2
+valid_ere "RISK_HIGH (risk.high)" "$project_high" || exit 2
+valid_ere "RISK_MEDIUM (risk.medium)" "$project_medium" || exit 2
+
+paths=("$@")
+# A harness can hand a pipe that never closes; wait one second for each line.
+if [ ${#paths[@]} -eq 0 ] && [ ! -t 0 ]; then
+  while IFS= read -r -t 1 line; do
+    [ -n "$line" ] && paths+=("$(unquote_git_path "$line")")
   done
 fi
+if [ ${#paths[@]} -eq 0 ] && git rev-parse --git-dir > /dev/null 2>&1; then
+  while IFS= read -r -d '' line; do paths+=("$line"); done < <(changed_paths 2> /dev/null)
+fi
 if [ ${#paths[@]} -eq 0 ]; then
-  echo "usage: risk.sh <path>... | git diff --name-only | risk.sh" >&2
+  echo "usage: risk.sh [path...]    paths also on stdin; with none, each path that differs from DELIVERY_BASE (default HEAD)" >&2
   exit 2
 fi
 
 # ------------------------------------------------------------ path rules
 # class :: rule :: pattern (ERE over the path). The first line that matches wins.
+# A pattern that starts with (?i) is matched against the path in lower case.
 rules=(
+  # a chunk that edits these changes what the gate checks
+  'high :: the config of the gate :: (^|/)docs/review/(delivery\.json|drift\.checks)$'
+
+  # prose and styles are never the auth or money logic they are named after
+  'low :: docs :: \.(md|mdx)$'
+  'low :: styling or assets :: \.(css|scss|sass|less|styl)$'
+  'medium :: dependency change :: (^|/)requirements[^/]*\.txt$'
+
   # high — one-way doors
-  'high :: schema or migration :: \.prisma$|(^|/)migrations?/|\.sql$|Entity\.java$'
+  'high :: schema or migration :: \.prisma$|(^|/)migrations?/|\.sql$|Entity\.(java|kt)$|\.entity\.ts$'
   'high :: shared contract package :: (^|/)(libs|packages)/(shared|contracts|api-types|api-contract)(/|$)'
-  'high :: auth, guard, session :: (^|/)(auth|guards|strategies|session|security|acl)(/|\.)|\.(guard|strategy)\.ts$|(jwt|passport|oauth)|(Security|Auth[a-z]*|Jwt|Token|Permission)[A-Za-z]*\.java$'
-  'high :: money path :: (payment|billing|ledger|invoice|checkout|wallet|stripe|subscription)'
-  'high :: env or secrets :: (^|/)\.env(\.|$)|(secret|credential)'
+  'high :: auth, guard, session :: (^|/)(auth|guards|strategies|session|security|acl)(/|\.)|\.(guard|strategy)\.ts$|(Security|Auth[a-z]*|Jwt|Token|Permission)[A-Za-z]*\.(java|kt)$'
+  'high :: auth, guard, session :: (?i)(jwt|passport|oauth)'
+  'high :: money path :: (?i)(payment|billing|ledger|invoice|checkout|wallet|stripe|subscription)'
+  'high :: env or secrets :: (^|/)\.env(\.|$)'
+  'high :: env or secrets :: (?i)(^|[^a-z])(secrets?|credentials?)([^a-z]|$)'
   'high :: CI, deploy, infra :: (^|/)\.github/workflows/|(^|/)(Dockerfile|docker-compose[^/]*|helm|terraform|k8s|deploy|infra)(/|\.|$)'
 
   # low — local, visible, cheap
-  'low :: tests :: \.(spec|test)\.[cm]?[jt]sx?$|(^|/)(__tests__|test|tests|e2e|cypress|playwright|testFixtures|integrationTest)/|(Test|Tests|IT)\.java$'
-  'low :: docs :: \.(md|mdx|txt)$|(^|/)docs/'
-  'low :: styling or assets :: \.(css|scss|sass|less|styl)$|(^|/)(styles|theme|assets|public|static|fonts|images)/'
+  'low :: tests :: \.(spec|test)\.[cm]?[jt]sx?$|(^|/)(__tests__|test|tests|e2e|cypress|playwright|testFixtures|integrationTest)/|(Test|Tests|IT)\.(java|kt)$'
+  'low :: docs :: \.txt$|(^|/)docs/'
+  'low :: styling or assets :: (^|/)(styles|theme|assets|public|static|fonts|images)/'
   'low :: copy, i18n :: (^|/)(i18n|locales|translations)/'
-  'low :: dev tooling config :: (eslint|prettier|editorconfig|tsconfig|vitest|jest|babel|vite|webpack)[^/]*$|(^|/)\.(vscode|idea)/'
+  'low :: dev tooling config :: (^|/)\.?(eslint|prettier|editorconfig|tsconfig|vitest|jest|babel|vite|webpack)[^/]*$|(^|/)\.(vscode|idea)/'
   'low :: feature-local UI :: (^|/)(features|pages|views|screens|routes)/.*\.(tsx|jsx|vue|svelte|html)$|(^|/)(features|pages|views|screens)/.*\.component\.ts$'
 
   # medium — shared behaviour, reversible
   'medium :: NestJS unit :: \.(service|controller|module|resolver|interceptor|filter|pipe|middleware)\.ts$'
-  'medium :: Spring unit :: (Controller|Service|ServiceImpl|Repository|Specification|Configuration|Config|Listener|Handler|Filter|Aspect)\.java$'
+  'medium :: Spring unit :: (Controller|Service|ServiceImpl|Repository|Specification|Configuration|Config|Listener|Handler|Filter|Aspect)\.(java|kt)$'
   'medium :: runtime configuration :: (^|/)application[^/]*\.(yml|yaml|properties)$'
   'medium :: shared primitive, hook or util :: (^|/)(components/ui|hooks|lib|utils|shared|common|store|state|api|services)(/|$)'
   'medium :: dependency change :: (^|/)package\.json$|(^|/)(pnpm-lock\.yaml|package-lock\.json|yarn\.lock)$|(^|/)(build|settings)\.gradle(\.kts)?$|(^|/)(pom\.xml|gradle\.properties|libs\.versions\.toml)$'
@@ -79,7 +95,7 @@ rules=(
 
 # Prints "class<TAB>rule" for one path.
 classify() {
-  local path=$1 rule class name pattern
+  local path=$1 lower rule class name pattern subject
   if [ -n "$project_high" ] && [[ $path =~ $project_high ]]; then
     printf 'high\tRISK_HIGH\n'
     return
@@ -89,12 +105,18 @@ classify() {
     return
   fi
 
+  lower=$(printf '%s' "$path" | tr '[:upper:]' '[:lower:]')
   for rule in "${rules[@]}"; do
     class=${rule%% :: *}
     rule=${rule#* :: }
     name=${rule%% :: *}
     pattern=${rule#* :: }
-    if [[ $path =~ $pattern ]]; then
+    subject=$path
+    if [[ $pattern == '(?i)'* ]]; then
+      pattern=${pattern#'(?i)'}
+      subject=$lower
+    fi
+    if [[ $subject =~ $pattern ]]; then
       printf '%s\t%s\n' "$class" "$name"
       return
     fi
@@ -140,7 +162,7 @@ fi
 class=$(class_of "$highest")
 echo "files: $file_count"
 
-manifest=$'\t''(.*/)?(package\.json|pnpm-lock\.yaml|package-lock\.json|yarn\.lock)$'
+manifest=$'\t''(.*/)?(package\.json|pnpm-lock\.yaml|package-lock\.json|yarn\.lock|(build|settings)\.gradle(\.kts)?|pom\.xml|gradle\.properties|libs\.versions\.toml|requirements[^/]*\.txt)$'
 dependency_paths=$(grep -cE "$manifest" "$floors")
 if [ "$dependency_paths" -gt 0 ] && [ "$dependency_paths" -lt "$file_count" ]; then
   echo "mixed: dependency change shares the chunk with other paths ($((file_count - dependency_paths))); a version bump goes in its own chunk"
@@ -153,29 +175,35 @@ if [ -z "${TYPESAFE_API_KEY:-}" ] || [ "${RISK_CONTENT:-on}" = "off" ]; then
   exit 0
 fi
 
-# Collect the hunks. A path git diff does not know (new, untracked) gets a
-# whole-file diff so the content pass still sees it.
+# The content pass sends file text to an outside service: never an env file, a
+# lockfile, or anything from a change the secret scan has a hit in.
+sendable=()
+for path in "${paths[@]}"; do
+  case "$path" in
+    .env|.env.*|*/.env|*/.env.*|*.pem|*.key|*.p12|*.pfx|*.keystore|*.jks) ;;
+    *pnpm-lock.yaml|*package-lock.json|*yarn.lock|*bun.lock|*bun.lockb) ;;
+    *) sendable+=("$path") ;;
+  esac
+done
+if [ -z "${RISK_DIFF_FILE:-}" ]; then
+  if [ ${#sendable[@]} -eq 0 ]; then
+    echo "class: $class$note"
+    echo "escalators: controller  (no path the content pass may read)"
+    exit 0
+  fi
+  if ! SECRET_DIFF_RANGE="${RISK_DIFF_RANGE:-}" bash "$here/secret-scan.sh" "${sendable[@]}" > /dev/null 2>&1; then
+    echo "class: $class$note"
+    echo "escalators: controller  (content pass not run: the secret scan does not pass on these paths)"
+    exit 0
+  fi
+fi
+
 diff_for_content_pass() {
   if [ -n "${RISK_DIFF_FILE:-}" ]; then
     cat "$RISK_DIFF_FILE"
     return
   fi
-
-  local tracked path
-  # shellcheck disable=SC2086
-  tracked=$(git diff ${RISK_DIFF_RANGE:-} -- "${paths[@]}" 2>/dev/null)
-  printf '%s\n' "$tracked"
-
-  for path in "${paths[@]}"; do
-    [ -f "$path" ] || continue
-    # Seen already (as a change or as the target of a rename)? A substring
-    # test, not a pipe into grep -q: on a large diff grep exits first and the
-    # writer takes SIGPIPE, which pipefail reads as "not found".
-    [[ $tracked == *"diff --git a/"*" b/$path"$'\n'* ]] && continue
-    git diff --no-index -- /dev/null "$path" 2>/dev/null \
-      | sed "1s#a/dev/null b/$path#a/$path b/$path#"
-  done
-  return 0
+  changes_diff "${RISK_DIFF_RANGE:-}" --src-prefix=a/ --dst-prefix=b/ -- "${sendable[@]}"
 }
 
 echo "paths: $class$note"

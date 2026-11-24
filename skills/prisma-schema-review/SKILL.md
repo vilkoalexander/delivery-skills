@@ -36,13 +36,17 @@ reaches both through `review-routing` and never loads this file.
 
 Scripts live next to this file; installed as a plugin, under
 `${CLAUDE_PLUGIN_ROOT}/skills/prisma-schema-review/scripts/`. Both read
-`TENANT_FIELD` (default `tenantId`) and `LEDGER_TABLES` (`|`-separated,
-default empty) from the environment; the project layer says what to set.
+`TENANT_FIELD` (default `tenantId`; `""` for single-tenant) from the
+environment. `scan.sh` also reads `EXEMPT_MODELS` (models that have no tenant
+key on purpose) and `LEDGER_TABLES` (append-only tables by `@@map` name).
+Each is `|`-separated and empty by default; the project layer says what to
+set.
 
 ## Effort
 
 Default **medium**: 🔴 and 🟡 only, and **zero findings is a valid outcome**
-— say so and stop. **high** adds ⚪ nits, still ranked.
+— say so and stop. **high** adds ⚪ nits, still ranked. A short report of
+real defects beats an exhaustive one.
 
 ## Output format
 
@@ -62,5 +66,5 @@ Default **medium**: 🔴 and 🟡 only, and **zero findings is a valid outcome**
 Verdict: <SHIP | FIX FIRST> — <one line>
 ```
 
-Most-severe first. For a schema change the why includes **what the fix costs
+Most-severe first. One finding per defect. For a schema change the why includes **what the fix costs
 once rows exist**. A clean category gets one line.

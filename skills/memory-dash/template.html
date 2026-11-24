@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Memory Dash</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <style>
 :root{color-scheme:dark;--page:#0d0d0d;--surface:#1a1a19;--surface-2:#242423;--line:#2e2e2c;
 --ink:#f0efec;--ink-2:#c3c2b7;--muted:#898781;
@@ -67,6 +67,7 @@ canvas{max-height:260px}
 <main>
 <h1>Memory Dash <span class="sub" id="title-path"></span></h1>
 <div class="sub" id="meta"></div>
+<div class="sub" id="errors" hidden></div>
 
 <div class="row c4" style="margin-top:16px">
   <div class="card tile score"><div class="v" id="score">–</div><div class="l" id="score-label">score</div></div>
@@ -83,6 +84,7 @@ canvas{max-height:260px}
 <div class="row cards" id="projects"></div>
 
 <h2>Shape</h2>
+<div class="empty" id="charts-offline" hidden>Charts need the network: Chart.js loads from cdnjs. The numbers below do not.</div>
 <div class="row c3">
   <div class="card"><div class="sub">Types, all projects</div><canvas id="c-type-all"></canvas></div>
   <div class="card"><div class="sub">Types, current project</div><canvas id="c-type-cur"></canvas></div>
@@ -135,6 +137,11 @@ const short = p => p.display.split('/').slice(-2).join('/');
 
 document.getElementById('title-path').textContent = cur ? cur.display : INV.current + ' (not found)';
 document.getElementById('meta').textContent = 'generated ' + INV.generated.replace('T',' ') + (AUD ? ' · audit ' + AUD.audited.replace('T',' ') : ' · stats only, no audit');
+if (INV.errors && INV.errors.length) {
+  const el = document.getElementById('errors');
+  el.hidden = false;
+  el.textContent = 'not read: ' + INV.errors.join(' · ');
+}
 document.getElementById('t-projects').textContent = INV.totals.projects;
 document.getElementById('t-files').textContent = INV.totals.files;
 document.getElementById('t-flags').textContent = Object.values(INV.totals.flags).reduce((a,b)=>a+b,0);
@@ -201,6 +208,9 @@ if (typeof Chart !== 'undefined') {
     data:{ labels:cur.top_links.map(l=>l[0]), datasets:[{ data:cur.top_links.map(l=>l[1]), backgroundColor:'#3987e5', borderRadius:4, barPercentage:0.6 }] },
     options:{ indexAxis:'y', plugins:{ legend:{ display:false } }, scales:{ x:{ beginAtZero:true, ticks:{ precision:0 } }, y:{ grid:{ display:false } } } } });
   else document.getElementById('links-empty').hidden = false;
+} else {
+  document.getElementById('charts-offline').hidden = false;
+  document.querySelectorAll('canvas').forEach(c => c.hidden = true);
 }
 
 // Tables

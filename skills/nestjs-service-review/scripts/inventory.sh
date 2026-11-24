@@ -47,24 +47,24 @@ echo "app src: ${app#$root/}"
 
 shared_primitives() {
   local dir file exports
-  for dir in $(find "$app" -maxdepth 3 -type d \( -name shared -o -name common -o -name core \) 2>/dev/null); do
-    for file in $(find "$dir" -name '*.ts' ! -name '*.spec.ts' ! -name 'index.ts' ! -name '*.module.ts' | sort); do
+  while IFS= read -r dir; do
+    while IFS= read -r file; do
       exports=$(exported_names "$file" 'function|const|interface|type|class|enum' | paste -sd, -)
-      [ -n "$exports" ] && printf '  %-44s %s\n' "${file#$app/}" "$exports"
-    done
-  done
+      [ -n "$exports" ] && printf '  %-44s %s\n' "${file#"$app"/}" "$exports"
+    done < <(find "$dir" -name '*.ts' ! -name '*.spec.ts' ! -name 'index.ts' ! -name '*.module.ts' | sort)
+  done < <(find "$app" -maxdepth 3 -type d \( -name shared -o -name common -o -name core \) 2>/dev/null)
 }
 
 modules() {
   local module dir
-  for module in $(find "$app" -name '*.module.ts' ! -name 'app.module.ts' | sort); do
+  while IFS= read -r module; do
     dir=$(dirname "$module")
     printf '  %-24s services:%-3s controllers:%-3s specs:%s\n' \
       "$(basename "$module" .module.ts)" \
       "$(count_files "$dir" '*.service.ts')" \
       "$(count_files "$dir" '*.controller.ts')" \
       "$(count_files "$dir" '*.spec.ts')"
-  done
+  done < <(find "$app" -name '*.module.ts' ! -name 'app.module.ts' | sort)
 }
 
 # Reads unit paths on stdin; prints the ones with no spec beside them or in __tests__.
@@ -105,7 +105,7 @@ else
 fi
 
 echo
-echo "=== guards / interceptors / decorators in use"
+echo "=== guards and interceptors in use"
 grep -rhoE '@(UseGuards|UseInterceptors)\([^)]*\)' "$app" --include='*.controller.ts' 2>/dev/null \
   | sort | uniq -c | sort -rn | indent | cap
 

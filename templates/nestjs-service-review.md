@@ -41,7 +41,7 @@ Everything in `<angle brackets>` is a placeholder — replace it or delete the r
 
 `<none | integer minor units with a Minor suffix; ledgers: <table> (append-only, SUM(delta))>`
 
-## Known ceilings
+## Known ceilings — do not recommend past these
 
 - `<a guard's own lookup runs before the request context exists — unscoped by design>`
 - `<one ceiling per line, stated as a rule a reviewer can check>`

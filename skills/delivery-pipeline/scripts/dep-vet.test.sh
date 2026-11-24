@@ -4,17 +4,14 @@
 #   bash skills/delivery-pipeline/scripts/dep-vet.test.sh
 #
 # Talks to dep-vet.fixture.mjs on loopback, never to the real registry.
-set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
-tmp=$(mktemp -d)
+source "$here/../../../scripts/test-lib.sh"
+unset DEP_VET
 node "$here/dep-vet.fixture.mjs" > "$tmp/port" & server=$!
 trap 'kill $server 2>/dev/null; wait $server 2>/dev/null; rm -rf "$tmp"' EXIT
 for _ in $(seq 50); do [ -s "$tmp/port" ] && break; sleep 0.1; done
 export DEP_REGISTRY="http://127.0.0.1:$(cat "$tmp/port")" DEP_OSV="http://127.0.0.1:$(cat "$tmp/port")"
 
-pass=0; fail=0
-ok()  { pass=$((pass+1)); echo "ok   - $1"; }
-nok() { fail=$((fail+1)); echo "FAIL - $1"; printf '%s\n' "$2" | sed 's/^/       /'; }
 # vet NAME EXPECTED_EXIT PATTERN args... — pattern "" means no output at all
 vet() {
   local name=$1 want=$2 pat=$3 out code; shift 3
@@ -62,10 +59,19 @@ git checkout -q package.json
 echo '{"dependencies":{"lodash":"^4.17.21"},"devDependencies":{"young-pkg":"0.0.1"}}' > apps/web/package.json
 vet "diff: workspace package.json"    1 "^BLOCK young-pkg"                  --diff
 vet "diff: named file only"           0 ""                                  --diff package.json
+cd apps/web
+vet "diff: from a subdirectory"       1 "^BLOCK young-pkg"                  --diff
+vet "diff: a file named from there"   1 "^BLOCK young-pkg"                  --diff package.json
+cd "$repo"
+echo '{"peerDependencies":{"lodahs":"^1.0.0"}}' > package.json
+vet "diff: a peer dependency is vetted" 1 "^BLOCK lodahs"                   --diff package.json
+git checkout -q package.json
+DEP_MIN_AGE_DAYS=soon vet "a limit that is not a number" 2 "must be a number of days" lodash
+DEP_VET_ALLOW='(' vet "an allow pattern that does not compile" 2 "not a valid pattern" lodash
+echo '{"typo":1}' > "$tmp/bad.json"
+DELIVERY_CONFIG="$tmp/bad.json" vet "an invalid config" 2 'unknown key "typo"' lodash
 out=$(bash "$here/../../reuse-guardrails/scripts/reuse-scan.sh" apps/web/package.json 2>&1)
 grep -q "## Dependency vetting (1)" <<< "$out" && grep -q "BLOCK young-pkg" <<< "$out" && ok "reuse-scan carries the vetting" || nok "reuse-scan carries the vetting" "$out"
 git checkout -q apps/web/package.json
 
-echo
-echo "$pass passed, $fail failed"
-[ "$fail" = 0 ]
+finish

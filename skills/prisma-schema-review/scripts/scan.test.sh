@@ -98,6 +98,36 @@ flags "Index whose leading column is not tenantId"
 unflags "UPDATE/DELETE on a ledger table"
 has "LEDGER_TABLES guards the ledger" 0 '^## UPDATE/DELETE on a ledger table' env LEDGER_TABLES=ledger_entries bash "$scan" migration.sql
 
+echo "# model names with digits and underscores"
+printf '%s\n' 'model OAuth2Token {' '  id String @id' '}' '' 'model Audit_Log {' '  id String @id' '  tenantId String' '  @@index([kind])' '}' > odd.prisma
+out=$(bash "$scan" odd.prisma)
+sees   "a name with a digit is checked"        '^  model OAuth2Token has no tenantId' "$out"
+sees   "a name with an underscore is checked"  '^  model Audit_Log: index \(\[kind\]\) does not lead with tenantId$' "$out"
+misses "a scoped model is not called unscoped" 'model Audit_Log has no tenantId' "$out"
+
+echo "# a migration as Prisma writes it"
+cat > generated.sql <<'SQL'
+CREATE TABLE "User" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL
+);
+CREATE UNIQUE INDEX "User_email_key" ON "User"("tenantId", "email");
+CREATE TABLE IF NOT EXISTS "public"."AuditLog" ("id" TEXT NOT NULL);
+CREATE UNIQUE INDEX "AuditLog_key" ON "public"."AuditLog"("tenantId");
+ALTER TABLE "Order" ADD COLUMN "state" TEXT NOT NULL;
+ALTER TABLE "Order" ADD COLUMN "count" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN "kind" TEXT NOT NULL,
+ADD COLUMN "note" TEXT;
+SQL
+out=$(bash "$scan" generated.sql)
+unflags "UNIQUE added to a pre-existing table"
+not_null=$(under 'NOT NULL added without a DEFAULT')
+sees   "a NOT NULL line that ends with ;"      '^8:' "$not_null"
+sees   "a NOT NULL line that ends with ,"      '^10:' "$not_null"
+misses "a NOT NULL with a DEFAULT"             '^9:' "$not_null"
+misses "a nullable column"                     '^11:' "$not_null"
+misses "a column of a new table"               '^[23]:' "$not_null"
+
 echo "# input"
 has "no argument"  1 '^usage: scan.sh <file.prisma\|migration.sql>$' bash "$scan"
 has "missing file" 1 '^not found: nope.prisma$'                     bash "$scan" nope.prisma

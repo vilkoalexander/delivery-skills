@@ -107,23 +107,20 @@ Get these right while writing the view and container. The review rubric
 checks for them, but a miss caught here is free and a miss caught in review
 costs a round trip.
 
-- **[hard]** `accessibilityRole` and `accessibilityLabel` on every interactive
-  element. The label is a noun phrase naming the control, not the visible text
-  restated and not "button". `accessibilityState` for selected / disabled /
-  checked.
-- **[hard]** 44pt touch targets, through the project's token class, never a raw
-  pixel value.
+§7 of `react-review/CHECKLIST.md` owns the platform rules: accessibility role,
+label and state, label quality, the 44pt tap target, the loading, empty and
+error states, virtualized lists, safe area and bottom clearance, both
+platforms. Read it before you write the view. This section adds only how the
+author satisfies them here:
+
+- **[hard]** The 44pt tap target comes from the project's token class, never
+  a raw pixel value.
 - **[hard]** A test id on every interactive element and every list row, in the
   project's dotted convention. The flow runner selects on these; a renamed or
   missing id breaks a flow silently.
-- **[hard]** Unbounded or growing lists use a virtualized list, never `.map()`
-  inside a scroll container.
-- **[hard]** Loading, empty and error states through the existing primitives,
-  not just the happy path.
+- **[hard]** Loading, empty and error states use the existing primitives.
 - **[context]** A scrolling screen under a floating bar clears it with the
-  project's clearance hook, or the last row is untappable.
-- **[hard]** Both platforms. Never a single-platform code path on a
-  two-platform app.
+  project's clearance hook.
 - **[hard]** Styling through the project's token classes only; the theme hook
   only for props that reach the native bridge (icon colour, ripple, animated
   values).

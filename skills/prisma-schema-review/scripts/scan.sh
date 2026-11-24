@@ -46,8 +46,9 @@ report() {
 # Prints the models with no tenant key, and the indexes of scoped models that do not lead with it.
 tenant_scoping_gaps() {
   awk -v exempt="$exempt_models" -v tenant="$tenant" '
-    /^model [A-Za-z]+ / {
+    /^model [A-Za-z_][A-Za-z0-9_]*[[:space:]]*\{/ {
       model = $2
+      sub(/\{.*/, "", model)
       scoped = 0
       key_count = 0
       delete keys
@@ -156,17 +157,21 @@ destructive_statements() {
 # Prints UNIQUE constraints and indexes on tables this migration did not create.
 unique_on_existing_tables() {
   awk '
-    /CREATE TABLE "?[a-z_]+"?/ {
+    function bare(name) {
+      sub(/[ (].*/, "", name)
+      sub(/^.*\./, "", name)
+      gsub(/"/, "", name)
+      return name
+    }
+    /CREATE TABLE / {
       table = $0
-      sub(/.*CREATE TABLE "?/, "", table)
-      sub(/"?[ (].*/, "", table)
-      created[table] = 1
+      sub(/.*CREATE TABLE (IF NOT EXISTS )?/, "", table)
+      created[bare(table)] = 1
     }
     /CREATE UNIQUE INDEX|ADD CONSTRAINT.*UNIQUE/ {
       table = $0
-      sub(/.*ON "?/, "", table)
-      sub(/"?[ (].*/, "", table)
-      if (!(table in created)) printf "%d: %s\n", NR, $0
+      if (!sub(/.* ON /, "", table)) sub(/.*ALTER TABLE (ONLY )?/, "", table)
+      if (!(bare(table) in created)) printf "%d: %s\n", NR, $0
     }
   ' "$file"
 }
@@ -191,8 +196,9 @@ enum_values_used_when_added() {
 scan_migration() {
   report "Float/numeric column — money is INTEGER minor units" \
     'DOUBLE PRECISION|\bREAL\b|NUMERIC|DECIMAL'
-  report "NOT NULL added without a DEFAULT — fails on a populated table; go nullable, backfill, then SET NOT NULL" \
-    'ADD COLUMN[^;]*NOT NULL([^;]*)$'
+  local not_null
+  not_null=$(awk '/ADD COLUMN.*NOT NULL/ && !/DEFAULT/ { printf "%d:%s\n", NR, $0 }' "$file")
+  [ -n "$not_null" ] && flag "NOT NULL added without a DEFAULT — fails on a populated table; go nullable, backfill, then SET NOT NULL" "$not_null"
 
   local destructive
   destructive=$(destructive_statements)

@@ -63,6 +63,24 @@ drift=$(under "Prisma ↔ schema enum drift")
 sees   "a Prisma value in no schema enum" '^  Role.OWNER exists in Prisma but in no schema enum' "$drift"
 misses "a mirrored value"                 'Role.ADMIN' "$drift"
 
+echo "# double-quoted imports, a package directory with a space"
+new_repo "double quoted"
+lib=libs/shared
+mkdir -p $lib/schemas/src/lib "$lib/my types/src/lib" apps/web/src
+echo '{ "name": "@acme/schemas" }' > $lib/schemas/package.json
+printf '%s\n' 'import { z } from "zod";' 'import { join } from "path";' > $lib/schemas/src/lib/user.schema.ts
+echo 'export * from "./lib/user.schema";' > $lib/schemas/src/index.ts
+echo 'export type A = {};' > "$lib/my types/src/lib/a.ts"
+echo 'export * from "./lib/b";' > "$lib/my types/src/index.ts"
+echo 'import { z } from "zod/v4";' > apps/web/src/main.ts
+out=$(bash "$inventory")
+sees   "a double-quoted backend import"  'user.schema.ts:2:' "$(under 'backend-only imports')"
+eq     "double-quoted zod entry points"  "$(under 'zod entry points' | wc -l | tr -d ' ')" 2
+misses "a double-quoted barrel export"   'user.schema.ts not exported' "$out"
+sees   "a package with a space in its name" '^  my types/src/lib/a.ts not exported from index.ts$' "$(under 'files missing from a barrel')"
+sees   "is one row of consumption"       '^  @acme/my types +web:0$' "$(under 'consumption per app')"
+cd "$tmp/project" || exit 1
+
 echo "# options"
 has "INVENTORY_LIMIT caps a section" 0 '… \+1 more lines \(raise INVENTORY_LIMIT=1' env INVENTORY_LIMIT=1 bash "$inventory"
 has "takes a directory"              0 '^contract dir: libs/shared$' bash "$inventory" "$tmp/project/libs/shared"

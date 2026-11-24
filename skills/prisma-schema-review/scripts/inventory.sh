@@ -6,6 +6,7 @@
 #   Finds schema.prisma or prisma/models/*.prisma under the repo when omitted.
 # Env:   TENANT_FIELD  tenant key column (default: tenantId; "" = single-tenant)
 # Reporting script: a grep with no match is a normal outcome, not an error.
+set -uo pipefail
 
 # Output is bounded: INVENTORY_LIMIT lines per section (default 40), overflow
 # reported as a count.
@@ -39,14 +40,20 @@ if [ -d "$target" ]; then
 else
   files="$target"
 fi
-echo "schema: $(echo "$files" | sed "s|$root/||" | paste -sd' ' -)"
+schema_files=()
+while IFS= read -r file; do [ -n "$file" ] && schema_files+=("$file"); done <<< "$files"
+if [ ${#schema_files[@]} -eq 0 ]; then
+  echo "no .prisma files found — pass a dir or file" >&2
+  exit 1
+fi
+echo "schema: $(while IFS= read -r file; do printf '%s\n' "${file#"$root"/}"; done <<< "$files" | paste -sd' ' -)"
 
 # One block per model: table name, tenant key, mutability, money fields, delete actions, keys.
 describe_models() {
-  # shellcheck disable=SC2086
   awk -v tenant="$tenant" -v limit="$limit" '
-    /^model [A-Za-z]+ / {
+    /^model [A-Za-z_][A-Za-z0-9_]*[[:space:]]*\{/ {
       model = $2
+      sub(/\{.*/, "", model)
       models[++model_count] = model
       scoped[model] = 0; mutable[model] = 0
       money[model] = ""; keys[model] = ""; table[model] = ""; delete_actions[model] = ""
@@ -106,7 +113,7 @@ describe_models() {
         if (keys[model] != "") printf "  keys:%s\n", keys[model]
       }
     }
-  ' $files
+  ' "${schema_files[@]}"
 }
 
 describe_models
@@ -114,14 +121,12 @@ describe_models
 if [ -n "$tenant" ]; then
   echo
   echo "=== indexes whose leading column is not $tenant (verify each is intentional)"
-  # shellcheck disable=SC2086
-  grep -hnE '@@(index|unique)\(\[' $files | grep -vE "@@(index|unique)\(\[$tenant" | indent | cap
+  grep -hnE '@@(index|unique)\(\[' "${schema_files[@]}" | grep -vE "@@(index|unique)\(\[$tenant" | indent | cap
 fi
 
 echo
 echo "=== enums"
-# shellcheck disable=SC2086
-grep -hE '^enum [A-Za-z]+' $files | indent | cap
+grep -hE '^enum [A-Za-z]+' "${schema_files[@]}" | indent | cap
 
 schema_dir=$(dirname "$(echo "$files" | head -1)")
 migrations=$(find "$schema_dir/.." "$root" -maxdepth 4 -type d -name migrations -path '*prisma*' 2>/dev/null | head -1)

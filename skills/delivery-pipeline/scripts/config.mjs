@@ -7,7 +7,7 @@
 //   node config.mjs get <key>        a scalar as is; a pattern list as one ERE; nothing when unset
 //                                    (`writing` is ste100 when unset)
 //   node config.mjs plan <path>...   the steps the changed paths call for, tab-separated:
-//                                    RUN|SKIP|OFF  workspace  step  command-or-reason
+//                                    RUN|SKIP  workspace  step  command-or-reason
 //   node config.mjs init             write a first draft from what the repo has; never overwrites
 //
 //   DELIVERY_CONFIG   path of the file (default: <git root>/docs/review/delivery.json)
@@ -15,13 +15,18 @@
 // A step is a command string, `false` for "this workspace has none", or
 // { "run": "...", "files": "<ERE>" } to run only when a changed path matches.
 // Commands run in the workspace directory; {files} becomes the changed paths
-// that still exist, relative to it. Patterns are POSIX ERE: bash reads them.
-import { execFileSync } from 'node:child_process';
+// that still exist, relative to it.
+//
+// Two pattern dialects, by who reads the pattern. `check` compiles each one with its reader:
+//   POSIX ERE (grep, bash)   risk.high, risk.medium, secrets.allow, shared
+//   JavaScript RegExp (node) a step's `files`, deps.allow
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const STEPS = ['typecheck', 'lint', 'format', 'test'];
+// escapes and erosion: read by scans that are gone; a config that still has them stays valid.
 const KEYS = ['stack', 'workspaces', 'writing', 'risk', 'secrets', 'escapes', 'erosion', 'deps', 'shared'];
 const WRITING = ['ste100', 'free'];
 const DEFAULTS = { writing: 'ste100' };
@@ -48,10 +53,34 @@ function invalid(message) {
 const isOff = step => step === false || step === null;
 const commandOf = step => (step && typeof step === 'object' ? step.run : step);
 
-function checkPatternList(path, name, value) {
+const compiles = {
+  ere: pattern => spawnSync('grep', ['-E', '--', pattern], { input: '' }).status <= 1,
+  js: pattern => {
+    try {
+      new RegExp(pattern);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+};
+const DIALECT = { ere: 'POSIX ERE', js: 'JavaScript' };
+
+function checkPattern(path, name, pattern, dialect) {
+  if (!compiles[dialect](pattern)) invalid(`${path}: ${name} is not a valid ${DIALECT[dialect]} pattern: ${pattern}`);
+}
+
+function checkPatternList(path, name, value, dialect) {
   if (value === undefined) return;
   const isList = Array.isArray(value) && value.every(pattern => typeof pattern === 'string');
   if (!isList) invalid(`${path}: ${name} must be a list of patterns`);
+  if (dialect) for (const pattern of value) checkPattern(path, name, pattern, dialect);
+}
+
+function checkDays(path, name, value) {
+  if (value !== undefined && !(typeof value === 'number' && value >= 0)) {
+    invalid(`${path}: ${name} must be a number of days, 0 or more`);
+  }
 }
 
 function checkWorkspaces(path, workspaces) {
@@ -69,6 +98,7 @@ function checkWorkspaces(path, workspaces) {
       if (typeof step === 'object' && typeof step.files !== 'string') {
         invalid(`${path}: workspaces["${dir}"].${name}.files must be a pattern`);
       }
+      if (typeof step === 'object') checkPattern(path, `workspaces["${dir}"].${name}.files`, step.files, 'js');
     }
   }
 }
@@ -93,17 +123,13 @@ export function load({ optional = false } = {}) {
     if (!KEYS.includes(key)) invalid(`${path}: unknown key "${key}" (known: ${KEYS.join(', ')})`);
   }
   checkPatternList(path, 'stack', config.stack);
-  checkPatternList(path, 'shared', config.shared);
-  checkPatternList(path, 'risk.high', config.risk?.high);
-  checkPatternList(path, 'risk.medium', config.risk?.medium);
-  checkPatternList(path, 'secrets.allow', config.secrets?.allow);
-  checkPatternList(path, 'escapes.allow', config.escapes?.allow);
-  checkPatternList(path, 'erosion.allow', config.erosion?.allow);
-  checkPatternList(path, 'deps.allow', config.deps?.allow);
-  const limit = config.erosion?.threshold;
-  if (limit !== undefined && !(Number.isInteger(limit) && limit > 0)) {
-    invalid(`${path}: erosion.threshold must be a whole number above 0`);
-  }
+  checkPatternList(path, 'shared', config.shared, 'ere');
+  checkPatternList(path, 'risk.high', config.risk?.high, 'ere');
+  checkPatternList(path, 'risk.medium', config.risk?.medium, 'ere');
+  checkPatternList(path, 'secrets.allow', config.secrets?.allow, 'ere');
+  checkPatternList(path, 'deps.allow', config.deps?.allow, 'js');
+  checkDays(path, 'deps.minAgeDays', config.deps?.minAgeDays);
+  checkDays(path, 'deps.minVersionDays', config.deps?.minVersionDays);
   if (config.writing !== undefined && !WRITING.includes(config.writing)) {
     invalid(`${path}: writing must be one of: ${WRITING.join(', ')}`);
   }
@@ -139,10 +165,10 @@ function groupByWorkspace(workspaces, paths) {
   return { touched, orphans };
 }
 
-// One row for one step of one workspace: [RUN|SKIP|OFF, dir, step, command or reason]. Null when the step has nothing to do.
+// One row for one step of one workspace: [RUN|SKIP, dir, step, command or reason]. Null when the step has nothing to do.
 function planStep(base, dir, name, step, changed) {
   if (step === undefined) return ['SKIP', dir, name, `no command for ${dir}; set one, or false`];
-  if (isOff(step)) return ['OFF', dir, name, ''];
+  if (isOff(step)) return null;
 
   const command = commandOf(step);
   const relevant = typeof step === 'string' ? changed : changed.filter(path => new RegExp(step.files).test(path));
@@ -227,6 +253,17 @@ function draftJvm(base, tracked) {
   return { workspaces, stack };
 }
 
+// One directory that holds a package.json and a Gradle or Maven build: a step both sides have runs both commands.
+function mergeSteps(js, jvm) {
+  const merged = { ...js };
+  for (const [name, step] of Object.entries(jvm)) {
+    const other = js[name];
+    if (other === undefined || isOff(other)) merged[name] = step;
+    else if (!isOff(step)) merged[`${name}-jvm`] = step;
+  }
+  return merged;
+}
+
 // A first draft of the config, guessed from the lockfile, the package.json files, the Gradle and Maven
 // builds, and the config files beside them.
 function draft() {
@@ -298,7 +335,7 @@ function draft() {
   }
   const jvm = draftJvm(base, tracked);
   for (const [dir, steps] of Object.entries(jvm.workspaces)) {
-    workspaces[dir] = { ...workspaces[dir], ...steps };
+    workspaces[dir] = mergeSteps(workspaces[dir] || {}, steps);
   }
   workspaces['.'] ||= {};
 

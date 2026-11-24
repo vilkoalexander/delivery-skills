@@ -39,7 +39,7 @@ will skim both.
 
 ## The `As of:` line
 
-`bash skills/delivery-pipeline/scripts/stamp.sh set <file>` writes ``As of: `<commit>` ``
+`bash ${CLAUDE_PLUGIN_ROOT}/skills/delivery-pipeline/scripts/stamp.sh set <file>` writes ``As of: `<commit>` ``
 below the title of a document here: the commit of HEAD, at which somebody
 last confirmed the document against the code. Do it after you fill a layer
 or read it through again. `stamp.sh check` compares each file and directory
@@ -56,14 +56,11 @@ commit is gone; the check then uses the last commit of the document.
 | `writing` | `chunked-delivery` | `ste100` (default): reports, findings, questions, comments and documents of a run are ASD-STE100 Simplified Technical English. `free` sets it off |
 | `workspaces.<dir>.<step>` | `static-gate.sh check` | the command for `typecheck`, `lint`, `format`, `test` or any step you name, run in `<dir>`. A string runs whenever the workspace changed; `{ "run", "files" }` runs only when a changed path matches `files`; `false` says the workspace has none. `{files}` becomes the changed paths that still exist, relative to `<dir>`. A changed path belongs to the longest `<dir>` that contains it; `.` is the root |
 | `risk.high`, `risk.medium` | `risk.sh` | patterns for paths that are always that class |
-| `secrets.allow` | `secret-scan.sh` | patterns over `path:line:text` for added lines that are not credentials |
-| `escapes.allow` | `escape-scan.sh` | patterns over `path:line:text` for added lines that are not escapes: a suppression or a cast the project accepts |
-| `erosion.threshold`, `erosion.allow` | `erosion-scan.sh` | complexity a function must reach before its growth is a flag (10); patterns over `path:function` for functions the project accepts as they are |
 | `deps.allow`, `deps.minAgeDays`, `deps.minVersionDays` | `dep-vet.sh` | package names never vetted (private scopes); youngest package and version an agent may fetch (30, 7) |
 | `shared` | `reuse-scan.sh` | patterns for shared-layer directories |
 
 Patterns are POSIX ERE. An environment variable of the matching name
-(`RISK_HIGH`, `SECRET_ALLOW`, `ESCAPE_ALLOW`, `EROSION_THRESHOLD`, `EROSION_ALLOW`, `DEP_VET_ALLOW`, `REUSE_SHARED`) overrides the
+(`RISK_HIGH`, `DEP_VET_ALLOW`, `REUSE_SHARED`) overrides the
 file for one call.
 
 ## Script variables
@@ -86,7 +83,7 @@ The rubric scripts take project-specific names from the environment:
 | `MIGRATION_BASE` | jpa | git ref a merged migration is compared with (default `HEAD`; the base branch in a branch review) |
 | `MIGRATION_NAME` | jpa | regex for a valid migration file name, when the project does not use Flyway's |
 | `TEST_CMD` | test `revert-check.sh` | command that runs the test files passed to it, when detection from `package.json` is wrong |
-| `STATIC_SKIP` | `static-gate.sh` | steps to skip for one call: `test-lock`, `drift`, `secrets`, `reuse`, `escapes`, `erosion`, or any step name from `delivery.json` |
+| `STATIC_SKIP` | `static-gate.sh` | steps to skip for one call: `test-lock`, `revert-check`, `drift`, `reuse`, or any step name from `delivery.json` |
 
 ## The other way: fork the rubric into the project
 

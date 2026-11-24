@@ -44,7 +44,7 @@ delete the row.
 | `<auth decision denied>` | warn | `<userId, resource, reason>` |
 | `<external vendor call failed>` | error | `<vendor, remoteId, status, durationMs>` |
 
-## Ceilings — do not recommend past these
+## Known ceilings — do not recommend past these
 
 - `<No per-row logs in batch jobs; one summary line per batch>`
 - `<No manual spans where OTel auto-instrumentation already covers the client>`

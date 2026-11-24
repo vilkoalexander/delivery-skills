@@ -1,9 +1,9 @@
 # NestJS Service Review Checklist
 
-Eight categories. Walk them in order. Each rule is tagged **[hard]** (always
+Nine categories. Walk them in order. Each rule is tagged **[hard]** (always
 report), **[prefer]** (report unless the file gives a reason not to) or
-**[context]** (report only with a concrete consequence in this file). Name the consequence: "this is
-wrong" without "because X breaks" is not a finding.
+**[context]** (report only with a concrete consequence in this file). Name the
+consequence: "this is wrong" without "because X breaks" is not a finding.
 
 `<tenant>` below stands for the project's tenant key (`TENANT_FIELD`). Skip §1
 on a single-tenant service and say so in one line.
@@ -75,9 +75,10 @@ to omit scoping.
   request context, a JWT claim, a session — **never** from a route param,
   query string, or request body. A `<tenant>` field in a request DTO is itself
   the finding.
-- **[hard] `findUnique` cannot be tenant-scoped** unless the model has a
-  compound unique including `<tenant>`. Default to `findFirst` with
-  `{ id, <tenant> }`.
+- **[hard] `findUnique` carries `<tenant>` in its `where`.** On Prisma 5 and
+  later the `where` takes other fields next to the unique one:
+  `{ id, <tenant> }`. Before 5 it takes unique fields only: use a compound
+  unique that includes `<tenant>`, or `findFirst` with `{ id, <tenant> }`.
 - **[hard] Cross-tenant miss returns 404, never 403.** A 403 confirms the id
   exists in another tenant; 404 reveals nothing. `findFirst` returning null
   covers both cases — that is the point. Always 🔴. 403 is correct only for
@@ -149,7 +150,10 @@ No type-aware lint here, so nothing but this review catches the following.
 - **[prefer] Swagger decorators match reality** — the response codes listed
   are the ones the service can actually throw. A documented 403 on an endpoint
   that returns 404 for cross-tenant is a doc bug worth flagging.
-- **[prefer] `@HttpCode(HttpStatus.CREATED)` on a POST that creates.**
+- **[prefer] The status code is the one the action has.** Nest answers a
+  `@Post()` with 201 by default: a POST that creates needs no `@HttpCode`. A
+  POST that creates nothing (a search, a login, an action) sets
+  `@HttpCode(HttpStatus.OK)`.
 - **[hard] DTOs and response types come from the shared contract package**
   when the project has one. A type redefined locally is a contract split.
 
@@ -184,11 +188,13 @@ No type-aware lint here, so nothing but this review catches the following.
 
 Every new backend unit needs a spec — services **and** controllers.
 
-- **[hard] Controller delegation spec** — `Test.createTestingModule` with the
-  service replaced by a `jest.fn()` / `vi.fn()` double and every guard
-  overridden via `.overrideGuard(...).useValue({ canActivate: () => true })`.
-  Assert the service was called with exactly the right arguments and the
-  result is passed through. The project layer names the reference spec.
+- **[hard] Controller spec** — `Test.createTestingModule` with the service
+  replaced by a `jest.fn()` / `vi.fn()` double and every guard overridden via
+  `.overrideGuard(...).useValue({ canActivate: () => true })`. The first
+  assertion is on what the handler returns or throws: the mapped result, the
+  status, the rejection. An assertion that the service was called with the
+  right arguments is a second assertion, never the only one (`test-review`
+  §1). The project layer names the reference spec.
 - **[hard] Service spec covers the invariant, not just the happy path** — the
   cross-tenant 404, the role rejection, the ledger sign, the idempotent
   replay. A spec that only proves "it calls prisma" proves nothing.
@@ -201,6 +207,9 @@ Every new backend unit needs a spec — services **and** controllers.
 
 ## 8. Structure & consistency
 
+- **[prefer] No `any`, no `as any`, no non-null `!`** where lint does not
+  own the rule (see Tooling coverage). Type the value, or use `unknown` and a
+  guard; handle the null. `scripts/scan.sh` flags the lines.
 - **[hard] Reinvention** — re-implements a helper, mapper, pagination
   builder, error shape or date / money function the shared package or a
   sibling module already exports. **Run `scripts/inventory.sh` before
@@ -225,26 +234,34 @@ Every new backend unit needs a spec — services **and** controllers.
 
 ## 9. Comment quality
 
-The default is no comment; a rename, an extracted method or a type comes
+<!-- comment-rules:start — the short form of comment-cleanup/RULES.md, the same text in each checklist -->
+The default is no comment; a rename, an extracted function or a type comes
 first.
 
 - **[hard] Delete comments that restate the code or describe the change** —
-  `// inject the repository`, `// loop over items`, "now uses", "added",
-  "fixed", a banner, a step number, JSDoc repeating the parameter types.
+  "now uses", "added", "fixed", a banner, a step number, a doc comment that
+  repeats the signature or the types.
 - **[hard] Delete commented-out code** — git remembers it.
 - **[hard] No ticket, PR, SHA, date or link in a comment** — the code does
   not know the outside world; those live in commit messages and PR bodies.
 - **[prefer] A comment that stays is one line and one of four kinds** — why
   this and not the obvious alternative, an outside constraint, a warning
   about what breaks if edited, a workaround with its removal condition. On a
-  constant or a DTO field: only units, where a number comes from, a domain
-  term, or what null means, and only when a rename cannot say it.
+  constant or a field: only units, where a number comes from, a domain term,
+  or what null means, and only when a rename cannot say it.
 - **[context] A missing comment** is a finding only for one of those four
-  kinds, with the consequence named — a query that skips the tenant scope on
-  purpose, a call that must stay outside the transaction.
+  kinds, with the consequence named.
 - **[context] A comment the diff removed** that was still true and one of the
   four kinds — restore it.
-- **[hard] A lint or type suppression states its reason.**
+- **[hard] A lint, type or check suppression states its reason.**
+<!-- comment-rules:end -->
+
+In this stack:
+
+- A restated line reads like `// inject the repository` or
+  `// loop over items`, or is JSDoc that repeats the parameter types.
+- A query that skips the tenant scope on purpose and a call that must stay
+  outside the transaction each need a comment of one of the four kinds.
 
 ---
 

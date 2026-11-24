@@ -40,8 +40,8 @@ npx eslint --print-config <file> | grep -E '"(no-console|@typescript-eslint/no-f
 `no-console` at `"error"` means §1's console rule is the build's job — skip
 it. Absent, it is this skill's job. Nothing in lint knows whether a catch
 logs, whether a log carries the tenant id, or whether a secret is in a log
-field; `scripts/scan.sh` targets those. When the dispatch handed you a
-coverage table from the static gate, use that and skip the command.
+field; `scripts/scan.sh` targets those. When the dispatch handed you the static
+gate's coverage lines, use them and skip the command.
 
 For the full picture — every analyzer the repository has or lacks, and the
 strict recipe for each missing one — `bash

@@ -30,9 +30,9 @@ reaches both through `review-routing` and never loads this file.
    review and its counterpart: for an entity the migration that creates its
    table, for a migration the entity it changes, for a repository the entity
    and one caller.
-3. **`bash scripts/inventory.sh [root]`** — settings, base classes, the
+3. **`scripts/inventory.sh [root]`** — settings, base classes, the
    conventions the majority of entities follow, the last migrations.
-4. **`bash scripts/scan.sh <file>`** — mechanical pre-scan. Flags, not a verdict.
+4. **`scripts/scan.sh <file>`** — mechanical pre-scan. Flags, not a verdict.
 5. **Walk CHECKLIST.md** — the sections for this kind of file.
 6. **Report** in the format below.
 
@@ -45,12 +45,13 @@ Scripts live next to this file; installed as a plugin, under
 ## Effort
 
 Default **medium**: 🔴 and 🟡 only, and **zero findings is a valid outcome**
-— say so and stop. **high** adds ⚪ nits, still ranked.
+— say so and stop. **high** adds ⚪ nits, still ranked. A short report of
+real defects beats an exhaustive one.
 
 ## Output format
 
 ```
-### <FileName> review
+### <file> review
 
 🔴 <file:line> — <one-sentence defect>
    why: <what breaks, concretely>

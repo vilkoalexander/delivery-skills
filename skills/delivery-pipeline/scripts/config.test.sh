@@ -2,32 +2,14 @@
 # Tests for config.mjs and the config-driven half of static-gate.sh check.
 #
 #   bash skills/delivery-pipeline/scripts/config.test.sh
-set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
+source "$here/../../../scripts/test-lib.sh"
 cfg="$here/config.mjs"; gate="$here/static-gate.sh"
-tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-export DELIVERY_EVENTS_DIR="$tmp/events" DELIVERY_RUN_DIR="$tmp/runs" DEP_VET=off
-
-pass=0; fail=0
-ok()  { pass=$((pass+1)); echo "ok   - $1"; }
-nok() { fail=$((fail+1)); echo "FAIL - $1"; printf '%s\n' "$2" | sed 's/^/       /'; }
-# has NAME EXPECTED_EXIT PATTERN command... — pattern "" means no output
-has() {
-  local name=$1 want=$2 pat=$3 out code; shift 3
-  out=$("$@" 2>&1); code=$?
-  if [ "$code" != "$want" ]; then nok "$name" "exit $code, wanted $want"$'\n'"$out"
-  elif [ -z "$pat" ] && [ -n "$out" ]; then nok "$name" "expected silence"$'\n'"$out"
-  elif [ -n "$pat" ] && ! grep -qE -- "$pat" <<< "$out"; then nok "$name" "no match for $pat"$'\n'"$out"
-  else ok "$name"; fi
-}
-lacks() { # NAME PATTERN command...
-  local name=$1 pat=$2 out; shift 2
-  out=$("$@" 2>&1)
-  if grep -qE -- "$pat" <<< "$out"; then nok "$name" "$out"; else ok "$name"; fi
-}
 write() { mkdir -p docs/review; cat > docs/review/delivery.json; }
 
-repo="$tmp/repo"; mkdir -p "$repo/apps/api/src" "$repo/apps/web/src" "$repo/tools" && git -C "$repo" init -q && cd "$repo"
+new_repo repo
+repo="$tmp/repo"
+mkdir -p apps/api/src apps/web/src tools
 T=$'\t'
 
 echo "# check and get"
@@ -76,37 +58,60 @@ echo "# plan"
 echo x > apps/api/src/a.ts; echo x > "apps/api/src/it's b.ts"; echo x > apps/web/src/c.tsx; echo x > tools/x.sh; echo x > README.md
 has "files are relative to the workspace" 0 "^RUN${T}apps/api${T}lint${T}echo lint 'src/a.ts'$" node "$cfg" plan apps/api/src/a.ts
 has "no {files}: command as written"   0 "^RUN${T}apps/api${T}typecheck${T}echo tsc$" node "$cfg" plan apps/api/src/a.ts
-has "false is OFF"                     0 "^OFF${T}apps/api${T}test${T}$" node "$cfg" plan apps/api/src/a.ts
+lacks "a step that is false is absent"   "${T}test${T}" node "$cfg" plan apps/api/src/a.ts
 lacks "a step whose files do not match is absent" "prisma" node "$cfg" plan apps/api/src/a.ts
 has "a quote in a path is escaped"     0 "echo lint 'src/it'\\\\''s b.ts'" node "$cfg" plan "apps/api/src/it's b.ts"
 has "missing step is SKIP with the reason" 0 "^SKIP${T}apps/web${T}typecheck${T}no command for apps/web" node "$cfg" plan apps/web/src/c.tsx
 has "longest workspace wins"           0 "^RUN${T}apps/web${T}lint${T}echo weblint 'src/c.tsx'$" node "$cfg" plan apps/web/src/c.tsx
 lacks "the root's steps stay out of a nested workspace" "${T}\\.${T}" node "$cfg" plan apps/web/src/c.tsx
-has "root catches the rest"            0 "^OFF${T}\\.${T}lint" node "$cfg" plan tools/x.sh
+has "root catches the rest"            0 "" node "$cfg" plan tools/x.sh
 has "deleted path: {files} step is skipped" 0 "^SKIP${T}apps/api${T}lint${T}every matching path was deleted" node "$cfg" plan apps/api/src/gone.ts
 has "deleted path: whole-project step still runs" 0 "^RUN${T}apps/api${T}typecheck" node "$cfg" plan apps/api/src/gone.ts
 echo '{"workspaces":{"apps/api":{"typecheck":false,"lint":false,"format":false,"test":false}}}' > "$tmp/only-api.json"
 DELIVERY_CONFIG="$tmp/only-api.json" has "path under no workspace is reported" 0 "^SKIP${T}-${T}workspace${T}1 path\\(s\\) under no workspace: tools/x.sh" node "$cfg" plan tools/x.sh
 
 echo "# static-gate.sh check"
-export STATIC_SKIP="test-lock drift secrets reuse"
 has "runs the workspace's commands"    0 "== lint:apps/api: echo lint 'src/a.ts'" bash "$gate" check apps/api/src/a.ts
-has "summary names what ran"           0 "static gate: clean — ran: typecheck:apps/api lint:apps/api format:apps/api" bash "$gate" check apps/api/src/a.ts
+out=$(bash "$gate" check apps/api/src/a.ts 2>&1)
+sees "the verdict"                     '^static gate: clean$' "$out"
+for step in test-lock typecheck:apps/api lint:apps/api format:apps/api reuse; do
+  sees "the summary has $step" "^  $step +ok$" "$out"
+done
+sees "a step with nothing to do says why" '^  revert-check +n/a — no changed test file$' "$out"
+sees "and so does drift"               '^  drift +n/a — no docs/review/drift.checks$' "$out"
 has "a missing step is printed as skipped" 0 "^-- typecheck:apps/web: skipped — no command for apps/web" bash "$gate" check apps/web/src/c.tsx
-has "and the summary lists it"         0 "skipped: .*typecheck:apps/web format:apps/web test:apps/web" bash "$gate" check apps/web/src/c.tsx
-has "nothing ran says so"              0 "static gate: clean — ran: nothing" bash "$gate" check README.md
-STATIC_SKIP="$STATIC_SKIP lint" has "STATIC_SKIP takes a config step name" 0 "^-- lint:apps/api: skipped — STATIC_SKIP" bash "$gate" check apps/api/src/a.ts
+has "and the summary lists it"         0 "^  typecheck:apps/web +skipped — no command for apps/web" bash "$gate" check apps/web/src/c.tsx
+has "no failing step ran: not clean"   1 "^static gate: NOT RUN$" env STATIC_SKIP="test-lock" bash "$gate" check README.md
+has "STATIC_SKIP takes a config step name" 0 "^-- lint:apps/api: skipped — STATIC_SKIP" env STATIC_SKIP=lint bash "$gate" check apps/api/src/a.ts
+has "no paths: the changed paths from git" 0 "^  lint:apps/web +ok$" bash "$gate" check
+has "a path that is not a file stops the gate" 2 "not a file under .* and not a file the change deleted" bash "$gate" check apps/api/src/nope.ts
+has "a path from another directory stops it too" 2 "Give paths from the root" bash -c "cd apps/api && bash '$gate' check src/a.ts"
+has "a flag scan that cannot run fails the gate" 1 "^  reuse +could not run$" env REUSE_SHARED='(' bash "$gate" check apps/api/src/a.ts
 write <<'JSON'
 { "workspaces": { "apps/api": { "typecheck": "pwd", "lint": "echo boom >&2; exit 3", "format": false, "test": "cat" } } }
 JSON
 has "a failing command fails the gate" 1 "boom" bash "$gate" check apps/api/src/a.ts
-has "and the summary says FAILED"      1 "static gate: FAILED — ran: typecheck:apps/api lint:apps/api test:apps/api" bash "$gate" check apps/api/src/a.ts
+has "and the summary says which"       1 "^  lint:apps/api +FAIL$" bash "$gate" check apps/api/src/a.ts
+has "under a FAILED verdict"           1 "^static gate: FAILED$" bash "$gate" check apps/api/src/a.ts
 has "a command that reads stdin gets none" 1 "== test:apps/api: cat" bash "$gate" check apps/api/src/a.ts
 write <<'JSON'
 { "workspaces": { "apps/api": { "typecheck": "test \"$(basename \"$PWD\")\" = api", "lint": false, "format": false, "test": false } } }
 JSON
 has "commands run in the workspace directory" 0 "static gate: clean" bash "$gate" check apps/api/src/a.ts
-unset STATIC_SKIP
+
+echo "# patterns are compiled by check"
+write <<'JSON'
+{ "workspaces": { ".": { "lint": { "run": "echo lint", "files": "\\.(ts$" } } } }
+JSON
+has "a files pattern that does not compile" 2 'files is not a valid JavaScript pattern' bash "$gate" check apps/api/src/a.ts
+write <<'JSON'
+{ "workspaces": { ".": { "lint": false } }, "secrets": { "allow": ["("] } }
+JSON
+has "an allow pattern that does not compile" 2 'secrets.allow is not a valid POSIX ERE pattern' node "$cfg" check
+write <<'JSON'
+{ "workspaces": { ".": { "lint": false } }, "deps": { "minAgeDays": "soon" } }
+JSON
+has "a limit that is not a number" 2 'deps.minAgeDays must be a number of days' node "$cfg" check
 
 echo "# config feeds the other scripts"
 write <<'JSON'
@@ -119,14 +124,6 @@ RISK_HIGH='nothing-matches' has "the env var still wins" 0 "^low +src/reports/a.
 mkdir -p src/legacy src/kit && echo "const k = 'AKIA""ABCDEFGHIJKLMNOP'" > src/legacy/a.ts && cp src/legacy/a.ts src/b.ts
 has "secrets.allow from the config"    0 "SECRETS: 0 hits" bash "$here/secret-scan.sh" src/legacy/a.ts
 has "and only for what it names"       1 "src/b.ts:1" bash "$here/secret-scan.sh" src/b.ts
-echo "// @ts-ignore" > src/legacy/c.ts && cp src/legacy/c.ts src/d.ts
-has "escapes.allow from the config"    0 "ESCAPES: 0 flags" bash "$here/escape-scan.sh" src/legacy/c.ts
-has "and only for what it names"       0 "src/d.ts:1 — checker silenced" bash "$here/escape-scan.sh" src/d.ts
-echo "function f(a) { if (a) return 1; if (!a) return 2; }" > src/legacy/e.js && cp src/legacy/e.js src/f.js
-git add -A && git -c user.name=test -c user.email=test@test commit -qm erosion
-echo "function f(a) { if (a) return 1; if (!a) return 2; if (a > 1) return 3; }" > src/legacy/e.js && cp src/legacy/e.js src/f.js
-has "erosion.threshold from the config" 0 "src/f.js:1 — complex function grew — f: 3 → 4" bash "$here/erosion-scan.sh" src/f.js
-has "erosion.allow from the config"    0 "EROSION: 0 flags \\(limit 3\\)" bash "$here/erosion-scan.sh" src/legacy/e.js
 echo "export const x = 1" > src/kit/x.ts
 has "shared from the config"           0 "src/kit/x.ts — new file in a shared layer" bash "$here/../../reuse-guardrails/scripts/reuse-scan.sh" src/kit/x.ts
 
@@ -184,6 +181,12 @@ has "maven: no checkstyle, so none"    0 '^false$' q 'workspaces|tools|lint'
 has "a java path plans its workspace"  0 "RUN.core.typecheck../gradlew -q compileJava compileTestJava" node "$cfg" plan core/crm/src/main/java/A.java
 has "a migration runs the tests only"  0 "^RUN.core.test../gradlew test$" node "$cfg" plan core/app/src/main/resources/db/migration/V2__x.sql
 
-echo
-echo "$pass passed, $fail failed"
-[ "$fail" = 0 ]
+echo "# one directory with a package.json and a Gradle build"
+echo '{"scripts":{"test":"vitest run"},"devDependencies":{"vitest":"3"}}' > core/package.json
+rm docs/review/delivery.json && bash "$gate" init > /dev/null
+has "the js test command stays"        0 'vitest' q 'workspaces|core|test|run'
+has "the jvm one runs beside it"       0 '^./gradlew test$' q 'workspaces|core|test-jvm|run'
+has "the draft still validates"        0 "" node "$cfg" check
+has "a java path plans both"           0 "RUN.core.test-jvm../gradlew test" node "$cfg" plan core/crm/src/main/java/A.java
+
+finish

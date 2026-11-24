@@ -19,18 +19,20 @@ dir=$(dirname "$file")
 
 # Resolve companion files declared in the decorator.
 quoted="['\"][^'\"]+['\"]"
-template=""
-styles=""
+template=()
+styles=()
 
 template_url=$(grep -oE "templateUrl:[[:space:]]*$quoted" "$file" | sed -E "s/.*['\"]([^'\"]+)['\"]/\1/")
+template_url=${template_url#./}
 if [ -n "$template_url" ] && [ -f "$dir/$template_url" ]; then
-  template="$dir/$template_url"
+  template=("$dir/$template_url")
 fi
 
 style_urls=$(grep -oE "styleUrls?:[[:space:]]*\[?[^]]*" "$file" | grep -oE "$quoted" | tr -d "'\"")
-for style_url in $style_urls; do
-  [ -f "$dir/$style_url" ] && styles="$styles $dir/$style_url"
-done
+while IFS= read -r style_url; do
+  style_url=${style_url#./}
+  [ -n "$style_url" ] && [ -f "$dir/$style_url" ] && styles+=("$dir/$style_url")
+done <<< "$style_urls"
 
 found_any=0
 
@@ -44,7 +46,10 @@ flag() {
 report() {
   local label=$1 regex=$2 matches
   shift 2
-  matches=$(grep -nE "$regex" "$@" /dev/null 2>/dev/null | sed "s|^$dir/||")
+  matches=$(grep -nE "$regex" "$@" /dev/null 2>/dev/null | PREFIX="$dir/" awk '
+    index($0, ENVIRON["PREFIX"]) == 1 { $0 = substr($0, length(ENVIRON["PREFIX"]) + 1) }
+    { print }
+  ')
   [ -n "$matches" ] && flag "$label" "$matches"
 }
 
@@ -53,10 +58,10 @@ has() {
 }
 
 scanned="$(basename "$file")"
-[ -n "$template" ] && scanned="$scanned + $(basename "$template")"
-if [ -n "$styles" ]; then
+[ ${#template[@]} -gt 0 ] && scanned="$scanned + $(basename "${template[0]}")"
+if [ ${#styles[@]} -gt 0 ]; then
   scanned="$scanned +"
-  for style in $styles; do
+  for style in "${styles[@]}"; do
     scanned="$scanned $(basename "$style")"
   done
 fi
@@ -64,7 +69,7 @@ echo "scanning: $scanned"
 echo
 
 decorator_io='@(Input|Output)\('
-signal_io='\b(input|output|model)(\.required)?<'
+signal_io='=[[:space:]]*(input|output|model)(\.required)?(<|\()'
 old_control_flow='\*ng(If|For)'
 new_control_flow='@(if|for)[[:space:]]*\('
 
@@ -74,9 +79,9 @@ report "Decorator inputs/outputs — project on signals? then input()/output()/m
 report "Constructor parameter injection — project on inject()? then migrate" \
   'constructor\([^)]*(private|public|protected|readonly)[[:space:]]' "$file"
 report "Structural directives — project on built-in control flow? then @if/@for/@switch" \
-  '\*ng(If|For|Switch)' "$file" $template
+  '\*ng(If|For|Switch)' "$file" ${template[@]+"${template[@]}"}
 report "ngClass/ngStyle — prefer direct [class.x] / [style.x] bindings" \
-  '\[ng(Class|Style)\]' "$file" $template
+  '\[ng(Class|Style)\]' "$file" ${template[@]+"${template[@]}"}
 report "standalone: false or NgModule declarations — on 19+ standalone is the default" \
   'standalone:[[:space:]]*false|declarations:[[:space:]]*\[' "$file"
 
@@ -84,7 +89,7 @@ report "standalone: false or NgModule declarations — on 19+ standalone is the 
 if has "$decorator_io" "$file" && has "$signal_io" "$file"; then
   flag "Mixed input generations in one class — decorators and signal inputs together" "  pick one"
 fi
-if [ -n "$template" ] && has "$old_control_flow" "$template" && has "$new_control_flow" "$template"; then
+if [ ${#template[@]} -gt 0 ] && has "$old_control_flow" "${template[0]}" && has "$new_control_flow" "${template[0]}"; then
   flag "Mixed control flow in one template — *ngIf/*ngFor and @if/@for together" "  pick one"
 fi
 
@@ -154,28 +159,29 @@ report "async ngOnInit — a rejected promise there is an unhandled rejection wi
   'async ngOnInit' "$file"
 
 # --- template ----------------------------------------------------------------
-if [ -n "$template" ]; then
+if [ ${#template[@]} -gt 0 ]; then
+  template_file=${template[0]}
   report "track \$index — breaks on reorder/insert/delete; track a stable id" \
-    'track \$index' "$template"
+    'track \$index' "$template_file"
   report "(click) on a div/span — needs a <button>, or role + tabindex + keyboard handler" \
-    '<(div|span)[^>]*\(click\)' "$template"
+    '<(div|span)[^>]*\(click\)' "$template_file"
 
-  images_without_alt=$(grep -nE '<img\b' "$template" | grep -vE '\balt=' || true)
+  images_without_alt=$(grep -nE '<img\b' "$template_file" | grep -vE '\balt=' || true)
   [ -n "$images_without_alt" ] && flag "<img> without alt" "$images_without_alt"
 
-  unlabelled_controls=$(grep -nE '<(input|select|textarea)\b' "$template" \
+  unlabelled_controls=$(grep -nE '<(input|select|textarea)\b' "$template_file" \
     | grep -vE 'aria-label|\bid=|type="(hidden|submit)"' || true)
   [ -n "$unlabelled_controls" ] && flag "Form control with no label hook — needs <label for>, aria-label or aria-labelledby" "$unlabelled_controls"
 
   report "ngModel — template-driven form; prefer typed reactive forms beyond a single field" \
-    '\[\(ngModel\)\]' "$template"
+    '\[\(ngModel\)\]' "$template_file"
 fi
 
 # --- styles ------------------------------------------------------------------
-if [ -n "$styles" ]; then
-  report "::ng-deep — deprecated, leaks past encapsulation" '::ng-deep' $styles
-  report "!important — a specificity fight" '!important' $styles
-  report "Raw hex colors — use the project's tokens / custom properties" '#[0-9a-fA-F]{3,8}\b' $styles
+if [ ${#styles[@]} -gt 0 ]; then
+  report "::ng-deep — deprecated, leaks past encapsulation" '::ng-deep' "${styles[@]}"
+  report "!important — a specificity fight" '!important' "${styles[@]}"
+  report "Raw hex colors — use the project's tokens / custom properties" '#[0-9a-fA-F]{3,8}\b' "${styles[@]}"
 fi
 report "ViewEncapsulation.None — legitimate on a layout shell / theme root, a finding on a leaf" \
   'ViewEncapsulation\.None' "$file"
@@ -184,8 +190,8 @@ report "ViewEncapsulation.None — legitimate on a layout shell / theme root, a 
 report "any / as any — type it or use unknown + guard" ':[[:space:]]*any\b|as any\b' "$file"
 report "Non-null assertion — handle the null instead" '[]A-Za-z0-9_)]!(\.|\[)' "$file"
 report "console.* left in" 'console\.(log|warn|debug|info)' "$file"
-report "Deep relative import — use the project's path alias" "from '\.\./\.\./" "$file"
-report "TODO/FIXME — confirm intentional" '(TODO|FIXME|XXX)' "$file" $template
+report "Deep relative import — use the project's path alias" "from ['\"]\.\./\.\./" "$file"
+report "TODO/FIXME — confirm intentional" '(TODO|FIXME|XXX)' "$file" ${template[@]+"${template[@]}"}
 
 [ "$found_any" -eq 0 ] && echo "clean — no mechanical smells"
 exit 0

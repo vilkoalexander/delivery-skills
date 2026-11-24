@@ -141,9 +141,14 @@ check_a4_project_layers() {
     row A4 MISS "no docs/review/*.md — no project layer names the shared primitives"
     return
   fi
-  local with_placeholders
-  # shellcheck disable=SC2086
-  with_placeholders=$(grep -lE '<[a-z][a-z -]+>' $layers 2>/dev/null | tr '\n' ' ')
+  local with_placeholders layer
+  # A hyphenated name is a custom element and a known tag is markup: a filled layer keeps both.
+  local html_tags='a|b|i|p|br|hr|ul|ol|li|em|kbd|pre|sub|sup|div|span|code|table|thead|tbody|tr|td|th|details|summary|button|input|select|textarea|label|form|img|strong|section|header|footer|nav|main'
+  with_placeholders=$(while IFS= read -r layer; do
+    [ -n "$layer" ] || continue
+    grep -oE '<[a-z][a-z -]+>' "$layer" 2>/dev/null \
+      | grep -vE "^<([a-z]+(-[a-z]+)+|$html_tags)>$" > /dev/null && printf '%s ' "$layer"
+  done <<< "$layers")
   if [ -n "$with_placeholders" ]; then
     row A4 MISS "template placeholders still in: $with_placeholders"
   else

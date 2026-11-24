@@ -152,8 +152,8 @@ report "Removed Spring Security API — use a SecurityFilterChain bean and reque
 if [ "$is_test" = 0 ]; then
   # --- proxies that never run ------------------------------------------------
   if [ "$is_interface" = 0 ]; then
-    non_public=$(rows_where '@Transactional|@Async|@Cacheable|@CacheEvict' | is_method | grep -vE '^[0-9]+: public ' || true)
-    [ -n "$non_public" ] && flag "Proxied annotation on a method that is not public — the proxy skips it, the annotation does nothing" "$non_public"
+    non_public=$(rows_where "$proxied" | is_method | grep -vE '^[0-9]+: public ' || true)
+    [ -n "$non_public" ] && flag "Proxied annotation on a method that is not public — a private method is never intercepted; a protected or package-private one only by a class-based proxy" "$non_public"
 
     final_or_static=$(rows_where "$proxied" | is_method | grep -E '^[0-9]+: (public )?(static|final) ' || true)
     [ -n "$final_or_static" ] && flag "Proxied annotation on a static or final method — it cannot be intercepted" "$final_or_static"
@@ -198,8 +198,8 @@ if [ "$is_test" = 0 ]; then
   [ -n "$field_injection" ] && flag "Field injection — use constructor injection (final field, @RequiredArgsConstructor)" "$field_injection"
 
   if [ "$is_bean" = 1 ] && ! has '@ConfigurationProperties'; then
-    mutable=$(grep -nE '^    (private|protected|public) [^(=]*[a-z][A-Za-z0-9]*( = [^;]*)?;' "$file" \
-      | grep -vE '^[0-9]+: +(private|protected|public) (static |final )' || true)
+    mutable=$(grep -nE '^[[:space:]]+(private|protected|public) [^(=]*[a-z][A-Za-z0-9]*( = [^;]*)?;' "$file" \
+      | grep -vE '^[0-9]+:[[:space:]]+(private|protected|public) (static |final )' || true)
     [ -n "$mutable" ] && flag "Mutable field in a singleton bean — shared by every request thread" "$mutable"
   fi
 
@@ -248,7 +248,10 @@ fi
 report "catch of Exception / Throwable — catch what the call can throw" \
   'catch \((final )?(Exception|Throwable|RuntimeException) '
 swallowed=$(awk '
-  /catch \(/ { catch_line = NR; catch_text = $0; uses = 0; next }
+  /catch \(/ {
+    if (catch_line && !uses) printf "%d: %s\n", catch_line, catch_text
+    catch_line = NR; catch_text = $0; uses = 0; next
+  }
   catch_line && /^[[:space:]]*\}/ { if (!uses) printf "%d: %s\n", catch_line, catch_text; catch_line = 0; next }
   catch_line && /throw |log\.[a-z]+\(.*, *[a-zA-Z]+\)|return |\.set[A-Z]|fail\(/ { uses = 1 }
 ' "$file")

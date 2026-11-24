@@ -109,8 +109,9 @@ through a proxy. Code that does not go through the proxy runs without them
 and raises no error.
 
 - **[hard] The annotation is on a public method of the bean class.** Private,
-  `static` and `final` methods are never intercepted; a protected or
-  package-private one is not when the bean is called through its interface.
+  `static` and `final` methods are never intercepted. A protected or
+  package-private one is intercepted only on Spring 6 and later, and only by
+  a class-based proxy: not when the bean is called through its interface.
 - **[hard] No self-invocation.** `this.save()` or a bare `save()` from another
   method of the same class does not start a transaction, does not go async,
   does not hit the cache. It matters when the caller does not already carry
@@ -309,21 +310,36 @@ Every new controller and service has a test.
 
 ## 9. Comment quality
 
-The default is no comment; a rename, an extracted method or a type comes
+<!-- comment-rules:start — the short form of comment-cleanup/RULES.md, the same text in each checklist -->
+The default is no comment; a rename, an extracted function or a type comes
 first.
 
 - **[hard] Delete comments that restate the code or describe the change** —
-  `// save the entity`, `// loop over members`, "now uses", "added", "fixed",
-  a banner, a step number, Javadoc that repeats the signature.
+  "now uses", "added", "fixed", a banner, a step number, a doc comment that
+  repeats the signature or the types.
 - **[hard] Delete commented-out code** — git remembers it.
-- **[hard] No ticket, PR, SHA, date or link in a comment.**
+- **[hard] No ticket, PR, SHA, date or link in a comment** — the code does
+  not know the outside world; those live in commit messages and PR bodies.
 - **[prefer] A comment that stays is one line and one of four kinds** — why
   this and not the obvious alternative, an outside constraint, a warning
-  about what breaks if edited, a workaround with its removal condition.
+  about what breaks if edited, a workaround with its removal condition. On a
+  constant or a field: only units, where a number comes from, a domain term,
+  or what null means, and only when a rename cannot say it.
 - **[context] A missing comment** is a finding only for one of those four
-  kinds, with the consequence named — a query that skips the security
-  specification on purpose, a call that must stay outside the transaction.
-- **[hard] A `@SuppressWarnings` or a disabled check states its reason.**
+  kinds, with the consequence named.
+- **[context] A comment the diff removed** that was still true and one of the
+  four kinds — restore it.
+- **[hard] A lint, type or check suppression states its reason.**
+<!-- comment-rules:end -->
+
+In this stack:
+
+- A restated line reads like `// save the entity` or `// loop over members`,
+  or is Javadoc that repeats the signature.
+- A query that skips the security specification on purpose and a call that
+  must stay outside the transaction each need a comment of one of the four
+  kinds.
+- The suppression is a `@SuppressWarnings` or a disabled check.
 
 ---
 

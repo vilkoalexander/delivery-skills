@@ -26,12 +26,20 @@ if [ -z "$files" ]; then
   exit 1
 fi
 
-root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+scanned=()
+while IFS= read -r file; do [ -n "$file" ] && scanned+=("$file"); done <<< "$files"
+
+target_dir=$target
+[ -d "$target_dir" ] || target_dir=$(dirname "$target")
+root=$(git -C "$target_dir" rev-parse --show-toplevel 2>/dev/null || pwd)
 client_packages="${CLIENT_LIBS:-schemas|types|utils}"
 found_any=0
 
 relative_to_root() {
-  sed "s|$root/||"
+  PREFIX="$root/" awk '
+    index($0, ENVIRON["PREFIX"]) == 1 { $0 = substr($0, length(ENVIRON["PREFIX"]) + 1) }
+    { print }
+  '
 }
 
 # flag LABEL LINES — prints a finding with the lines that caused it
@@ -43,32 +51,29 @@ flag() {
 # report LABEL REGEX — flags every line of the files that matches
 report() {
   local matches
-  # shellcheck disable=SC2086
-  matches=$(grep -nE "$2" $files /dev/null | relative_to_root)
+  matches=$(grep -nE "$2" "${scanned[@]}" /dev/null | relative_to_root)
   [ -n "$matches" ] && flag "$1" "$matches"
 }
 
 # --- dependency direction ----------------------------------------------------
 if grep -qE "/($client_packages)(/|$)" <<< "$target"; then
   report "Backend-only import in a package that reaches a client bundle" \
-    "from '(node:|@nestjs|@prisma|fs|path|crypto|buffer|express|fastify)"
+    "from ['\"](node:[^'\"]*|@nestjs/[^'\"]*|@prisma/[^'\"]*|(fs|path|crypto|buffer|express|fastify)(/[^'\"]*)?)['\"]"
 fi
 
-# shellcheck disable=SC2086
-zod_entry_points=$(grep -hoE "from 'zod(/v[34])?'" $files | sort -u | wc -l | tr -d ' ')
+zod_entry_points=$(grep -hoE "from ['\"]zod(/v[34])?['\"]" "${scanned[@]}" | tr '"' "'" | sort -u | wc -l | tr -d ' ')
 if [ "$zod_entry_points" -gt 1 ]; then
-  # shellcheck disable=SC2086
   flag "zod imported from more than one entry point — pick 'zod' or 'zod/v4', not both" \
-    "$(grep -nE "from 'zod" $files /dev/null | relative_to_root)"
+    "$(grep -nE "from ['\"]zod" "${scanned[@]}" /dev/null | relative_to_root)"
 fi
 report "Relative import with a .js suffix — correct under nodenext, breaks under bundler; check tsconfig" \
-  "from '\./[A-Za-z0-9_./-]+\.js'"
+  "from ['\"]\.\.?/[A-Za-z0-9_./-]+\.js['\"]"
 
 # --- the chain ---------------------------------------------------------------
 # Prints each hand-written interface or object type that has a schema of the same name.
 shapes_mirroring_a_schema() {
   local schema_dir=$1 file name camel_name
-  for file in $files; do
+  for file in "${scanned[@]}"; do
     grep -E '^export interface [A-Z]|^export type [A-Z][A-Za-z]* *= *\{' "$file" | awk '{print $3}' | while read -r name; do
       camel_name=$(awk '{ print tolower(substr($0, 1, 1)) substr($0, 2) }' <<< "$name")
       if grep -rqE "export const (${name}|${camel_name})Schema" "$schema_dir" 2>/dev/null; then
@@ -90,7 +95,6 @@ report "Generator stub — scaffolding, and in a client-consumed package it ship
 # Reads each `export const xSchema = z.object({ … })` to its closing `})` and prints the
 # request schemas that are not .strict() and the response schemas that are.
 strictness_problems() {
-  # shellcheck disable=SC2086
   awk '
     function opens_object(line) { return line ~ /z\.object\(/ || line ~ /\.extend\(/ }
 
@@ -119,27 +123,24 @@ strictness_problems() {
       name = ""
       body = ""
     }
-  ' $files
+  ' "${scanned[@]}"
 }
 strictness=$(strictness_problems)
 [ -n "$strictness" ] && flag "Request/response schema strictness" "$(relative_to_root <<< "$strictness")"
 
 # --- money & shared primitives ----------------------------------------------
-# shellcheck disable=SC2086
 money_without_int=$(awk '
   /(amount|price|delta|total|unitPrice|fee|cost)[A-Za-z]*: *z\.number\(\)/ && !/\.int\(\)/ {
     printf "%s:%d: %s\n", FILENAME, FNR, $0
   }
-' $files)
+' "${scanned[@]}")
 [ -n "$money_without_int" ] && flag "Money field without .int() — money is integer minor units" "$(relative_to_root <<< "$money_without_int")"
 
-# shellcheck disable=SC2086
-inline_currency=$(grep -nE '\[A-Z\]\{3\}' $files /dev/null | relative_to_root)
+inline_currency=$(grep -nE '\[A-Z\]\{3\}' "${scanned[@]}" /dev/null | relative_to_root)
 [ -n "$inline_currency" ] && flag "Currency regex inline — use one shared currency schema (fine if this IS that schema)" "$inline_currency"
 
 # Prints integer money fields with no upper bound inside create / update / patch schemas.
 unbounded_request_integers() {
-  # shellcheck disable=SC2086
   awk '
     /^export const [a-zA-Z]+Schema *=/ {
       name = $3
@@ -148,7 +149,7 @@ unbounded_request_integers() {
     in_request_schema && /(amount|price|delta|unitPrice|fee|cost)[A-Za-z]*: *z\.number\(\)\.int\(\)/ {
       if ($0 !~ /max|PG_INT_MAX|MAX/) printf "%s:%d: %s\n", FILENAME, FNR, $0
     }
-  ' $files
+  ' "${scanned[@]}"
 }
 unbounded=$(unbounded_request_integers)
 [ -n "$unbounded" ] && flag "Unbounded integer on a request field — bound it to the column ceiling or it overflows as an unmapped 500" "$(relative_to_root <<< "$unbounded")"

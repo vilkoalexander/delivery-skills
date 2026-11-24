@@ -77,7 +77,7 @@ if [ -d "$src/features" ]; then
   echo
   echo "=== feature-local (reused within one feature only)"
   find "$src/features" -type d \( -name components -o -name hooks -o -name lib \) 2>/dev/null \
-    | sed "s|$src/||" | sort | sed 's/^/  /' | cap
+    | while IFS= read -r dir; do printf '%s\n' "${dir#"$src"/}"; done | sort | sed 's/^/  /' | cap
 fi
 
 echo

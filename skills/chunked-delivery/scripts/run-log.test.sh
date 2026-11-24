@@ -12,6 +12,14 @@ mkdir -p "$repo" && git -C "$repo" init -q
 git -C "$repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m base
 head_sha=$(git -C "$repo" rev-parse HEAD)
 cd "$repo" || exit 1
+bash "$script" add plan=a chunk=2 risk=medium mode=long implementer=h reviewer=s fix_rounds=0 findings=0 verify=pass decision=edited > /dev/null 2> "$tmp/err"
+norun="$?:$(cat "$tmp/err")"
+bash "$here/run.sh" start > /dev/null
+m() { bash "$here/mark.sh" chunk=2 of=3 "$@"; }
+m phase=implement risk=medium
+bash "$script" add plan=a chunk=2 risk=medium mode=long implementer=h reviewer=s fix_rounds=0 findings=0 verify=pass decision=edited > /dev/null 2> "$tmp/err"
+noreport="$?:$(cat "$tmp/err")"
+m phase=gate && m phase=review && m phase=verify && m phase=report
 
 pass=0; fail=0
 ok()  { pass=$((pass+1)); echo "ok   - $1"; }
@@ -33,6 +41,10 @@ eq "fix_rounds is a number" "$(last '.fix_rounds | type')" number
 eq "findings value" "$(last .findings)" 3
 eq "decision kept" "$(last .decision)" edited
 eq "version is the plugin's" "$(last .version)" "$(jq -r .version "$here/../../../.claude-plugin/plugin.json")"
+eq "the line names its run" "$(last .run)" "$(jq -r .run "$DELIVERY_RUN_DIR"/*)"
+eq "and the build of the chunk" "$(last .build)" 1
+case $norun in 2:*"no run on"*) ok "outside a run: refused" ;; *) nok "outside a run: refused" "$norun" ;; esac
+case $noreport in 2:*"has no report yet"*) ok "before the report: refused" ;; *) nok "before the report: refused" "$noreport" ;; esac
 eq "timestamp set" "$(last '.ts | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T")')" true
 
 with() { # replaces one valid field with the given key=value
@@ -72,18 +84,26 @@ with static=2 >/dev/null && bash "$script" add "${valid[@]}" static=1 human_foun
 eq "optional counts are numbers" "$(last '.human_found | type')" number
 reject "bad optional" human_found=some "human_found must be"
 stats=$(bash "$script" stats)
-eq "stats sums what each gate caught" "$(awk '$1 == "medium" { print $2, $3, $4, $5 }' <<<"$stats")" "4 3 12 1"
+eq "stats sums what each gate caught" "$(awk '$1 == "medium" { print $2, $3, $4, $5; exit }' <<<"$stats")" "4 3 12 1"
 old='{"risk":"low","decision":"rejected","human_found":2}'
 echo "$old" >> "$DELIVERY_LOG"
 DELIVERY_PLUGIN_VERSION=0.9.0 bash "$script" add "${valid[@]}" human_found=1 >/dev/null
 DELIVERY_PLUGIN_VERSION=0.10.0 with decision=rejected >/dev/null
 stats=$(bash "$script" stats)
-byversion=$(awk '$1 == "version" { on = 1; next } on && !NF { on = 0 } on && $1 != "by" { print $1, $2, $5, $6 }' <<<"$stats" | head -3 | tr '\n' ';')
+byversion=$(awk '$1 == "version" { on = 1; next } on && !NF { exit } on && $1 != "by" { print $1, $2, $5, $6 }' <<<"$stats" | head -3 | tr '\n' ';')
 eq "stats by version, an entry with none first, then in number order" "$byversion" "unknown 1 2 1;0.9.0 1 1 0;0.10.0 1 0 1;"
 sed -i.bak '$d' "$DELIVERY_LOG"; sed -i.bak '$d' "$DELIVERY_LOG"; sed -i.bak '$d' "$DELIVERY_LOG"; rm -f "$DELIVERY_LOG.bak"
 stats=$(bash "$script" stats)
+echo 'not json at all' >> "$DELIVERY_LOG"
+eq "a line that is not JSON does not stop stats" "$(bash "$script" stats 2>/dev/null | awk '$1 == "medium" { print $2; exit }')" 4
+eq "and is named" "$(bash "$script" stats 2>&1 >/dev/null | grep -c 'skipped 1 line')" 1
+sed -i.bak '$d' "$DELIVERY_LOG"; rm -f "$DELIVERY_LOG.bak"
+with decision=stopped > /dev/null; eq "stopped is a decision" "$(last .decision)" stopped
+sed -i.bak '$d' "$DELIVERY_LOG"; rm -f "$DELIVERY_LOG.bak"
 eq "stats on an empty log exits 0" "$(DELIVERY_LOG="$tmp/none.jsonl" bash "$script" stats >/dev/null; echo $?)" 0
 
+bash "$here/run.sh" stop > /dev/null
+rm -rf "$DELIVERY_EVENTS_DIR"
 mkdir -p "$DELIVERY_EVENTS_DIR"
 ts=0
 ev() { # ev RUN JSON-FIELDS — appends one event with a rising timestamp
@@ -117,19 +137,18 @@ mark r1 2 implement '"name":"copy","risk":"low","plan":"p.md"'
 mark r1 2 gate; mark r1 2 report
 mark r1 3 implement '"name":"mail","risk":"medium","plan":"p.md"'
 mark r1 3 review; mark r1 3 verify; mark r1 3 report
-mark r1 3 final
-# The same chunk continues in a resumed run: one chunk, and its fix came after the report.
-mark r2 1 report "$named"
-mark r2 1 fix '"round":3'
-mark r2 1 report
-echo 'not json' >> "$DELIVERY_EVENTS_DIR/r2.jsonl"
+mark r1 1 fix; mark r1 1 gate; mark r1 1 report
+ev r1 '"ev":"chunk_logged","entry":{"chunk":1,"decision":"rejected"}'
+mark r1 1 implement; mark r1 1 gate; mark r1 1 report '"parked":"the plan is wrong"'
+ev r1 '"ev":"mark","phase":"final"'
+echo 'not json' >> "$DELIVERY_EVENTS_DIR/r1.jsonl"
 
 stats=$(bash "$script" stats)
-eq "a chunk resumed in a second run counts once" "$(row "risk chunks review" high)" "1 1 1 1 1 1"
-eq "a low-risk chunk reaches no review"          "$(row "risk chunks review" low)" "1 0 0 0 0 0"
-eq "a clean review reaches no fix round"         "$(row "risk chunks review" medium)" "1 1 0 1 0 0"
-eq "fix rounds stop at the first report"         "$(row "risk 0 1" high)" "0 0 1 0 0 0 0"
-eq "a chunk with no fix is in column 0"          "$(row "risk 0 1" medium)" "1 0 0 0 0 0 0"
+eq "a chunk built twice is two builds"           "$(row "risk builds review" high)" "2 1 1 1 1 1 1"
+eq "a low-risk chunk reaches no review"          "$(row "risk builds review" low)" "1 0 0 0 0 0 0"
+eq "a clean review reaches no fix round"         "$(row "risk builds review" medium)" "1 1 0 1 0 0 0"
+eq "a fix after the report is not a review round" "$(row "risk 0 1" high)" "1 0 1 0 0 0 0"
+eq "a build with no fix is in column 0"          "$(row "risk 0 1" medium)" "1 0 0 0 0 0 0"
 eq "a gate step counts its runs and failures"    "$(row "gate_step" lint)" "2 1"
 eq "a step that never fails shows 0"             "$(row "gate_step" test)" "2 0"
 eq "the whole gate has its own row"              "$(row "gate_step" whole_gate)" "2 1"

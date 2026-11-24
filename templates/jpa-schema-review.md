@@ -48,7 +48,7 @@ Everything in `<angle brackets>` is a placeholder — replace it or delete the r
 
 `<users.unit_member, users.enrollment>` — a lock rule on these is 🔴.
 
-## Known ceilings
+## Known ceilings — do not recommend past these
 
 - `<ACL views are read-only entities with no migration of their own>`
 - `<one ceiling per line, stated as a rule a reviewer can check>`

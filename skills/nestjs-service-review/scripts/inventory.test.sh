@@ -38,8 +38,8 @@ sees   "a module with no specs" '^  users +services:1 +controllers:0 +specs:0$' 
 misses "the root module"        '^  app ' "$modules"
 
 eq   "units without a spec"     "$(under 'missing specs' | tr -d ' ')" "users/users.service.ts"
-sees "guards by use"            '^ +2 @UseGuards\(AuthGuard\)$' "$(under 'guards / interceptors')"
-sees "interceptors"             '^ +1 @UseInterceptors\(Audit\)$' "$(under 'guards / interceptors')"
+sees "guards by use"            '^ +2 @UseGuards\(AuthGuard\)$' "$(under 'guards and interceptors in use')"
+sees "interceptors"             '^ +1 @UseInterceptors\(Audit\)$' "$(under 'guards and interceptors in use')"
 sees "test-utils exports"       '^  buildApp$' "$(under 'test-utils available to specs (libs/test-utils)')"
 
 echo "# only the files under review"
@@ -49,6 +49,20 @@ eq   "only units are checked"   "$(under 'missing specs' | wc -l | tr -d ' ')" 1
 touch $app/users/users.service.spec.ts
 out=$(bash "$inventory")
 eq   "nothing missing"          "$(under 'missing specs' | tr -d ' ')" "none"
+
+misses "the heading promises no decorators" 'decorators in use' "$out"
+
+echo "# a path with a space"
+new_repo "my api"
+mkdir -p "src/app/shared kit/common" src/app/billing
+echo "@Module({}) export class AppModule {}"     > src/app/app.module.ts
+echo "export const RATE = 1;"                    > "src/app/shared kit/common/rate.ts"
+echo "@Module({}) export class BillingModule {}" > src/app/billing/billing.module.ts
+echo "export class BillingService {}"            > src/app/billing/billing.service.ts
+out=$(bash "$inventory")
+sees "a shared file under a spaced directory" '^  shared kit/common/rate.ts +RATE$' "$(under 'shared primitives')"
+sees "a module under a spaced root"           '^  billing +services:1 +controllers:0 +specs:0$' "$(under modules)"
+cd "$tmp/project" || exit 1
 
 echo "# options"
 has "INVENTORY_LIMIT caps a section" 0 '… \+1 more lines \(raise INVENTORY_LIMIT=1' env INVENTORY_LIMIT=1 bash "$inventory"

@@ -25,7 +25,7 @@ nothing left as a placeholder.
 1. **Root.** The repository to write for. Default: the git root of the cwd.
    Never while a delivery run is marked there (`run.sh status`): this skill
    writes project files.
-2. **Have one already?** `bash scripts/check.sh <root>`. No recipe: go on.
+2. **Have one already?** `bash ${CLAUDE_PLUGIN_ROOT}/skills/verify-recipe/scripts/check.sh <root>`. No recipe: go on.
    A recipe with problems, or a request to update: go to "Keeping it true".
 3. **Interview the repository, not the human.** Answer from the code; ask
    only what cannot be observed.
@@ -76,9 +76,9 @@ nothing left as a placeholder.
    drive one mapped feature, capture the evidence, clean up. Confirm the
    evidence is still there after cleanup. Fix what fails and run the cleanup
    after every failed attempt. A recipe nobody executed is a draft.
-8. **`bash scripts/check.sh <root>`** until it ends with `ok`.
+8. **`bash ${CLAUDE_PLUGIN_ROOT}/skills/verify-recipe/scripts/check.sh <root>`** until it ends with `ok`.
 9. **Stamp what step 7 proved.**
-   `bash ../delivery-pipeline/scripts/stamp.sh set docs/review/verify.md <the feature files driven>`
+   `bash ${CLAUDE_PLUGIN_ROOT}/skills/delivery-pipeline/scripts/stamp.sh set docs/review/verify.md <the feature files driven>`
    writes the commit of HEAD below the title of each, as an `As of:` line.
    Do not stamp a file that nobody drove. `DIRTY` means that a path the file
    names has uncommitted changes: do not stamp, say so in the report.
@@ -90,9 +90,9 @@ A map that has drifted from the app is worse than none: the verifier trusts
 it. Run this when `check.sh` reports a problem, when a verifier line says
 `recipe — STALE`, or when asked.
 
-1. `bash scripts/check.sh <root>`. A `STALE` line is a path a feature file
+1. `bash ${CLAUDE_PLUGIN_ROOT}/skills/verify-recipe/scripts/check.sh <root>`. A `STALE` line is a path a feature file
    names that is gone: find where the feature went and correct the file.
-   `bash ../delivery-pipeline/scripts/stamp.sh check`. A `DRIFT` line is a
+   `bash ${CLAUDE_PLUGIN_ROOT}/skills/delivery-pipeline/scripts/stamp.sh check`. A `DRIFT` line is a
    file whose code changed since the commit on its `As of:` line: the file
    can be wrong, and step 3 drives it. An `UNSTAMPED` line is a file that
    nobody proved.

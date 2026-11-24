@@ -36,7 +36,7 @@ echo "# hooks"
 flags "forwardRef"
 flags "Array index as key"
 flags "useEffect"
-flags "Hook after an early return or inside a condition"
+flags "Hook on the line of an if, for or while"
 
 echo "# typescript and hygiene"
 flags "any / as any"
@@ -59,6 +59,25 @@ export function Tidy({ label }: { label: string }) {
 }
 TSX
 has "is clean" 0 '^clean — no mechanical smells$' bash "$scan" Tidy.tsx
+
+echo "# double quotes"
+cat > Quoted.tsx <<'TSX'
+import { money } from "../../lib/money";
+import { near } from "../near";
+export function Quoted() {
+  const user = useUser();
+  if (!user) return null;
+  const cart = useCart();
+  return Platform.OS === "android" ? <Text>{money(cart.total)}</Text> : null;
+}
+TSX
+out=$(bash "$scan" Quoted.tsx)
+deep=$(under 'Deep relative import')
+sees   "a double-quoted deep import"         '^1:' "$deep"
+misses "one level up is not deep"            '^2:' "$deep"
+flags  "Platform.OS branch"
+unflags "Hook on the line of an if, for or while"
+unflags "useEffect"
 
 echo "# input"
 has "no argument"  1 '^usage: scan.sh <component.tsx>$' bash "$scan"

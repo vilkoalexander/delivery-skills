@@ -16,7 +16,11 @@ sdd="${1:-$(latest_sdd_skill)}"
 tokens() {
   local bytes=0 file
   for file in "$@"; do
-    [ -f "$file" ] && bytes=$((bytes + $(wc -c < "$file")))
+    if [ -f "$file" ]; then
+      bytes=$((bytes + $(wc -c < "$file")))
+    else
+      echo "token-budget: no such file, not counted: $file" >&2
+    fi
   done
   echo $((bytes / 4))
 }

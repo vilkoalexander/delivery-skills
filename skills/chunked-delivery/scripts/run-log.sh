@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-log="${DELIVERY_LOG:-$HOME/.claude/delivery-skills/log.jsonl}"
-run_dir="${DELIVERY_RUN_DIR:-$HOME/.claude/delivery-skills/runs}"
-events_dir="${DELIVERY_EVENTS_DIR:-$(dirname "$run_dir")/events}"
+here=$(cd "$(dirname "$0")" && pwd)
+source "$here/lib/run.sh"
+log=$run_log
+events_dir=$run_events_dir
 required=(plan chunk risk mode implementer reviewer fix_rounds findings verify decision)
 optional=(static human_found)
-numeric='chunk|fix_rounds|findings|static|human_found'
+numbers=(chunk fix_rounds findings static human_found)
 
 usage() {
   echo "usage: run-log.sh add ${required[*]/%/=<value>} [${optional[*]/%/=<n>}]" >&2
@@ -28,12 +29,21 @@ one_of() {
   [[ $2 =~ ^($3)$ ]] || die "$1 must be one of: ${3//|/, } (got '$2')"
 }
 
+# A line that is not JSON is skipped and counted, so one bad write never hides the rest.
+log_entries() {
+  jq -cR 'fromjson? | select(type == "object")' "$log"
+}
+
 print_stats() {
+  local bad
   if [ ! -s "$log" ]; then
     echo "run-log: no entries in $log"
     return
   fi
-  jq -rs '
+  bad=$(jq -cR 'try (fromjson | select(type != "object")) catch "bad"' "$log" | wc -l | tr -d ' ')
+  [ "$bad" = 0 ] || echo "run-log: skipped $bad line(s) of $log that are not JSON objects" >&2
+
+  log_entries | jq -rs '
     def total(field): map(field // 0) | add;
     def decided(value): map(select(.decision == value)) | length;
     (["risk", "chunks", "static", "review", "human", "accepted", "edited", "rejected"] | @tsv),
@@ -41,11 +51,11 @@ print_stats() {
       | [.[0].risk, length, total(.static), total(.findings), total(.human_found),
          decided("accepted"), decided("edited"), decided("rejected")]
       | @tsv)
-  ' "$log" | column -t
+  ' | column -t
   echo "static, review, human: defects each caught, in the order they run"
 
   echo
-  jq -rs '
+  log_entries | jq -rs '
     def total(field): map(field // 0) | add;
     def order: if . == "unknown" then [-1] else split(".") | map(tonumber? // 0) end;
     (["version", "chunks", "static", "review", "human", "rejected"] | @tsv),
@@ -53,7 +63,7 @@ print_stats() {
       | [.[0].version, length, total(.static), total(.findings), total(.human_found),
          (map(select(.decision == "rejected")) | length)]
       | @tsv)
-  ' "$log" | column -t
+  ' | column -t
   echo "by plugin version: human and rejected per chunk should fall after a change to a gate or a rubric"
 }
 
@@ -74,64 +84,39 @@ table() {
 }
 
 print_paths() {
-  local files=("$events_dir"/*.jsonl) picked
+  local files=("$events_dir"/*.jsonl) builds picked
   if [ ! -e "${files[0]}" ]; then
     echo "run-log: no event files in $events_dir"
     return
   fi
-  # The hook events are most of each file and none of them is a branch.
-  picked=$(cat "${files[@]}" | jq -cR '
-    fromjson? | select(.ev == "mark" or .ev == "gate_step" or .ev == "gate_end")
-  ')
-
-  local chunks='
-    def count(test): map(select(test)) | length;
-    # A mark with a name opens a chunk. A resumed run names the chunk again, thus the name joins the parts.
-    [ map(select(.ev == "mark" and .phase != "final"))
-      | group_by(.run)[]
-      | sort_by(.ts)
-      | reduce .[] as $mark ([];
-          if length == 0 or $mark.name != null or $mark.chunk != .[-1][-1].chunk
-          then . + [[$mark]]
-          else .[-1] += [$mark]
-          end)
-      | .[]
-    ]
-    | map({ key: (if .[0].name != null then [.[0].plan, .[0].name] else [.[0].run, .[0].chunk, .[0].ts] end | tostring),
-            marks: . })
-    | group_by(.key)
-    | map(map(.marks) | add | sort_by(.ts)
-        | (map(.phase) | index("report") // length) as $report
-        | { risk: (map(.risk // empty)[0] // "unknown"),
-            phases: (map(.phase) | unique),
-            rounds: (.[:$report] | map(select(.phase == "fix")) | to_entries
-                     | map(.value.round // (.key + 1)) | max // 0),
-            fix_after_report: (.[$report:] | any(.phase == "fix")) })
-    | group_by(.risk)[]'
+  # lifecycle.mjs says what a build is; this only counts them.
+  builds=$(node "$here/lifecycle.mjs" builds "${files[@]}" | jq -c 'select(.chunk != "final")')
 
   echo
   echo "paths taken, from ${#files[@]} event files"
-  jq -rs "
-    ([\"risk\", \"chunks\", \"review\", \"fix\", \"verify\", \"cross\", \"fix_after_report\"] | @tsv),
-    ($chunks
-      | [.[0].risk, length,
-         count(.phases | index(\"review\")), count(.phases | index(\"fix\")),
-         count(.phases | index(\"verify\")), count(.phases | index(\"cross\")),
-         count(.fix_after_report)]
+  jq -rs '
+    def count(test): map(select(test)) | length;
+    def got(phase): count(.phases | index(phase));
+    (["risk", "builds", "review", "fix", "verify", "cross", "parked", "fix_after_report"] | @tsv),
+    (group_by(.risk)[]
+      | [.[0].risk // "unknown", length, got("review"), got("fix"), got("verify"), got("cross"),
+         count(.parked != null), count(.fix.human > 0)]
       | @tsv)
-  " <<<"$picked" | table
-  echo "chunks that got to each phase; fix_after_report: a fix that came after the report"
+  ' <<< "$builds" | table
+  echo "builds that got to each phase; fix_after_report: a fix the human asked for"
 
   echo
-  echo "fix rounds before the report, chunks at each count"
-  jq -rs "
-    ([\"risk\", \"0\", \"1\", \"2\", \"3\", \"4\", \"5\", \"6+\"] | @tsv),
-    ($chunks
-      | [.[0].risk, (range(0; 6) as \$n | count(.rounds == \$n)), count(.rounds >= 6)]
+  echo "fix rounds after a review, builds at each count"
+  jq -rs '
+    def count(test): map(select(test)) | length;
+    (["risk", "0", "1", "2", "3", "4", "5", "6+"] | @tsv),
+    (group_by(.risk)[]
+      | [.[0].risk // "unknown", (range(0; 6) as $n | count(.fix.review == $n)), count(.fix.review >= 6)]
       | @tsv)
-  " <<<"$picked" | table
+  ' <<< "$builds" | table
 
   echo
+  picked=$(cat "${files[@]}" | jq -cR 'fromjson? | select(.ev == "gate_step" or .ev == "gate_end")')
   jq -rs '
     def count(test): map(select(test)) | length;
     (["gate_step", "runs", "failed"] | @tsv),
@@ -139,7 +124,7 @@ print_paths() {
       | [.[0].step, length, count(.ok == false)] | @tsv),
     (map(select(.ev == "gate_end"))
       | ["whole_gate", length, count(.ok == false)] | @tsv)
-  ' <<<"$picked" | table
+  ' <<< "$picked" | table
   echo "a step with no failures in many runs finds nothing, or its check is weak"
 }
 
@@ -164,13 +149,14 @@ for pair in "$@"; do
     risk)     one_of risk "$value" 'low|medium|high' ;;
     mode)     one_of mode "$value" 'gated|long' ;;
     verify)   one_of verify "$value" 'pass|fail|none' ;;
-    decision) one_of decision "$value" 'accepted|edited|rejected' ;;
+    decision) one_of decision "$value" 'accepted|edited|rejected|stopped' ;;
   esac
-  if [[ $key =~ ^($numeric)$ ]]; then
+  if [[ " ${numbers[*]} " == *" $key "* ]]; then
     [[ $value =~ ^[0-9]+$ ]] || die "$key must be a whole number (got '$value')"
+    fields+=(--argjson "$key" "$value")
+  else
+    fields+=(--arg "$key" "$value")
   fi
-
-  fields+=(--arg "$key" "$value")
   seen+="$key "
 done
 
@@ -178,17 +164,19 @@ for key in "${required[@]}"; do
   [[ $seen == *" $key "* ]] || die "missing $key"
 done
 
-root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-base=$(git rev-parse HEAD 2>/dev/null || echo none)
+run_locate
+run_active || die "no run on $run_root: a line belongs to a run. Start one first: bash $here/run.sh start"
+chunk=$(jq -rn "${fields[@]}" '$ARGS.named.chunk')
+build=$(node "$here/lifecycle.mjs" builds "$(run_events_file)" \
+  | jq -c --argjson chunk "$chunk" 'select(.chunk == $chunk)' | tail -1)
+[ -n "$build" ] || die "chunk $chunk has no mark in this run"
+[ "$(jq -r .reported <<< "$build")" = true ] || die "chunk $chunk has no report yet: the human decides on a report"
+
 entry=$(jq -cn "${fields[@]}" \
-  --arg ts "$(date -u +%FT%TZ)" --arg project "$root" --arg base "$base" \
-  --arg version "$(plugin_version)" '
-  $ARGS.named
-  | with_entries(
-      if (.key | IN("chunk", "fix_rounds", "findings", "static", "human_found")) then .value |= tonumber else . end
-    )
-')
+  --arg ts "$(date -u +%FT%TZ)" --arg project "$run_root" --arg run "$(run_field run)" \
+  --arg base "$(git rev-parse HEAD 2>/dev/null || echo none)" --arg version "$(plugin_version)" \
+  --argjson build "$(jq .build <<< "$build")" '$ARGS.named')
 
 mkdir -p "$(dirname "$log")"
 printf '%s\n' "$entry" >> "$log"
-bash "$(dirname "$0")/event.sh" log chunk_logged "entry:=$entry" || true
+bash "$here/event.sh" log chunk_logged "entry:=$entry"

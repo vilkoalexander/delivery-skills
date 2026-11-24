@@ -33,6 +33,7 @@ run() {
 }
 
 while IFS= read -r test_file; do
+  [ -f "$test_file" ] || continue
   wanted "$test_file" "$@" && run "$test_file" bash "$test_file"
 done < <(git ls-files --cached --others --exclude-standard -- '*.test.sh' | sort)
 

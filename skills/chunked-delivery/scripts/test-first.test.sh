@@ -9,6 +9,7 @@ echo "export const total = 0" > src/orders/total.ts
 echo "it('old', () => expect(1).toBe(1))" > src/orders/old.spec.ts
 commit_all
 record="$tmp/chunk-1-tests.lock"
+locked() { tr '\0' '\n' < "$record.paths"; }
 
 echo "# bad input"
 has "no arguments prints usage"       2 "usage: test-first.sh open"          bash "$script"
@@ -18,7 +19,7 @@ has "lock with no open"               2 "Run open before the test authors"   bas
 
 echo "# open, then the test authors"
 echo "export const earlier = 1" > src/orders/earlier.ts
-has "open records the tree"           0 "recorded 1 changed files"           bash "$script" open "$record"
+has "open records the tree"           0 "recorded the tree before the tests"         bash "$script" open "$record"
 has "no test written is an error"     1 "no changed test file"               bash "$script" lock "$record"
 echo "it('sums', () => expect(total([1, 2])).toBe(3))" > src/orders/total.spec.ts
 mkdir -p src/orders/__tests__ && echo "export const order = {}" > src/orders/__tests__/fixture.ts
@@ -26,10 +27,10 @@ mkdir -p api/src/test/java/shop api/src/main/java/shop
 echo "class OrderServiceTest { @Test void sums() { assertEquals(3, total); } }" > api/src/test/java/shop/OrderServiceTest.java
 echo "class RefundIT {}" > api/src/main/java/shop/RefundIT.java
 has "locks the new test files"        0 "locked 4 test files"                bash "$script" lock "$record"
-eq  "a Java test in src/test is locked"   "$(grep -c 'src/test/java/shop/OrderServiceTest.java' "$record")" 1
-eq  "a Java test by its name is locked"   "$(grep -c 'RefundIT.java' "$record")" 1
-eq  "an untouched old test is not in the record" "$(grep -c old.spec "$record")" 0
-eq  "nor is the file from an earlier chunk" "$(grep -c earlier.ts "$record")" 0
+eq  "a Java test in src/test is locked"   "$(locked | grep -c 'src/test/java/shop/OrderServiceTest.java')" 1
+eq  "a Java test by its name is locked"   "$(locked | grep -c 'RefundIT.java')" 1
+eq  "an untouched old test is not in the record" "$(locked | grep -c old.spec)" 0
+eq  "nor is the file from an earlier chunk" "$(locked | grep -c earlier.ts)" 0
 
 echo "# a test author that writes code"
 echo "export const total = () => 3" > src/orders/total.ts
@@ -40,9 +41,17 @@ git checkout -q -- src/orders/total.ts
 echo "export const earlier = 2" > src/orders/earlier.ts
 has "an earlier file that changed is named" 1 "not a test: src/orders/earlier.ts" bash "$script" lock "$record"
 rm src/orders/earlier.ts
-has "an earlier file that was put back to HEAD is named" 1 "not a test: src/orders/earlier.ts" bash "$script" lock "$record"
+has "an earlier file that was removed is named" 1 "not a test: src/orders/earlier.ts" bash "$script" lock "$record"
 echo "export const earlier = 1" > src/orders/earlier.ts
 has "the tree as it was locks again"  0 "locked 4 test files"                bash "$script" lock "$record"
+
+echo "# a source file moved into a test path"
+git mv -k src/orders/total.ts src/orders/total.test.ts 2>/dev/null || mv src/orders/total.ts src/orders/total.test.ts
+has "the source file that left is named" 1 "not a test: src/orders/total.ts" bash "$script" lock "$record"
+mv src/orders/total.test.ts src/orders/total.ts
+git reset -q
+has "a bad allow pattern is refused"  2 "TEST_FIRST_ALLOW is not a valid pattern" env TEST_FIRST_ALLOW='(' bash "$script" lock "$record"
+eq  "the real index is not touched"   "$(git diff --cached --name-only)" ""
 
 echo "# check"
 echo "export const total = (xs: number[]) => xs.reduce((a, b) => a + b, 0)" > src/orders/total.ts

@@ -91,31 +91,15 @@ primitives and ceilings.
   (capped at `INVENTORY_LIMIT` lines per section, default 40). Pass the
   changed file or root where the script takes one; set `REVIEW_FILES` for the
   NestJS and the Spring one so the missing-test check covers only the files
-  under review. Script
-  output is flags to judge, never a verdict.
-- **Run the reuse scan once over the whole diff.** `bash
-  ${CLAUDE_PLUGIN_ROOT}/skills/reuse-guardrails/scripts/reuse-scan.sh` with
-  the changed paths (or `REUSE_DIFF_RANGE=base..head`), or read the output the
-  dispatch already carries from the static gate. Every flag is a finding
-  unless the implementer's `## Reuse` block answers it by name; a
-  `searched: … none found` line is an answer only when the inventory agrees.
-  Rank a reinvention above a style finding; the human would otherwise catch it
-  by hand.
-- **Read the escape flags once over the whole diff.** `bash
-  ${CLAUDE_PLUGIN_ROOT}/skills/delivery-pipeline/scripts/escape-scan.sh` with
-  the changed paths (or `ESCAPE_DIFF_RANGE=base..head`), or read the output
-  the dispatch already carries from the static gate. Every flag is a finding
-  unless the line silences a rule that is wrong for that line and says why,
-  or names a workaround for a cause outside the code with its removal
-  condition. The finding names the cause to fix, never a better comment. A
-  comment that keeps two copies in sync is a finding for a drift check.
-- **Read the erosion flags once over the whole diff.** `bash
-  ${CLAUDE_PLUGIN_ROOT}/skills/delivery-pipeline/scripts/erosion-scan.sh` with
-  the changed paths (or `EROSION_DIFF_RANGE=base..head`), or read the output
-  the dispatch already carries from the static gate. Each flag is a function
-  that was complex and that the change made more complex. It is a finding
-  unless the new branch cannot live apart from the others. The finding names
-  the part to move out, never a comment that explains the function.
+  under review. Script output is flags to judge, never a verdict.
+- **Read the reuse flags once over the whole diff.** `bash
+  ${CLAUDE_PLUGIN_ROOT}/skills/reuse-guardrails/scripts/reuse-scan.sh` takes
+  the changed paths (or `REUSE_DIFF_RANGE=base..head`). When the dispatch
+  already carries the output from the static gate, read that and do not run
+  the scan. Every flag is a finding unless the implementer's `## Reuse` block
+  answers it by name; a `searched: … none found` line is an answer only when
+  the inventory agrees. Rank a reinvention above a style finding; the human
+  would otherwise catch it by hand.
 - **Cross-file risk is in scope when you can name it.** A changed service
   method signature, a renamed shared type, an altered delete action: check the
   call sites and name both the risk and the check in your report. Browsing

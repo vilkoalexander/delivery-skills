@@ -2,7 +2,7 @@
 
 Eight categories. Walk them in order. Each rule is tagged **[hard]** (always
 report), **[prefer]** (report unless the file gives a reason not to) or
-**[context]** (report only with a concrete consequence in this file). For each finding, name the
+**[context]** (report only with a concrete consequence in this file). Name the
 consequence: "this is wrong" without "because X breaks" is not a finding.
 
 ## Before you start
@@ -22,10 +22,12 @@ The switches that change the rules:
 | 14 | standalone components (preview), `inject()` |
 | 16 | signals (preview), `takeUntilDestroyed`, `DestroyRef` |
 | 17 | built-in control flow `@if` / `@for` / `@switch`, `@defer`, signals stable |
-| 17.1 – 17.2 | signal inputs `input()`, `model()`, `output()`, signal queries |
+| 17.1 – 17.2 | signal inputs `input()`, `model()`, signal queries |
+| 17.3 | `output()` |
 | 19 | standalone is the default (`standalone: true` is redundant, `standalone: false` is the opt-out), `linkedSignal`, `resource` |
 | 20 | new style guide: no `Component`/`Service` class suffix, no `.component` file suffix, for **new** projects |
-| 21 | zoneless change detection stable |
+| 20.2 | zoneless change detection stable (`provideZonelessChangeDetection()`) |
+| 21 | zoneless is the default for a new application |
 
 Below the row a rule needs, the rule does not apply. Above it, the project's
 own generation choice (project layer) decides whether omitting it is a finding.
@@ -90,8 +92,8 @@ when it is not.
 ### Inputs, outputs, state
 
 - **[prefer] `input()` / `input.required()` / `model()` / `output()`** over the
-  `@Input()` / `@Output()` decorators on 17.1+, when the project has adopted
-  them. A new file mixing both in one class is a **[hard]** finding regardless.
+  `@Input()` / `@Output()` decorators on 17.1+ (`output()` on 17.3+), when the
+  project has adopted them. A new file mixing both in one class is a **[hard]** finding regardless.
 - **[hard] Derived state is `computed()`**, never an `effect()` that writes a
   signal, never `ngOnChanges` copying an input into a field. Both re-implement
   what `computed` does and both go stale.
@@ -117,7 +119,8 @@ when it is not.
   into a handler.
 - **[context] Zoneless readiness** — direct mutation of a reactive form model
   or a plain field will not render under zoneless. Flag only when the project
-  has `provideZonelessChangeDetection()` or says it is heading there.
+  has `provideZonelessChangeDetection()`, is a new application on 21+, or
+  says it is heading there.
 
 ### Dependency injection & lifecycle
 
@@ -170,27 +173,35 @@ The template is half the component. Load it.
 
 ## 4. Comment quality
 
-The default is no comment; a rename, an extracted method or a type comes
+<!-- comment-rules:start — the short form of comment-cleanup/RULES.md, the same text in each checklist -->
+The default is no comment; a rename, an extracted function or a type comes
 first.
 
 - **[hard] Delete comments that restate the code or describe the change** —
-  `// inject the service`, `// loop over items`, "now uses", "added",
-  "fixed", a banner, a step number, JSDoc repeating the input types.
+  "now uses", "added", "fixed", a banner, a step number, a doc comment that
+  repeats the signature or the types.
 - **[hard] Delete commented-out code** — git remembers it.
 - **[hard] No ticket, PR, SHA, date or link in a comment** — the code does
   not know the outside world; those live in commit messages and PR bodies.
 - **[prefer] A comment that stays is one line and one of four kinds** — why
   this and not the obvious alternative, an outside constraint, a warning
   about what breaks if edited, a workaround with its removal condition. On a
-  constant or an interface field: only units, where a number comes from, a
-  domain term, or what null means, and only when a rename cannot say it.
+  constant or a field: only units, where a number comes from, a domain term,
+  or what null means, and only when a rename cannot say it.
 - **[context] A missing comment** is a finding only for one of those four
-  kinds, with the consequence named. A component-level `providers: []`, an
-  `effect()`, a `ViewEncapsulation.None`, a `runOutsideAngular` each need
-  one.
+  kinds, with the consequence named.
 - **[context] A comment the diff removed** that was still true and one of the
   four kinds — restore it.
-- **[hard] A lint or type suppression states its reason.**
+- **[hard] A lint, type or check suppression states its reason.**
+<!-- comment-rules:end -->
+
+In this stack:
+
+- A restated line reads like `// inject the service` or `// loop over items`,
+  or is JSDoc that repeats the input types.
+- A component-level `providers: []`, an `effect()`, a
+  `ViewEncapsulation.None` and a `runOutsideAngular` each need a comment of
+  one of the four kinds.
 
 ## 5. Styling & design tokens
 
@@ -254,6 +265,9 @@ Web platform; these have no automated coverage unless the
 
 AI code compiles and still drifts from house style. Compare to the sibling.
 
+- **[prefer] No `any`, no `as any`** where lint does not own the rule (see
+  Tooling coverage). Type the value, or use `unknown` and a guard.
+  `scripts/scan.sh` flags the lines.
 - **[hard] Standalone on 19+** — a new `NgModule` declaring components, or
   `standalone: false`, in a standalone project. On 14–18 match the siblings.
 - **[prefer] File & class naming match the siblings** — the 20+ style guide

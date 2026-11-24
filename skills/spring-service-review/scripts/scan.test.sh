@@ -258,6 +258,32 @@ unflags "now\(\) with no Clock"
 unflags "No test class for this unit"
 unflags "Mutable field in a singleton bean"
 
+echo "# indentation, chained catches, proxies by visibility"
+{
+  printf '%s\n' 'package shop;' '@Service' 'public class TwoSpaceService {'
+  printf '  private int counter = 0;\n'
+  printf '\tprivate String last;\n'
+  printf '  private final Clock clock;\n'
+  printf '  private static final int LIMIT = 3;\n'
+  printf '%s\n' '  @Cacheable("x")' '  protected int cached() {' '    return 1;' '  }'
+  printf '%s\n' '  @PreAuthorize("isAuthenticated()")' '  private int guarded() {' '    return 1;' '  }'
+  printf '%s\n' '  public void run() {' '    try {' '      work();' '    } catch (IOException first) {' '      counter++;' \
+    '    } catch (IllegalStateException second) {' '      throw second;' '    }' '  }' '}'
+} > $main/TwoSpaceService.java
+echo "class TwoSpaceServiceTest {}" > $test/TwoSpaceServiceTest.java
+out=$(bash "$scan" $main/TwoSpaceService.java)
+mutable=$(under 'Mutable field in a singleton bean')
+sees   "a two-space field"                      'private int counter' "$mutable"
+sees   "a tab-indented field"                   'private String last' "$mutable"
+misses "a final field is not mutable"           'clock|LIMIT' "$mutable"
+swallowed=$(under 'catch block that neither rethrows')
+sees   "the first of two catches"               'IOException first' "$swallowed"
+misses "the catch that rethrows"                'IllegalStateException second' "$swallowed"
+not_public=$(under 'Proxied annotation on a method that is not public')
+sees   "the label names the proxy kind"         'private.*never|class-based' "$(grep -E '^## Proxied annotation on a method that is not public' <<< "$out")"
+sees   "a protected proxied method"             'protected int cached' "$not_public"
+sees   "a private @PreAuthorize method"         'private int guarded' "$not_public"
+
 echo "# usage"
 has "no argument"                              1 'usage: scan.sh' bash "$scan"
 has "a missing file"                           1 'not found: nope.java' bash "$scan" nope.java
