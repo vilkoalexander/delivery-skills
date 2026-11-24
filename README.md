@@ -41,13 +41,17 @@ to be built in chunks.
 
 Agent review is a filter inside the build loop. Your read is the acceptance.
 
-![Chunked delivery loop](diagrams/chunked-delivery.svg)
+[![How the delivery factory works](diagrams/delivery-factory.svg)](diagrams/delivery-factory.svg)
+
+The picture is wide: click it for full size.
 
 ## Scripts decide what they can
 
 A rule in a prompt is a request. A script gives the same answer every run,
 costs no tokens and cannot be argued with. So anything with one right answer
 is a script, and a model is asked only what is left.
+
+[![Inside the static gate: how each step decides](diagrams/static-gate.svg)](diagrams/static-gate.svg)
 
 | Script | Decides | Runs |
 | --- | --- | --- |
@@ -59,11 +63,11 @@ is a script, and a model is asked only what is left.
 | `test-review/scripts/revert-check.sh` | New tests fail when the change is reverted | In the gate, when tests changed |
 | `reuse-guardrails/scripts/reuse-scan.sh` | A new helper, export or dependency duplicates one the repo has | In the gate; flags, never fails |
 | `delivery-pipeline/scripts/escape-scan.sh` | A line the change adds silences a checker, casts to `any`, defers the fix in a comment, or keeps two copies in sync by a comment | In the gate; flags, never fails |
+| `delivery-pipeline/scripts/erosion-scan.sh` | A function that was complex already got more complex, or the change took it past the limit | In the gate; flags, never fails |
 | `delivery-pipeline/scripts/dep-vet.sh` | A package exists in the registry, is not days old and is not reported as malware; flags install scripts and known advisories | In the hook before an install or `npx` during a run; in the reuse scan for changed dependencies |
 | `delivery-pipeline/scripts/risk.sh` | Risk class of a change, from its paths; says when a dependency change shares the chunk with other work | At the cut and in each report |
 | `<rubric>/scripts/scan.sh` | Mechanical smells in one file | Before a reviewer reads it |
 | `<rubric>/scripts/inventory.sh` | What the repo already has to reuse | Before an implementer writes |
-| `delivery-pipeline/scripts/erosion-scan.sh` | A function that was complex already got more complex, or the change took it past the limit | In the gate; flags, never fails |
 | `chunked-delivery/scripts/redo.sh` | Returns the tree to before a chunk, keeps what it discards | On `redo` |
 | `hooks/emit.sh` | Nothing: records every tool call, agent start and stop, and refusal of a run, in the background | On every tool call during a run |
 | `chunked-delivery/scripts/mark.sh` | Which chunk and step the run is on, the one fact nothing else can observe | At each step of the loop |
