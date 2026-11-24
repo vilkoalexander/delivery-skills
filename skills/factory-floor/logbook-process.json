@@ -1,0 +1,123 @@
+{
+  "name": "Chunked delivery",
+  "events": "~/.claude/delivery-skills/events/*.jsonl",
+  "fields": {
+    "time": "ts",
+    "timeUnit": "s",
+    "run": "run",
+    "runMatch": "^([0-9a-f]+)-",
+    "split": [
+      "plan",
+      "entry.plan"
+    ],
+    "splitMatch": "([^/]+?)(\\.md)?$",
+    "session": "sid",
+    "agent": "agent"
+  },
+  "stages": [
+    {
+      "id": "tests",
+      "label": "Tests",
+      "about": "A test author writes failing tests and locks them."
+    },
+    {
+      "id": "implement",
+      "label": "Implement",
+      "about": "An implementer makes the locked tests pass."
+    },
+    {
+      "id": "gate",
+      "label": "Static gate",
+      "about": "Format, lint, types and tests must all pass."
+    },
+    {
+      "id": "review",
+      "label": "Review",
+      "about": "A read-only reviewer checks the diff against the rubrics."
+    },
+    {
+      "id": "fix",
+      "label": "Fix",
+      "about": "Findings from review go back to an implementer."
+    },
+    {
+      "id": "verify",
+      "label": "Verify",
+      "about": "A verifier runs the change for real and reports what it saw."
+    },
+    {
+      "id": "cross",
+      "label": "Cross-model",
+      "about": "A second model reviews the same diff."
+    },
+    {
+      "id": "you",
+      "label": "Human review",
+      "about": "The chunk waits for you to read the diff and accept or edit it.",
+      "human": true
+    },
+    {
+      "id": "final",
+      "label": "Final pass",
+      "about": "One last review of the whole tree after every chunk."
+    }
+  ],
+  "rules": [
+    {
+      "when": {
+        "ev": "mark",
+        "phase": "final"
+      },
+      "itemValue": "final",
+      "stage": "phase"
+    },
+    {
+      "when": {
+        "ev": "mark"
+      },
+      "item": "chunk",
+      "label": "name",
+      "stage": "phase",
+      "stageMap": {
+        "test": "tests",
+        "report": "you"
+      },
+      "attrs": [
+        "risk",
+        "round"
+      ],
+      "total": "of"
+    },
+    {
+      "when": {
+        "ev": "gate_step"
+      },
+      "check": "step",
+      "ok": "ok"
+    },
+    {
+      "when": {
+        "ev": "refusal"
+      },
+      "alert": "reason"
+    },
+    {
+      "when": {
+        "ev": "chunk_logged"
+      },
+      "item": "entry.chunk",
+      "outcome": "entry.decision",
+      "attrs": [
+        "entry.fix_rounds",
+        "entry.findings",
+        "entry.verify"
+      ]
+    },
+    {
+      "when": {
+        "ev": "run_stop"
+      },
+      "end": true
+    }
+  ]
+}
