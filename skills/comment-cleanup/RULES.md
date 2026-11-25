@@ -72,7 +72,8 @@ stays as it is. One the change made false is fixed in the same change.
 ## Short form for the checklists
 
 The comment section of `react-review`, `angular-review`,
-`nestjs-service-review` and `spring-service-review` holds this block. What is
+`nestjs-service-review`, `spring-service-review`, `go-service-review` and
+`htmx-review` holds this block. What is
 particular to one stack goes below the block in that checklist, not into it.
 
 <!-- comment-rules:start — the short form of comment-cleanup/RULES.md, the same text in each checklist -->

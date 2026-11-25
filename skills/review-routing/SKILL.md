@@ -29,6 +29,9 @@ directory depth: backend units nest.
 | `*Controller.java`, `*Service.java`, `*ServiceImpl.java`, and any other `*.java` under `src/main` of a Spring application that is not in the next row: configuration, filter, listener, handler, aspect, scheduled job. Also `application*.yml` / `application*.properties` | `spring-service-review` |
 | `*Entity.java` and any class with `@Entity`, `@MappedSuperclass` or `@Embeddable`; `*Repository.java`, `*Specification.java`; `db/migration/**/*.sql` and any `V<version>__<name>.sql` | `jpa-schema-review` |
 | `*Test.java`, `*Tests.java`, `*IT.java`, anything under `src/test`, `src/testFixtures`, `src/integrationTest` of a Java module | `spring-service-review` (its §7 Tests) |
+| `*.go` under a Go module: a handler, a service, a store, middleware, `main.go`, a worker. Not a generated file (`*_templ.go`, sqlc or protobuf output, anything that starts with `// Code generated`) | `go-service-review` |
+| `*_test.go` | `go-service-review` (its §7 Tests) |
+| `*.html`, `*.gohtml`, `*.tmpl`, `*.templ` that carry `hx-` attributes or load htmx, and the layout they fill | `htmx-review` |
 | A shared contract package consumed by more than one app — `libs/shared/**`, `packages/shared/**`, `packages/contracts/**`, `packages/api-types/**`, or whatever the project names it | `api-contract-review` |
 | `*.tsx` under a React or React Native app | `react-review` |
 | `*.component.ts`, `*.directive.ts`, `*.pipe.ts` with an `@Component`/`@Directive`/`@Pipe` decorator, and their `.html` templates, under an Angular app | `angular-review` |
@@ -43,6 +46,13 @@ rubrics are written for TypeScript: a Java file is not routed to
 `security-review` reads both languages. A request or
 response class that a TypeScript client mirrors by hand is a contract change
 all the same; name the client file that must change with it.
+
+A Go file gets the same treatment as a Java one: `go-service-review` holds
+its own sections for tests, authorization, input and logging, so a `.go`
+file is not routed to `test-review`, `observability-review`,
+`api-contract-review` or `security-review`. An Angular template is `.html`
+too: route an `.html` file to `htmx-review` only when it has `hx-`
+attributes.
 
 Two rows claim `*.pipe.ts`: an Angular pipe carries `@Pipe`, a NestJS pipe
 implements `PipeTransform`. Open the first twenty lines and route on the
@@ -90,7 +100,7 @@ primitives and ceilings.
   per changed file the rubric owns, `scripts/inventory.sh` once per rubric
   (capped at `INVENTORY_LIMIT` lines per section, default 40). Pass the
   changed file or root where the script takes one; set `REVIEW_FILES` for the
-  NestJS and the Spring one so the missing-test check covers only the files
+  NestJS, the Spring and the Go one so the missing-test check covers only the files
   under review. Script output is flags to judge, never a verdict.
 - **Read the reuse flags once over the whole diff.** `bash
   ${CLAUDE_PLUGIN_ROOT}/skills/reuse-guardrails/scripts/reuse-scan.sh` takes
@@ -133,6 +143,14 @@ schema change first. Run `jpa-schema-review` before `spring-service-review`;
 if the mapping or the migration is wrong, the service findings are downstream
 noise. Pass `MIGRATION_BASE=<base>` to its `scan.sh` so an edited migration is
 compared with the base of the diff, not with `HEAD`.
+
+A change with a template and the Go handler that serves it is one contract
+seen from two sides. Run `htmx-review` and `go-service-review` in one pass
+when the same reviewer has both: what the handler returns, with which status
+and headers, is judged once against what the template's `hx-target` and
+`hx-swap` expect. A changed `.templ` file comes with a regenerated
+`*_templ.go`: review the `.templ`, and report a generated file that did not
+change with it.
 
 A change crossing the shared contract package and any of its consumers is a
 contract change first. Run `api-contract-review` before the others; if the

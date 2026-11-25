@@ -9,7 +9,7 @@
     {
       "name": "delivery-skills",
       "source": "./",
-      "description": "Subagent-driven delivery with a human at every chunk: grill the plan, build one chunk, static gate, read-only review and verify seats, hooks that refuse git writes during a run. Single-file review rubrics for React, Angular, NestJS, Prisma, Java Spring Boot, JPA and Flyway migrations, shared API contracts, tests, backend observability and security, a screen-authoring checklist, a comment cleanup, a reuse-guardrails audit, a verify recipe with a feature map, a run retro and a memory dashboard for Claude Code auto-memory",
+      "description": "Subagent-driven delivery with a human at every chunk: grill the plan, build one chunk, static gate, read-only review and verify seats, hooks that refuse git writes during a run. Single-file review rubrics for React, Angular, NestJS, Prisma, Java Spring Boot, JPA and Flyway migrations, Go services, htmx templates, shared API contracts, tests, backend observability and security, a screen-authoring checklist, a comment cleanup, a reuse-guardrails audit, a verify recipe with a feature map, a run retro and a memory dashboard for Claude Code auto-memory",
       "category": "productivity",
       "tags": [
         "code-review",
@@ -19,6 +19,8 @@
         "angular",
         "nestjs",
         "prisma",
+        "go",
+        "htmx",
         "testing",
         "observability",
         "security",

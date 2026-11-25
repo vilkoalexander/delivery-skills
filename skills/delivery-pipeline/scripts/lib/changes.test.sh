@@ -76,10 +76,10 @@ eq "a range" "$(added_lines HEAD~1..HEAD src/new.ts | sed -n 1p)" "src/new.ts:1:
 
 echo "# is it a test"
 for path in src/a.spec.ts src/a.test.tsx app.e2e-spec.ts src/__tests__/a.ts src/__snapshots__/a.snap \
-  src/testFixtures/Fx.java src/test/java/A.java e2e/login.ts tests/a.py UserServiceTest.java UserIT.kt fixtures/a.json; do
+  src/testFixtures/Fx.java src/test/java/A.java e2e/login.ts tests/a.py UserServiceTest.java UserIT.kt fixtures/a.json internal/cart/handler_test.go; do
   if is_test_path "$path"; then ok "test: $path"; else nok "test: $path" "read as source"; fi
 done
-for path in src/contest.ts src/latest/a.ts src/attest.service.ts src/a.ts Protest.java src/testing.ts; do
+for path in src/contest.ts src/latest/a.ts src/attest.service.ts src/a.ts Protest.java src/testing.ts internal/cart/handler.go internal/latest_test/go.go; do
   if is_test_path "$path"; then nok "source: $path" "read as a test"; else ok "source: $path"; fi
 done
 

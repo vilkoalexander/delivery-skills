@@ -27,6 +27,8 @@ will skim both.
 | `prisma-schema-review.md` | `docs/review/prisma-schema-review.md` |
 | `spring-service-review.md` | `docs/review/spring-service-review.md` |
 | `jpa-schema-review.md` | `docs/review/jpa-schema-review.md` |
+| `go-service-review.md` | `docs/review/go-service-review.md` |
+| `htmx-review.md` | `docs/review/htmx-review.md` |
 | `api-contract-review.md` | `docs/review/api-contract-review.md` |
 | `test-review.md` | `docs/review/test-review.md` |
 | `observability-review.md` | `docs/review/observability-review.md` |
@@ -52,7 +54,7 @@ commit is gone; the check then uses the last commit of the document.
 
 | Key | Read by | Meaning |
 | --- | --- | --- |
-| `stack` | `review-routing` | frameworks in the repo; a rubric for one not listed is not routed. `spring` and `jpa` are the Java ones |
+| `stack` | `review-routing` | frameworks in the repo; a rubric for one not listed is not routed. `spring` and `jpa` are the Java ones; `go`, `templ` and `htmx` the Go ones |
 | `writing` | `chunked-delivery` | `ste100` (default): reports, findings, questions, comments and documents of a run are ASD-STE100 Simplified Technical English. `free` sets it off |
 | `workspaces.<dir>.<step>` | `static-gate.sh check` | the command for `typecheck`, `lint`, `format`, `test` or any step you name, run in `<dir>`. A string runs whenever the workspace changed; `{ "run", "files" }` runs only when a changed path matches `files`; `false` says the workspace has none. `{files}` becomes the changed paths that still exist, relative to `<dir>`. A changed path belongs to the longest `<dir>` that contains it; `.` is the root |
 | `risk.high`, `risk.medium` | `risk.sh` | patterns for paths that are always that class |
@@ -75,11 +77,13 @@ The rubric scripts take project-specific names from the environment:
 | `CLIENT_LIBS` | api-contract | package dirs that reach a client bundle |
 | `INVENTORY_LIMIT` | all `inventory.sh` | lines per section before the output is cut with an overflow count (default 40) |
 | `INVENTORY_DOCS` | react, angular | `1` adds each module's first doc-comment line |
-| `REVIEW_FILES` | nestjs, spring | space-separated files under review; limits the missing-spec check to them |
+| `REVIEW_FILES` | nestjs, spring, go | space-separated files under review; limits the missing-spec check to them |
 | `LOG_CALL`, `SECRETS` | observability | regex for the project's log call; extra field names that must never be logged |
 | `INPUT`, `GUARD` | security | extra names that hold outside input; regex for what authorizes a handler or marks it public, `""` when a global guard or URL rules decide |
 | `AUTHZ` | spring | regex for the annotations that authorize a handler; `""` when the project authorizes by URL |
-| `REMOTE_CALL` | spring | regex for calls that leave the process: HTTP, object store, bot, mail |
+| `REMOTE_CALL` | spring, go | regex for calls that leave the process: HTTP, object store, bot, mail |
+| `HANDLER` | go | regex for what marks a handler signature, for a router that is not `net/http`, gin, echo or fiber |
+| `HTMX_VERSION` | htmx | `2` or `4`, when the scan cannot read the htmx major from a script tag, `package.json` or a vendored file |
 | `MIGRATION_BASE` | jpa | git ref a merged migration is compared with (default `HEAD`; the base branch in a branch review) |
 | `MIGRATION_NAME` | jpa | regex for a valid migration file name, when the project does not use Flyway's |
 | `TEST_CMD` | test `revert-check.sh` | command that runs the test files passed to it, when detection from `package.json` is wrong |

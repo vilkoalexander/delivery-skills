@@ -189,4 +189,25 @@ has "the jvm one runs beside it"       0 '^./gradlew test$' q 'workspaces|core|t
 has "the draft still validates"        0 "" node "$cfg" check
 has "a java path plans both"           0 "RUN.core.test-jvm../gradlew test" node "$cfg" plan core/crm/src/main/java/A.java
 
+echo "# init, a Go repository"
+gorepo="$tmp/gorepo"; mkdir -p "$gorepo/cmd/server" "$gorepo/internal/cart" "$gorepo/tools/vendor/x" && git -C "$gorepo" init -q && cd "$gorepo"
+printf 'module shop\n\ngo 1.25\n\nrequire github.com/a-h/templ v0.3.0\n' > go.mod
+printf 'module x\n' > tools/vendor/x/go.mod
+echo 'package main' > cmd/server/main.go
+echo '<form hx-post="/cart" hx-target="#cart"></form>' > internal/cart/cart.templ
+has "init writes the file"             0 "wrote docs/review/delivery.json" bash "$gate" init
+has "the draft validates"              0 "" node "$cfg" check
+has "stack names go, templ and htmx"   0 '^\["go","templ","htmx"\]$' q stack
+has "a vendored go.mod is no workspace" 0 '^\["."\]$' node -e 'console.log(JSON.stringify(Object.keys(JSON.parse(require("fs").readFileSync("docs/review/delivery.json","utf8")).workspaces).sort()))'
+has "go: build"                        0 '^go build \./\.\.\.$' q 'workspaces|.|typecheck|run'
+has "go: vet when no golangci config"  0 '^go vet \./\.\.\.$' q 'workspaces|.|lint|run'
+has "go: gofmt"                        0 'gofmt -l' q 'workspaces|.|format|run'
+has "go: tests"                        0 '^go test \./\.\.\.$' q 'workspaces|.|test|run'
+has "a go path plans the build"        0 "RUN...typecheck.go build" node "$cfg" plan internal/cart/handler.go
+has "a template runs the tests only"   0 "^RUN...test.go test ./...$" node "$cfg" plan internal/cart/cart.templ
+touch .golangci.yml && rm docs/review/delivery.json && bash "$gate" init > /dev/null
+has "go: golangci-lint when configured" 0 '^golangci-lint run \./\.\.\.$' q 'workspaces|.|lint|run'
+printf 'module shop\n' > go.mod && rm internal/cart/cart.templ docs/review/delivery.json && bash "$gate" init > /dev/null
+has "plain go: no templ, no htmx"      0 '^\["go"\]$' q stack
+
 finish

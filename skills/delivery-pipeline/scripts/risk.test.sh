@@ -27,6 +27,9 @@ class "dockerfile"          Dockerfile                        high "CI, deploy, 
 class "high beats low"      src/auth/login.spec.ts            high "auth, guard, session"
 class "flyway migration"    app/src/main/resources/db/migration/V1.2__x.sql high "schema or migration"
 class "jpa entity"          model/src/main/java/shop/InvoiceEntity.java high "schema or migration"
+class "go auth middleware"  internal/middleware/auth.go       high "auth, guard, session"
+class "go migration"        db/migrations/0004_orders.up.sql  high "schema or migration"
+class "go money path"       internal/billing/charge.go        high "money path"
 class "security module"     security/src/main/java/shop/filter/PhoneFilter.java high "auth, guard, session"
 class "java auth class"     user/src/main/java/shop/JwtTokenManager.java high "auth, guard, session"
 
@@ -44,6 +47,7 @@ class "a style named after auth" src/oauth-button.css         low "styling or as
 class "spec file"           src/users/users.service.spec.ts   low "tests"
 class "tests folder"        tests/helpers.ts                  low "tests"
 class "java test"           user/src/test/java/shop/UnitControllerTest.java low "tests"
+class "go test"             internal/cart/handler_test.go     low "tests"
 class "java test fixtures"  test-utils/src/testFixtures/java/shop/BaseTest.java low "tests"
 class "markdown"            README.md                         low "docs"
 class "stylesheet"          src/app.scss                      low "styling or assets"
@@ -51,12 +55,17 @@ class "translations"        src/i18n/en.json                  low "copy, i18n"
 class "tooling config"      eslint.config.mjs                 low "dev tooling config"
 class "feature screen"      src/features/cart/CartPage.tsx    low "feature-local UI"
 class "leaf component"      src/Button.tsx                    low "leaf component"
+class "templ view"          internal/cart/cart.templ          low "leaf component"
+class "go html template"    web/templates/cart.gohtml         low "leaf component"
 
 echo "# medium"
 class "nest service"        src/users/users.service.ts        medium "NestJS unit"
 class "spring controller"   user/src/main/java/shop/UnitController.java medium "Spring unit"
 class "spring service"      user/src/main/java/shop/impl/UnitServiceImpl.java medium "Spring unit"
 class "spring repository"   model/src/main/java/shop/UnitRepository.java medium "Spring unit"
+class "go handler"          internal/cart/handler.go          medium "Go unit"
+class "go main"             cmd/server/main.go                medium "Go unit"
+class "go module"           go.mod                            medium "dependency change"
 class "spring config file"  app/src/main/resources/application-local.yml medium "runtime configuration"
 class "gradle build"        crm/build.gradle                  medium "dependency change"
 class "gradle versions"     gradle.properties                 medium "dependency change"
@@ -100,6 +109,7 @@ eq "bump alone is not mixed"       "$(mixed package.json pnpm-lock.yaml)" 0
 eq "bump with source is mixed"     "$(mixed package.json src/a.ts src/b.ts)" 1
 eq "workspace package.json counts" "$(mixed apps/web/package.json src/a.ts)" 1
 eq "a Gradle build with source is mixed" "$(mixed build.gradle src/main/java/A.java)" 1
+eq "a Go module with source is mixed" "$(mixed go.mod go.sum cmd/server/main.go)" 1
 eq "no dependency change, no line" "$(mixed src/a.ts)" 0
 has "says how many other paths"    0 '^mixed: dependency change shares the chunk with other paths \(2\)' bash "$risk" package.json src/a.ts src/b.ts
 

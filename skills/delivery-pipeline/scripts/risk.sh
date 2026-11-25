@@ -76,7 +76,7 @@ rules=(
   'high :: CI, deploy, infra :: (^|/)\.github/workflows/|(^|/)(Dockerfile|docker-compose[^/]*|helm|terraform|k8s|deploy|infra)(/|\.|$)'
 
   # low — local, visible, cheap
-  'low :: tests :: \.(spec|test)\.[cm]?[jt]sx?$|(^|/)(__tests__|test|tests|e2e|cypress|playwright|testFixtures|integrationTest)/|(Test|Tests|IT)\.(java|kt)$'
+  'low :: tests :: \.(spec|test)\.[cm]?[jt]sx?$|(^|/)(__tests__|test|tests|e2e|cypress|playwright|testFixtures|integrationTest)/|(Test|Tests|IT)\.(java|kt)$|_test\.go$'
   'low :: docs :: \.txt$|(^|/)docs/'
   'low :: styling or assets :: (^|/)(styles|theme|assets|public|static|fonts|images)/'
   'low :: copy, i18n :: (^|/)(i18n|locales|translations)/'
@@ -86,11 +86,12 @@ rules=(
   # medium — shared behaviour, reversible
   'medium :: NestJS unit :: \.(service|controller|module|resolver|interceptor|filter|pipe|middleware)\.ts$'
   'medium :: Spring unit :: (Controller|Service|ServiceImpl|Repository|Specification|Configuration|Config|Listener|Handler|Filter|Aspect)\.(java|kt)$'
+  'medium :: Go unit :: \.go$'
   'medium :: runtime configuration :: (^|/)application[^/]*\.(yml|yaml|properties)$'
   'medium :: shared primitive, hook or util :: (^|/)(components/ui|hooks|lib|utils|shared|common|store|state|api|services)(/|$)'
-  'medium :: dependency change :: (^|/)package\.json$|(^|/)(pnpm-lock\.yaml|package-lock\.json|yarn\.lock)$|(^|/)(build|settings)\.gradle(\.kts)?$|(^|/)(pom\.xml|gradle\.properties|libs\.versions\.toml)$'
+  'medium :: dependency change :: (^|/)package\.json$|(^|/)(pnpm-lock\.yaml|package-lock\.json|yarn\.lock)$|(^|/)(build|settings)\.gradle(\.kts)?$|(^|/)(pom\.xml|gradle\.properties|libs\.versions\.toml)$|(^|/)go\.(mod|sum|work)$'
 
-  'low :: leaf component :: \.(tsx|jsx|vue|svelte)$|\.component\.ts$|\.html$'
+  'low :: leaf component :: \.(tsx|jsx|vue|svelte)$|\.component\.ts$|\.(html|gohtml|tmpl|templ)$'
 )
 
 # Prints "class<TAB>rule" for one path.
@@ -162,7 +163,7 @@ fi
 class=$(class_of "$highest")
 echo "files: $file_count"
 
-manifest=$'\t''(.*/)?(package\.json|pnpm-lock\.yaml|package-lock\.json|yarn\.lock|(build|settings)\.gradle(\.kts)?|pom\.xml|gradle\.properties|libs\.versions\.toml|requirements[^/]*\.txt)$'
+manifest=$'\t''(.*/)?(package\.json|pnpm-lock\.yaml|package-lock\.json|yarn\.lock|(build|settings)\.gradle(\.kts)?|pom\.xml|gradle\.properties|libs\.versions\.toml|go\.(mod|sum|work)|requirements[^/]*\.txt)$'
 dependency_paths=$(grep -cE "$manifest" "$floors")
 if [ "$dependency_paths" -gt 0 ] && [ "$dependency_paths" -lt "$file_count" ]; then
   echo "mixed: dependency change shares the chunk with other paths ($((file_count - dependency_paths))); a version bump goes in its own chunk"

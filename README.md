@@ -113,7 +113,7 @@ goes to the next model up.
 | --- | --- |
 | `chunked-delivery` | The run, in one file in run order: preflight, the loop, the model for each role, what each risk class gets, the reports. One reference file for each phase and for each thing only some runs need. |
 | `review-routing` | Maps changed files to rubrics; merges findings into one list. |
-| `react-review`, `angular-review`, `nestjs-service-review`, `prisma-schema-review`, `spring-service-review`, `jpa-schema-review`, `api-contract-review`, `test-review`, `observability-review`, `security-review` | Review rubrics, one kind of file each: a checklist, a list of things not to report, a scan script and an inventory script. |
+| `react-review`, `angular-review`, `nestjs-service-review`, `prisma-schema-review`, `spring-service-review`, `jpa-schema-review`, `go-service-review`, `htmx-review`, `api-contract-review`, `test-review`, `observability-review`, `security-review` | Review rubrics, one kind of file each: a checklist, a list of things not to report, a scan script and an inventory script. |
 | `react-screen-authoring` | Read before a new screen is written. |
 | `comment-cleanup` | Removes comments a reader does not need. |
 | `reuse-guardrails` | Audits whether the project stops agents rewriting what already exists. |

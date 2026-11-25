@@ -253,19 +253,63 @@ function draftJvm(base, tracked) {
   return { workspaces, stack };
 }
 
-// One directory that holds a package.json and a Gradle or Maven build: a step both sides have runs both commands.
-function mergeSteps(js, jvm) {
-  const merged = { ...js };
-  for (const [name, step] of Object.entries(jvm)) {
-    const other = js[name];
+// The workspaces and stack of the Go modules: one workspace per go.mod.
+function draftGo(base, tracked) {
+  const modules = tracked('go.mod', '*/go.mod')
+    .split('\n')
+    .filter(path => path && !/(^|\/)(vendor|node_modules|testdata)\//.test(path))
+    .sort();
+  const has = (dir, pattern) => {
+    try {
+      return readdirSync(join(base, dir)).some(name => pattern.test(name));
+    } catch {
+      return false;
+    }
+  };
+  const lintConfig = /^\.golangci\.(ya?ml|toml|json)$/;
+  const sources = '\\.go$';
+  const anythingBuilt = '\\.(go|mod|sum|sql|html|gohtml|tmpl|templ)$';
+
+  const workspaces = {};
+  let moduleText = '';
+  for (const path of modules) {
+    const dir = normalizeDir(dirname(path));
+    try {
+      moduleText += readFileSync(join(base, path), 'utf8');
+    } catch {
+      // an unreadable go.mod still gets the default steps
+    }
+    const linted = has(dir, lintConfig) || has('.', lintConfig);
+    workspaces[dir] = {
+      typecheck: { run: 'go build ./...', files: sources },
+      lint: { run: linted ? 'golangci-lint run ./...' : 'go vet ./...', files: sources },
+      format: { run: 'test -z "$(gofmt -l .)"', files: sources },
+      test: { run: 'go test ./...', files: anythingBuilt },
+    };
+  }
+
+  const stack = [];
+  if (modules.length) stack.push('go');
+  if (/github\.com\/a-h\/templ/.test(moduleText)) stack.push('templ');
+  const templates = ['*.html', '*.gohtml', '*.tmpl', '*.templ'];
+  if (git('grep', '--untracked', '-lE', 'hx-(get|post|put|patch|delete|boost)=', '--', ...templates)) stack.push('htmx');
+  return { workspaces, stack };
+}
+
+// One directory that holds two builds (a package.json beside a Gradle, Maven or Go one): a step both
+// sides have runs both commands, the second under `<step>-<suffix>`.
+function mergeSteps(first, second, suffix) {
+  const merged = { ...first };
+  for (const [name, step] of Object.entries(second)) {
+    const other = first[name];
     if (other === undefined || isOff(other)) merged[name] = step;
-    else if (!isOff(step)) merged[`${name}-jvm`] = step;
+    else if (!isOff(step)) merged[`${name}-${suffix}`] = step;
   }
   return merged;
 }
 
-// A first draft of the config, guessed from the lockfile, the package.json files, the Gradle and Maven
-// builds, and the config files beside them.
+// A first draft of the config, guessed from the lockfile, the package.json files, the Gradle, Maven and
+// Go builds, and the config files beside them.
 function draft() {
   const base = root();
   const readJson = path => {
@@ -335,7 +379,11 @@ function draft() {
   }
   const jvm = draftJvm(base, tracked);
   for (const [dir, steps] of Object.entries(jvm.workspaces)) {
-    workspaces[dir] = mergeSteps(workspaces[dir] || {}, steps);
+    workspaces[dir] = mergeSteps(workspaces[dir] || {}, steps, 'jvm');
+  }
+  const go = draftGo(base, tracked);
+  for (const [dir, steps] of Object.entries(go.workspaces)) {
+    workspaces[dir] = mergeSteps(workspaces[dir] || {}, steps, 'go');
   }
   workspaces['.'] ||= {};
 
@@ -347,8 +395,11 @@ function draft() {
     next: 'next',
     react: 'react',
     prisma: '@prisma/client',
+    htmx: 'htmx.org',
   };
-  const stack = [...Object.keys(stackMarkers).filter(name => allDependencies[stackMarkers[name]]), ...jvm.stack];
+  const stack = [
+    ...new Set([...Object.keys(stackMarkers).filter(name => allDependencies[stackMarkers[name]]), ...jvm.stack, ...go.stack]),
+  ];
   return { stack, writing: DEFAULTS.writing, workspaces };
 }
 

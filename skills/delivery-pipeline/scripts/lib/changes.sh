@@ -164,7 +164,7 @@ added_lines() {
   '
 }
 
-test_path_ere='[.-](spec|test)\.|(^|/)(__tests__|__mocks__|__fixtures__|__snapshots__|fixtures|testFixtures|tests?|e2e|cypress|playwright)/|(^|/)src/test/|(Tests?|IT)\.(java|kt)$'
+test_path_ere='[.-](spec|test)\.|(^|/)(__tests__|__mocks__|__fixtures__|__snapshots__|fixtures|testFixtures|tests?|e2e|cypress|playwright)/|(^|/)src/test/|(Tests?|IT)\.(java|kt)$|_test\.go$'
 
 is_test_path() {
   [[ $1 =~ $test_path_ere ]]
